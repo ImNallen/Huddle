@@ -24,8 +24,10 @@ SMTP_SERVER_NAME=Huddle
 Send a test and open `http://127.0.0.1:8025` to inspect both message alternatives:
 
 ```sh
-pnpm email:test recipient@example.com
+pnpm --silent email:test recipient@example.com
 ```
+
+Use `--silent` to suppress pnpm wrapper logs, which include the recipient argument. `pnpm email:test` also works, but prints those wrapper logs.
 
 The command prints `SMTP relay accepted the requested recipient. Inbox delivery is not confirmed.` on success. It exits nonzero on disabled email, invalid input, rejection, unavailable relay, or an unconfirmed timeout. Diagnostics omit recipients, authentication codes, credentials, and SMTP response text.
 
@@ -57,7 +59,7 @@ For implicit TLS, use `SMTP_SECURITY=tls` and your provider's TLS port, commonly
 
 Credentials must both be set or both be absent. The sender uses one mailbox for `SMTP_FROM`; display names belong in `SMTP_SERVER_NAME`. Protect `.env` as you protect your database password. Restart the server after changing configuration.
 
-Run `pnpm email:test recipient@example.com` with a mailbox you control. Configure your provider's sender verification, sending limits, and DNS records separately. Provider reputation, spam filtering, bounces, and delivery to real inboxes require provider-specific verification.
+Run `pnpm --silent email:test recipient@example.com` with a mailbox you control. Configure your provider's sender verification, sending limits, and DNS records separately. Provider reputation, spam filtering, bounces, and delivery to real inboxes require provider-specific verification.
 
 ## Verify email changes
 

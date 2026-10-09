@@ -142,6 +142,21 @@ try {
   const sent = await cli(localEnv)
   assert.equal(sent.code, 0, 'Real Mailpit CLI must succeed')
   assert.ok(sent.output.includes('SMTP relay accepted the requested recipient'))
+  const rootCommand = await run('pnpm', ['--silent', 'email:test', recipient], {
+    cwd: '../..',
+    env: localEnv,
+    timeout: SMTP_TIMEOUTS.operation + 10_000,
+  })
+  assert.ok(!rootCommand.stdout.includes(recipient), 'Root command stdout must omit the recipient')
+  assert.ok(!rootCommand.stderr.includes(recipient), 'Root command stderr must omit the recipient')
+  assert.equal(
+    rootCommand.stdout.trim(),
+    'SMTP relay accepted the requested recipient. Inbox delivery is not confirmed.',
+  )
+  assert.ok(
+    !rootCommand.stderr.includes('fixture-sensitive'),
+    'Root command stderr must omit SMTP response secrets',
+  )
   const callback = createAuthEmailCallback(
     createEmailSender(parseEmailConfig(localEnv), 'https://huddle.test'),
   )
@@ -154,7 +169,7 @@ try {
   assert.ok(failed?.status === 'rejected' && failed.reason instanceof EmailError)
   assert.equal(failed.reason.kind, 'rate-limit')
   const messages = await captured()
-  assert.equal(messages.length, 2, 'Only CLI and one concurrent callback may deliver')
+  assert.equal(messages.length, 3, 'Both CLI commands and one concurrent callback may deliver')
   const login = messages.find((message) => message.Subject.endsWith('authentication code'))
   assert.ok(login)
   assert.ok(login.Text.includes('fixture-sensitive-code<&>'))

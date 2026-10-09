@@ -12,7 +12,7 @@ try {
   )
 } catch (error) {
   if (process.argv.length !== 3)
-    process.stderr.write('Usage: pnpm email:test recipient@example.com\n')
+    process.stderr.write('Usage: pnpm --silent email:test recipient@example.com\n')
   else process.stderr.write(`${emailDiagnostic(error)}\n`)
   process.exitCode = 1
 }

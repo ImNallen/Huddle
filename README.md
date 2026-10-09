@@ -61,7 +61,7 @@ The server starts HTTP and WebSocket listeners in one Node service. Configure `P
 
 ## Configure email delivery
 
-SMTP is optional. Existing email and password login works without it. See [send an installation test](docs/email.md) to capture development mail in Mailpit or configure a production relay. Run `pnpm email:test recipient@example.com` to verify relay acceptance before onboarding users.
+SMTP is optional. Existing email and password login works without it. See [send an installation test](docs/email.md) to capture development mail in Mailpit or configure a production relay. Run `pnpm --silent email:test recipient@example.com` to verify relay acceptance before onboarding users.
 
 Email-code login is not enabled. The prepared sender requires a future TOTP gate across HTTP, WebSockets, and desktop authorization before public activation.
 
