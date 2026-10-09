@@ -1,0 +1,12 @@
+.git
+.audit
+.env
+node_modules
+**/node_modules
+**/dist
+**/target
+**/.tanstack
+apps/desktop/src
+apps/desktop/src-tauri
+test-results
+playwright-report

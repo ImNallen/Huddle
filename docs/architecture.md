@@ -8,13 +8,17 @@ Build a desktop client and self-hosted server that let a team sign in, create a 
 
 Start PostgreSQL, apply migrations, and start the server and desktop frontend. Connect the desktop to the company server URL. Create an account, create a private workspace, and create a channel. An owner generates an invitation code that a signed-in colleague can redeem. Signing up or using company OIDC never automatically grants access to an existing workspace.
 
-The desktop sends explicit HTTP requests for application operations. It opens an authenticated WebSocket to watch workspace events. It never imports Start server functions.
+The desktop sends explicit HTTP requests for application operations. It opens an authenticated WebSocket to watch workspace events. An authenticated HTTP POST to `/api/watch-ticket` returns a one-use, 30-second opaque ticket. The database stores only the ticket hash and its Better Auth session ID. The initial watch frame carries this ticket, which the realtime listener consumes atomically. Native bearer tokens are also accepted in a watch frame. No credential appears in a WebSocket URL. It never imports Start server functions.
 
 ```ts
 const workspace = await client.createWorkspace({ name: 'Studio' })
 const channel = await client.createChannel({ workspaceId: workspace.id, name: 'general' })
 await client.watchWorkspace({ workspaceId: workspace.id, after: snapshot.cursor })
-await client.sendMessage({ channelId: channel.id, retryId: crypto.randomUUID(), body: 'Hello team' })
+await client.sendMessage({
+  channelId: channel.id,
+  retryId: crypto.randomUUID(),
+  body: 'Hello team',
+})
 ```
 
 These are caller-facing responsibilities. Implementation may use an HTTP client plus a dedicated watch connection instead of a single class.
@@ -34,7 +38,7 @@ Each workspace write locks the workspace row, checks membership, applies its mut
 
 The unique message key is the author and retry UUID. An identical retry returns the stored message. Reusing that key with another channel or body returns a conflict. Account or server switches never replay another account's pending messages.
 
-Pending messages use a discriminated state such as queued, sending, or failed. Confirmed messages have one source of truth. A send response may confirm a pending message but cannot advance the workspace replay cursor.
+Pending messages use a discriminated sending or failed state. Before the first HTTP send, the client persists the body and retry UUID in local storage under the canonical server origin, account ID, and workspace ID. Interrupted sends restore as failed and require an explicit retry with the same UUID. Session tokens never enter this storage. Confirmed messages have one source of truth. A send response may confirm a pending message but cannot advance the workspace replay cursor.
 
 ## Module ownership
 
@@ -64,7 +68,7 @@ HTTP is the sole write and query API. The socket accepts only authentication and
 
 The initial workspace snapshot returns channels and an exact event cursor from one consistent database snapshot. Channel history supports ordered pagination. The client then watches events after the snapshot cursor. Every public change is replayable from PostgreSQL, including a channel created while a client was disconnected.
 
-The server sends committed event pages in cursor order. Post-commit wakeups reduce latency. A periodic database check recovers a missed wakeup even when a socket stays connected. Each batch revalidates the session and workspace access. Slow clients disconnect with a retryable reason. The client advances its replay cursor only after applying a complete page and merges history and live messages by stable IDs.
+The server sends committed event pages in cursor order. PostgreSQL NOTIFY delivers post-commit wakeups to the companion listener. A periodic database check recovers a missed wakeup even when a socket stays connected. Each batch revalidates the session and workspace access. Slow clients disconnect with a retryable reason. The client advances its replay cursor only after applying a complete page and merges history and live messages by stable IDs.
 
 Reconnection starts a new authorized watch from the applied cursor. A server crash between commit and broadcast cannot lose data. Initial implementation need not persist a cursor across desktop launches. A fresh snapshot avoids advancing beyond locally retained state.
 
@@ -92,4 +96,4 @@ Typecheck and build both JavaScript applications. Compile and launch Tauri on ma
 
 ## Implementation reconciliation
 
-No implementation yet. Keep accepted interface and behavior changes in this section and update their corresponding contracts above before the next unit starts.
+The Start production fetch handler runs in a Node HTTP service with a companion WebSocket listener on a separately configured port. PostgreSQL NOTIFY crosses the framework bundle boundary; a one-second poll remains the recovery mechanism. Watch tickets bridge browser cookie host scoping and native authentication without exposing browser session tokens. PostgreSQL migrations own ticket persistence. The server serves only operator and device login pages. The browser preview uses the Vite same-origin API proxy. The native client selects its server at runtime and stores credentials through Rust keyring commands.
