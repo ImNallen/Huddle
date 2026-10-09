@@ -1,0 +1,34 @@
+{
+  "name": "@huddle/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../../.env --import tsx runtime/dev.ts",
+    "build": "vite build",
+    "start": "node --env-file=../../.env --import tsx runtime/production.ts",
+    "typecheck": "tsc",
+    "db:migrate": "node --env-file=../../.env --import tsx scripts/migrate.ts",
+    "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts"
+  },
+  "dependencies": {
+    "@huddle/contracts": "workspace:*",
+    "@tanstack/react-start": "1.168.60",
+    "@tanstack/react-router": "1.170.41",
+    "@hono/node-server": "2.1.4",
+    "better-auth": "1.7.7",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "ws": "8.18.3",
+    "zod": "4.6.5",
+    "tsx": "4.20.6"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.6",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/ws": "8.18.1",
+    "@vitejs/plugin-react": "6.1.2",
+    "vite": "8.3.4"
+  }
+}

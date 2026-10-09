@@ -1,0 +1,28 @@
+{
+  "name": "@huddle/desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "vite build",
+    "typecheck": "tsc",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@huddle/contracts": "workspace:*",
+    "@tanstack/react-router": "1.170.41",
+    "@tauri-apps/api": "2.12.2",
+    "@tauri-apps/plugin-opener": "2.5.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5",
+    "lucide-react": "0.468.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "6.1.2",
+    "vite": "8.3.4"
+  }
+}

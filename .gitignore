@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.output/
+.tanstack/
+target/
+.env
+.audit/
+*.log
+.DS_Store
+.env.*
+!.env.example
+test-results/
+playwright-report/
+apps/desktop/src-tauri/gen/

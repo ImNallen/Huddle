@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: huddle
+      POSTGRES_USER: huddle
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run pnpm setup:local first}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U huddle -d huddle']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  server:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://huddle:${POSTGRES_PASSWORD}@db:5432/huddle
+      NODE_ENV: production
+      PORT: 3000
+      WS_PORT: 3001
+    ports:
+      - '127.0.0.1:3000:3000'
+      - '127.0.0.1:3001:3001'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          'fetch("http://localhost:3000/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  postgres-data:
