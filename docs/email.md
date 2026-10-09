@@ -59,4 +59,14 @@ Credentials must both be set or both be absent. The sender uses one mailbox for 
 
 Run `pnpm email:test recipient@example.com` with a mailbox you control. Configure your provider's sender verification, sending limits, and DNS records separately. Provider reputation, spam filtering, bounces, and delivery to real inboxes require provider-specific verification.
 
+## Verify email changes
+
+Use a disposable Mailpit instance. The suite reads captured messages but does not clear the inbox. Set its SMTP and API ports to match your instance:
+
+```sh
+TEST_SMTP_HOST=127.0.0.1 TEST_SMTP_PORT=1025 TEST_MAILPIT_URL=http://127.0.0.1:8025 pnpm test:email
+```
+
+The suite uses actual SMTP sockets, generates temporary certificates with `openssl`, verifies trusted and untrusted STARTTLS and implicit TLS, and cleans its listeners and temporary files. It checks both message alternatives, recipient cooldown, rejection, connection failure, dropped connections, greeting and whole-operation timeouts, safe CLI diagnostics, setup preservation, and the absence of an email-code sign-in route. The route check uses your configured disposable database. Run migrations first and run `pnpm test:integration` for the existing auth and device regression.
+
 See [email configuration and limits](email-config.md) for the configuration fields, deadlines, and callback policy.

@@ -9,7 +9,8 @@
     "typecheck": "tsc",
     "db:migrate": "node --env-file=../../.env --import tsx scripts/migrate.ts",
     "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts",
-    "email:test": "node --env-file=../../.env --import tsx scripts/email-test.ts"
+    "email:test": "node --env-file=../../.env --import tsx scripts/email-test.ts",
+    "test:email": "node --env-file=../../.env --import tsx scripts/email-integration.ts"
   },
   "dependencies": {
     "@huddle/contracts": "workspace:*",
