@@ -40,7 +40,10 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
     const url = new URL(request.url)
     const path = url.pathname
     if (request.method === 'POST')
-      request = new Request(request, {
+      request = new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        signal: request.signal,
         body: await boundedBody(
           request,
           path === '/api/account/photo' ? 5 * 1024 * 1024 + 8192 : 65536,
