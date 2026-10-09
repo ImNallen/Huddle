@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Huddle window and system browser access",
+  "windows": ["main"],
+  "permissions": ["core:default", "opener:allow-open-url"]
+}
