@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.output/
+.tanstack/
+target/
+.env
+.env.local
+.audit/
+*.log
+.DS_Store
