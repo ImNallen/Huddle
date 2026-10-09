@@ -6,7 +6,7 @@ The desktop uses Tauri 2, React, and TanStack Router. TanStack Start serves the 
 
 ## Run locally
 
-Install Node.js 24 LTS, pnpm 11.23.0, and Docker. Native development also needs [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/), including Rust. The JavaScript applications also run on Node.js 26.
+Install Node.js 24 LTS, pnpm 11.23.0, and Docker. Native development also needs Rust 1.90 or newer and [Tauri's platform prerequisites](https://v2.tauri.app/start/prerequisites/). The JavaScript applications also run on Node.js 26.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -85,6 +85,11 @@ pnpm test:integration
 pnpm exec playwright install chromium
 pnpm test:ui
 cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+```
+
+On macOS, also build the application bundle:
+
+```sh
 pnpm --filter @huddle/desktop tauri build --bundles app
 ```
 
@@ -92,6 +97,8 @@ The integration suite launches the production server on ports 3100 and 3101, sto
 
 The integration suite covers anonymous rejection, isolated workspaces, invitations, retry deduplication and conflicts, two-client delivery, ordered replay, snapshot overlap, session revocation, origin restrictions, and device approval. The UI suite signs up two accounts, joins a workspace, exchanges messages, reconnects, retries a stored outgoing message after reload, and signs out. A second browser test verifies the device approval page. Traces and screenshots go to ignored `test-results/`. To use an installed Chrome instead of the downloaded Chromium, run `PLAYWRIGHT_CHANNEL=chrome pnpm test:ui`.
 
-macOS compilation and bundling are verified. Windows and Linux require their own native verification. Voice, video, file uploads, message editing, and mobile clients are outside this first slice. LiveKit is planned for media.
+If Google Chrome is already installed, use `PLAYWRIGHT_CHANNEL=chrome pnpm test:ui` instead of downloading Chromium. The CI workflow uses Chrome on the Ubuntu runner and defines native compile checks for macOS, Windows, and Linux.
+
+The Docker server build and runtime are verified on Node.js 24. Native macOS checks cover launch, signup, invitation redemption, live chat, browser device approval, credential restoration, and logout after restart. Windows and Linux still need native runtime verification. Real company OIDC needs provider credentials. Voice, video, file uploads, message editing, and mobile clients are outside this first slice. LiveKit is planned for media.
 
 See [the architecture](docs/architecture.md) for authorization, event ordering, pending-message storage, and reconnect behavior.
