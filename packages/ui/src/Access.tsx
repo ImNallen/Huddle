@@ -9,7 +9,7 @@ import {
   type Profile,
   type ServerInfo,
 } from '@huddle/contracts'
-import { Frame, Heading, Alert, Primary, CodeField, Steps } from './primitives'
+import { Frame, Heading, Alert, Primary, CodeField, Steps, serverInitials } from './primitives'
 import { ProfileEditor, Avatar } from './Avatar'
 import { RequestError } from './connection'
 import { errorText, type Transport } from './transport'
@@ -84,7 +84,12 @@ export function Access({
     stage.kind === 'totp' || stage.kind === 'recovery' || stage.kind === 'ready'
       ? stage.user.email
       : undefined
-  const frame = { server: { name: info.name, origin: client.origin }, account, onServer, onSignOut }
+  const frame = {
+    server: { name: info.name, origin: client.origin },
+    account,
+    onServer,
+    onSignOut: stage.kind === 'signin' || stage.kind === 'email' ? undefined : onSignOut,
+  }
   if (resetForm)
     return (
       <Frame {...frame}>
@@ -130,7 +135,7 @@ export function Access({
       return (
         <Frame {...frame}>
           <div className="access-card access-row access-signin-server">
-            <i className="access-server-tile">{info.name.slice(0, 1).toUpperCase()}</i>
+            <i className="access-server-tile">{serverInitials(info.name)}</i>
             <div style={{ flex: 1 }}>
               {info.name}
               <p>

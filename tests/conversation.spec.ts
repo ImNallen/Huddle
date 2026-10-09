@@ -110,15 +110,23 @@ test('the browser claims a device code and requires explicit approval', async ({
     'Device browser owner',
     `${serverURL}/login?redirect=${encodeURIComponent(redirect)}`,
   )
-  await expect(page.getByLabel('Device code')).toHaveValue(code.user_code)
-  await expect(page.getByRole('button', { name: 'Approve this desktop' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Check code' }).click()
   await expect(page.getByText(code.user_code, { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Device code')).toHaveCount(0)
   await expect(page.getByText('Huddle Desktop', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Approve this desktop' })).toBeDisabled()
   await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
   await page.getByRole('button', { name: 'Approve this desktop' }).click()
-  await expect(page.getByRole('heading', { name: 'You are connected' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
+  await expect(page.getByText('Device browser owner', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Review account security' })).toHaveAttribute(
+    'href',
+    '/login?settings=security',
+  )
+  await page.screenshot({ path: '/tmp/devshot/connected.png' })
+  await page.goto(serverURL + '/device')
+  await page.getByLabel('Device code').fill(code.user_code)
+  await page.getByRole('button', { name: 'Check code' }).click()
+  await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
   const response = await fetch(serverURL + '/api/auth/device/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: serverURL },

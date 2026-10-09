@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { z } from 'zod'
-import { Monitor, ShieldCheck } from 'lucide-react'
+import { Check, Monitor, ShieldCheck, X } from 'lucide-react'
 import { Application } from './Application'
+import { Avatar } from './Avatar'
 import { Frame, Heading, Alert, Primary } from './primitives'
 import type { Connection } from './connection'
 import { errorText } from './transport'
-import { ServerInfo } from '@huddle/contracts'
+import { ServerInfo, type PublicUser } from '@huddle/contracts'
 
 const Claim = z.object({
   user_code: z.string(),
@@ -14,6 +15,7 @@ const Claim = z.object({
 })
 type State =
   | { kind: 'entry' }
+  | { kind: 'checking' }
   | { kind: 'claimed'; claim: z.infer<typeof Claim> }
   | { kind: 'done'; approved: boolean }
 export function DeviceApproval({
@@ -23,10 +25,10 @@ export function DeviceApproval({
   client: Connection
   initialCode: string
 }) {
-  const [admitted, setAdmitted] = useState(false)
+  const [user, setUser] = useState<PublicUser | null>(null)
   const [code, setCode] = useState(initialCode)
   const [info, setInfo] = useState<z.infer<typeof ServerInfo> | null>(null)
-  const [state, setState] = useState<State>({ kind: 'entry' })
+  const [state, setState] = useState<State>(initialCode ? { kind: 'checking' } : { kind: 'entry' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [matched, setMatched] = useState(false)
@@ -40,27 +42,40 @@ export function DeviceApproval({
       })
     return () => abort.abort()
   }, [client])
-  const ready = useCallback(() => setAdmitted(true), [])
-  async function check(event: FormEvent<HTMLFormElement>) {
+  const photo = useCallback(
+    (uploadId: string, signal: AbortSignal) => client.photo(uploadId, signal),
+    [client],
+  )
+  const lookup = useCallback(
+    async (userCode: string) => {
+      setBusy(true)
+      setError('')
+      try {
+        const claim = await client.request(
+          `/api/auth/device?user_code=${encodeURIComponent(userCode.trim())}`,
+          Claim,
+        )
+        setState(
+          claim.status === 'pending'
+            ? { kind: 'claimed', claim }
+            : { kind: 'done', approved: claim.status === 'approved' },
+        )
+        setMatched(false)
+      } catch (failure) {
+        setState({ kind: 'entry' })
+        setError(errorText(failure))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [client],
+  )
+  useEffect(() => {
+    if (user && initialCode) void lookup(initialCode)
+  }, [user, initialCode, lookup])
+  function check(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setBusy(true)
-    setError('')
-    try {
-      const claim = await client.request(
-        `/api/auth/device?user_code=${encodeURIComponent(code.trim())}`,
-        Claim,
-      )
-      setState(
-        claim.status === 'pending'
-          ? { kind: 'claimed', claim }
-          : { kind: 'done', approved: claim.status === 'approved' },
-      )
-      setMatched(false)
-    } catch (failure) {
-      setError(errorText(failure))
-    } finally {
-      setBusy(false)
-    }
+    void lookup(code)
   }
   async function decide(decision: 'approve' | 'deny') {
     if (state.kind !== 'claimed' || (decision === 'approve' && !matched)) return
@@ -75,17 +90,19 @@ export function DeviceApproval({
       setBusy(false)
     }
   }
-  if (!admitted)
+  if (!user)
     return (
       <Application
         client={client}
-        onReady={ready}
+        onReady={setUser}
         returnTo={`/device?user_code=${encodeURIComponent(initialCode)}`}
       />
     )
   return (
     <Frame server={info ? { name: info.name, origin: client.origin } : undefined}>
-      {state.kind === 'entry' ? (
+      {state.kind === 'checking' ? (
+        <p role="status">Checking your code…</p>
+      ) : state.kind === 'entry' ? (
         <>
           <Heading
             title="Connect your desktop"
@@ -148,20 +165,41 @@ export function DeviceApproval({
           </button>
         </div>
       ) : (
-        <>
-          <Heading
-            title={state.approved ? 'You are connected' : 'Request denied'}
-            icon={<ShieldCheck size={20} />}
-            description={
-              state.approved
-                ? 'Return to Huddle Desktop. You can close this window.'
-                : 'This desktop cannot use your account.'
-            }
-          />
+        <div className="access-outcome">
+          <div className={`access-outcome-symbol ${state.approved ? '' : 'access-outcome-denied'}`}>
+            {state.approved ? <Check size={22} /> : <X size={22} />}
+          </div>
+          <h1>{state.approved ? 'You’re connected' : 'Request denied'}</h1>
+          <p className="access-description">
+            {state.approved
+              ? `Huddle Desktop is now signed in to ${info?.name ?? 'this server'}. You can close this tab.`
+              : 'This desktop cannot use your account.'}
+          </p>
+          {state.approved && (
+            <div className="access-outcome-account">
+              <Avatar avatar={user.avatar} name={user.name} photo={photo} size={32} />
+              <div>
+                <strong>{user.name}</strong>
+                <span>
+                  {user.email} · {new URL(client.origin).host}
+                </span>
+              </div>
+              <span className="access-outcome-device">
+                <Monitor size={14} />
+                Huddle Desktop
+              </span>
+            </div>
+          )}
           <a className="access-link" href="/login">
-            Open Huddle
+            Use Huddle in this browser instead
           </a>
-        </>
+          <footer>
+            Didn’t sign in just now?{' '}
+            <a className="access-link" href="/login?settings=security">
+              Review account security
+            </a>
+          </footer>
+        </div>
       )}
       <Alert message={error} />
     </Frame>

@@ -1,4 +1,4 @@
-import { Server, ArrowLeft, ArrowRight, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 export function Frame({
@@ -19,23 +19,29 @@ export function Frame({
   return (
     <div className="access-shell">
       <header className="access-header">
-        <a className="access-brand" href="/">
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-            <rect width="24" height="24" rx="6" fill="#f5f5f5" />
-            <circle cx="8" cy="13" r="2" fill="#0a0a0a" />
-            <circle cx="13" cy="9" r="2" fill="#0a0a0a" />
-            <circle cx="16" cy="14" r="2" fill="#0a0a0a" />
-          </svg>
-          <span>Huddle</span>
-        </a>
-        <div className="access-header-right">
+        <nav className="access-crumbs" aria-label="Location">
+          <a className="access-brand" href="/">
+            <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+              <rect width="24" height="24" rx="6" fill="#f5f5f5" />
+              <circle cx="8" cy="13" r="2" fill="#0a0a0a" />
+              <circle cx="13" cy="9" r="2" fill="#0a0a0a" />
+              <circle cx="16" cy="14" r="2" fill="#0a0a0a" />
+            </svg>
+            <span>Huddle</span>
+          </a>
           {server && (
-            <span className="access-host">
-              <Server size={13} />
-              {server.name}
-              <span>{new URL(server.origin).host}</span>
-            </span>
+            <>
+              <span className="access-crumb-slash" aria-hidden="true">
+                /
+              </span>
+              <span className="access-crumb" title={new URL(server.origin).host}>
+                <i className="access-server-tile">{serverInitials(server.name)}</i>
+                {server.name}
+              </span>
+            </>
           )}
+        </nav>
+        <div className="access-header-right">
           {account && <span>{account}</span>}
           {onServer && <button onClick={onServer}>Switch server</button>}
           {onSignOut && <button onClick={onSignOut}>Sign out</button>}
@@ -44,6 +50,15 @@ export function Frame({
       <main className={`access-main ${wide ? 'access-wide' : ''}`}>{children}</main>
     </div>
   )
+}
+export function serverInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter((word) => /^[\p{L}\p{N}]/u.test(word))
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
 }
 export function Heading({
   title,

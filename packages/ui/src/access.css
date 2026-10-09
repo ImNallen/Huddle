@@ -22,7 +22,7 @@
 }
 .access-header {
   height: 64px;
-  padding: 0 6%;
+  padding: 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -51,13 +51,29 @@
   color: #818181;
   padding: 0;
 }
-.access-host {
+.access-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.access-crumb-slash {
+  color: #5c5c5c;
+}
+.access-crumb {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
 }
-.access-host span {
+.access-crumb .access-server-tile {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
   font-family: monospace;
+  font-size: 9px;
+  font-style: normal;
 }
 .access-main {
   width: min(380px, calc(100% - 40px));
@@ -500,9 +516,6 @@
   .access-header-right {
     gap: 10px;
   }
-  .access-host span {
-    display: none;
-  }
   .access-main,
   .access-wide {
     margin-top: 48px;
@@ -648,4 +661,84 @@
 }
 .access-shell input {
   font-weight: 400;
+}
+.access-main:has(.access-outcome) {
+  width: min(440px, calc(100% - 40px));
+}
+.access-outcome {
+  text-align: center;
+  background: #111;
+  border: 1px solid #242424;
+  border-radius: 16px;
+  padding: 36px 28px 26px;
+}
+.access-outcome-symbol {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #10281e;
+  color: #34d399;
+}
+.access-outcome-symbol.access-outcome-denied {
+  background: #2a1414;
+  color: #f58b8b;
+}
+.access-outcome h1 {
+  margin: 0 0 8px;
+}
+.access-outcome .access-description {
+  margin-bottom: 22px;
+}
+.access-outcome-account {
+  --badge-l: 68%;
+  --badge-bg-l: 15%;
+  --badge-bg-s: 45%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: #0a0a0a;
+  border: 1px solid #1d1d1d;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 22px;
+}
+.access-outcome-account > div {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.access-outcome-account strong {
+  font-weight: 500;
+}
+.access-outcome-account > div span {
+  font-size: 12px;
+  color: #818181;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.access-outcome-device {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: #818181;
+  font-size: 12px;
+}
+.access-outcome a {
+  text-decoration: none;
+}
+.access-outcome > .access-link {
+  font-size: 14px;
+}
+.access-outcome footer {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid #242424;
+  color: #818181;
+  font-size: 12px;
 }

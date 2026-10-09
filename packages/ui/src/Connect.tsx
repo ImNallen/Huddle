@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowRight, X } from 'lucide-react'
 import { z } from 'zod'
 import { serverOrigin } from '@huddle/contracts'
-import { Alert, Frame, Heading, Primary } from './primitives'
+import { Alert, Frame, Heading, Primary, serverInitials } from './primitives'
 import { errorText } from './transport'
 
 const SavedServer = z.object({ origin: z.string(), name: z.string() })
@@ -101,7 +101,7 @@ export function Connect({
                 disabled={busy}
                 onClick={() => void choose(server.origin)}
               >
-                <i className="access-server-tile">{server.name.slice(0, 1).toUpperCase()}</i>
+                <i className="access-server-tile">{serverInitials(server.name)}</i>
                 <span>
                   {server.name}
                   <small>{new URL(server.origin).host}</small>

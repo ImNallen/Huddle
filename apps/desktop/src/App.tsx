@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import { DeviceCode, DeviceToken } from '@huddle/contracts'
 import { Application, BrowserWait, Connect, Connection, saveServer } from '@huddle/ui'
-import { Client, RequestError, errorText, openBrowser } from './client'
+import { Client, RequestError, errorText, focusWindow, openBrowser } from './client'
 
 type Device =
   | { kind: 'idle' }
@@ -154,6 +154,7 @@ export function App() {
           deviceCode.current = null
           setDevice({ kind: 'idle' })
           setReload((value) => value + 1)
+          void focusWindow().catch(() => undefined)
         }
       } catch (failure) {
         if (stopped || abort.signal.aborted || !client.active) return
