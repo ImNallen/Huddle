@@ -13,12 +13,16 @@ import {
   DeviceCode,
   DeviceToken,
   EventPage,
+  Home,
   Message,
+  Room,
   Session,
   Snapshot,
+  UserId,
   Workspace,
   type WorkspaceEvent,
 } from '@huddle/contracts'
+import { mentionedUsers } from '../src/lib/domain'
 
 const port = Number(process.env.TEST_PORT ?? 3100)
 const socketPort = port + 1
@@ -207,6 +211,24 @@ function pass(message: string) {
   process.stdout.write(`PASS ${message}\n`)
 }
 try {
+  const person = (id: string) => UserId.parse(id)
+  const people = [
+    { id: person('ana'), name: 'Ana Lind' },
+    { id: person('bo'), name: 'Bo (QA) Berg' },
+    { id: person('cy'), name: 'Annabel' },
+    { id: person('dy'), name: 'Åsa Ek' },
+    { id: person('jr'), name: 'J.R. Smith' },
+  ]
+  const mentions = (body: string, author: string) => mentionedUsers(body, people, person(author))
+  assert.deepEqual(mentions('@ana can you look', 'bo'), ['ana'])
+  assert.deepEqual(mentions('hi @ANA LIND!', 'bo'), ['ana'])
+  assert.deepEqual(mentions('@anab and @annabelle', 'bo'), [])
+  assert.deepEqual(mentions('mail ana@lind.test', 'bo'), [])
+  assert.deepEqual(mentions('ping @bo (qa) berg', 'ana'), ['bo'])
+  assert.deepEqual(mentions('(@Ana) and @annabel', 'ana'), ['cy'])
+  assert.deepEqual(mentions('@åsa, @jxr', 'ana'), ['dy'])
+  assert.deepEqual(mentions('@Åsab @j.r.', 'ana'), ['jr'])
+  pass('mentions match a full or first name after @, escape names, and never include the author')
   await start()
   assert.equal((await request('/api/workspaces')).response.status, 401)
   assert.equal(
@@ -231,8 +253,12 @@ try {
       .status,
     403,
   )
-  const channel = await call('/api/channels', Channel, owner.token, {
+  const studio = await call('/api/rooms', Room, owner.token, {
     workspaceId: workspace.id,
+    name: 'Studio',
+  })
+  const channel = await call('/api/channels', Channel, owner.token, {
+    roomId: studio.id,
     name: 'general',
   })
   assert.equal(
@@ -262,7 +288,7 @@ try {
     (
       await request('/api/channels', {
         token: member.token,
-        body: { workspaceId: workspace.id, name: 'forbidden' },
+        body: { roomId: studio.id, name: 'forbidden' },
       })
     ).response.status,
     403,
@@ -314,7 +340,7 @@ try {
     409,
   )
   const anotherChannel = await call('/api/channels', Channel, owner.token, {
-    workspaceId: workspace.id,
+    roomId: studio.id,
     name: 'design',
   })
   assert.equal(
@@ -394,7 +420,7 @@ try {
     body: 'Sent while a client was disconnected.',
   })
   const offlineChannel = await call('/api/channels', Channel, owner.token, {
-    workspaceId: workspace.id,
+    roomId: studio.id,
     name: 'replay',
   })
   const reconnected = watch(member.token, workspace.id, cursor)
@@ -495,6 +521,199 @@ try {
     200,
   )
   pass('malformed frames, invalid sessions, unauthorized watches, and untrusted origins reject')
+  const snapshotOf = (token: string) =>
+    call(`/api/snapshot?workspaceId=${workspace.id}`, Snapshot, token)
+  const homeOf = (token: string) => call(`/api/home?workspaceId=${workspace.id}`, Home, token)
+  const beforeRooms = await snapshotOf(owner.token)
+  assert.deepEqual(beforeRooms.rooms, [studio])
+  assert.equal(
+    (
+      await request('/api/rooms', {
+        token: member.token,
+        body: { workspaceId: workspace.id, name: 'Lounge' },
+      })
+    ).response.status,
+    403,
+  )
+  const lounge = await call('/api/rooms', Room, owner.token, {
+    workspaceId: workspace.id,
+    name: ' Lounge ',
+  })
+  assert.deepEqual(lounge, { id: lounge.id, workspaceId: workspace.id, name: 'Lounge' })
+  assert.equal(
+    (
+      await request('/api/rooms', {
+        token: owner.token,
+        body: { workspaceId: workspace.id, name: 'LOUNGE' },
+      })
+    ).response.status,
+    409,
+  )
+  assert.equal(
+    (
+      await request('/api/rooms', {
+        token: owner.token,
+        body: { workspaceId: other.id, name: 'Intrusion' },
+      })
+    ).response.status,
+    403,
+  )
+  const lobby = await call('/api/channels', Channel, owner.token, {
+    roomId: lounge.id,
+    name: 'general',
+  })
+  assert.deepEqual(lobby, {
+    id: lobby.id,
+    workspaceId: workspace.id,
+    roomId: lounge.id,
+    name: 'general',
+  })
+  assert.notEqual(lobby.id, channel.id)
+  assert.equal(
+    (
+      await request('/api/channels', {
+        token: owner.token,
+        body: { roomId: lounge.id, name: 'General' },
+      })
+    ).response.status,
+    409,
+  )
+  assert.equal(
+    (
+      await request('/api/channels', {
+        token: owner.token,
+        body: { roomId: randomUUID(), name: 'nowhere' },
+      })
+    ).response.status,
+    404,
+  )
+  const afterRooms = await snapshotOf(owner.token)
+  assert.deepEqual(afterRooms.rooms, [lounge, studio])
+  assert.deepEqual(
+    afterRooms.channels
+      .filter((item) => item.name === 'general')
+      .map((item) => item.roomId)
+      .sort(),
+    [lounge.id, studio.id].sort(),
+  )
+  await eventually(
+    () =>
+      first.events.some((event) => event.kind === 'room.created' && event.room.id === lounge.id),
+    'room.created is delivered to a live watch',
+  )
+  const roomReplay = watch(member.token, workspace.id, beforeRooms.cursor)
+  await eventually(() => roomReplay.events.length >= 2, 'Room events replay')
+  assert.deepEqual(roomReplay.events.slice(0, 2), [
+    { kind: 'room.created', cursor: String(BigInt(beforeRooms.cursor) + 1n), room: lounge },
+    { kind: 'channel.created', cursor: String(BigInt(beforeRooms.cursor) + 2n), channel: lobby },
+  ])
+  pass('owners create rooms with unique names; channel names are unique per room; rooms replay')
+
+  const sent: Message[] = []
+  for (const body of ['First unread', 'Second unread', '@integration OWNER, can you look?'])
+    sent.push(
+      await call('/api/messages', Message, member.token, {
+        channelId: lobby.id,
+        retryId: randomUUID(),
+        body,
+      }),
+    )
+  const [firstUnread, , mention] = sent
+  assert(firstUnread && mention)
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [{ channelId: lobby.id, count: 3 }])
+  assert.equal(
+    (await snapshotOf(member.token)).unread.some((item) => item.channelId === lobby.id),
+    false,
+  )
+  assert.deepEqual(await homeOf(owner.token), {
+    items: [
+      { kind: 'mention', message: mention },
+      { kind: 'channel', channelId: lobby.id, count: 3, latest: mention },
+    ],
+  })
+  const memberHome = await homeOf(member.token)
+  assert.deepEqual(
+    memberHome.items.filter((item) => item.kind === 'mention'),
+    [],
+  )
+  assert.equal(
+    memberHome.items.some((item) => item.kind === 'channel' && item.channelId === lobby.id),
+    false,
+  )
+  pass('unread counts skip your own messages and an @Name mention reaches only that home')
+
+  const markRead = (token: string, body: unknown) => request('/api/read', { token, body })
+  const cleared = await markRead(owner.token, {
+    kind: 'channel',
+    channelId: lobby.id,
+    cursor: mention.cursor,
+  })
+  assert.equal(cleared.response.status, 200)
+  assert.deepEqual(cleared.data, {})
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [])
+  assert.deepEqual(await homeOf(owner.token), { items: [] })
+  assert.equal(
+    (
+      await markRead(owner.token, {
+        kind: 'channel',
+        channelId: lobby.id,
+        cursor: firstUnread.cursor,
+      })
+    ).response.status,
+    200,
+  )
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [])
+  assert.deepEqual(await homeOf(owner.token), { items: [] })
+  for (const cursor of ['9000000000000000000', '9999999999999999999'])
+    assert.equal(
+      (await markRead(owner.token, { kind: 'channel', channelId: lobby.id, cursor })).response
+        .status,
+      200,
+    )
+  const late = await call('/api/messages', Message, member.token, {
+    channelId: lobby.id,
+    retryId: randomUUID(),
+    body: 'Fourth unread',
+  })
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [{ channelId: lobby.id, count: 1 }])
+  assert.deepEqual(await homeOf(owner.token), {
+    items: [{ kind: 'channel', channelId: lobby.id, count: 1, latest: late }],
+  })
+  const memberBefore = await snapshotOf(member.token)
+  assert.deepEqual(memberBefore.unread, [{ channelId: channel.id, count: 16 }])
+  const all = await markRead(member.token, {
+    kind: 'workspace',
+    workspaceId: workspace.id,
+    cursor: memberBefore.cursor,
+  })
+  assert.equal(all.response.status, 200)
+  assert.deepEqual((await snapshotOf(member.token)).unread, [])
+  assert.deepEqual(await homeOf(member.token), { items: [] })
+  pass('read markers clear unread and home, never regress, and stop at the workspace cursor')
+
+  const otherRoom = await call('/api/rooms', Room, member.token, {
+    workspaceId: other.id,
+    name: 'Private',
+  })
+  const otherChannel = await call('/api/channels', Channel, member.token, {
+    roomId: otherRoom.id,
+    name: 'secret',
+  })
+  for (const body of [
+    { kind: 'workspace', workspaceId: other.id, cursor: '1' },
+    { kind: 'channel', channelId: otherChannel.id, cursor: '1' },
+  ])
+    assert.equal((await markRead(owner.token, body)).response.status, 403)
+  assert.equal(
+    (await markRead(owner.token, { kind: 'channel', channelId: randomUUID(), cursor: '1' }))
+      .response.status,
+    404,
+  )
+  assert.equal(
+    (await request(`/api/home?workspaceId=${other.id}`, { token: owner.token })).response.status,
+    403,
+  )
+  pass('read markers and home are scoped to workspace members')
   const device = await call('/api/auth/device/code', DeviceCode, undefined, {
     client_id: 'huddle-desktop',
   })

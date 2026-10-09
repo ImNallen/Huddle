@@ -4,14 +4,19 @@ import { z } from 'zod'
 import {
   Avatar,
   Channel,
+  Home,
   Message,
+  Room,
+  Unread,
+  UserId,
   Workspace,
   WorkspaceEvent,
   type ChannelId,
-  type UserId,
   type WorkspaceId,
   type SendMessage,
   type CreateChannel,
+  type CreateRoom,
+  type MarkRead,
 } from '@huddle/contracts'
 import { db } from './db'
 
@@ -23,9 +28,12 @@ export class DomainError extends Error {
     super(message)
   }
 }
-const channelColumns = 'id, workspace_id AS "workspaceId", name'
+const roomColumns = 'id, workspace_id AS "workspaceId", name'
+const channelColumns = 'id, workspace_id AS "workspaceId", room_id AS "roomId", name'
 const messageColumns =
-  'id, channel_id AS "channelId", author_id AS "authorId", author_name AS "authorName", author_avatar AS "authorAvatar", retry_id AS "retryId", body, cursor::text, to_char(created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
+  'm.id, m.channel_id AS "channelId", m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
+const unreadMessages =
+  'message m JOIN channel c ON c.id = m.channel_id LEFT JOIN channel_read r ON r.channel_id = c.id AND r.user_id = $2 WHERE c.workspace_id = $1 AND m.cursor > coalesce(r.cursor, 0)'
 
 async function transaction<T>(
   operation: (sql: PoolClient) => Promise<T>,
@@ -112,47 +120,75 @@ export async function createWorkspace(userId: UserId, name: string) {
 export async function snapshot(userId: UserId, workspaceId: WorkspaceId) {
   return transaction(async (sql) => {
     const workspace = await requireMember(sql, userId, workspaceId)
-    const rows = await sql.query<Record<string, unknown>>(
-      `SELECT ${channelColumns} FROM channel WHERE workspace_id = $1 ORDER BY name`,
+    const rooms = await sql.query<Record<string, unknown>>(
+      `SELECT ${roomColumns} FROM room WHERE workspace_id = $1 ORDER BY lower(name), id`,
       [workspaceId],
+    )
+    const channels = await sql.query<Record<string, unknown>>(
+      `SELECT ${channelColumns} FROM channel WHERE workspace_id = $1 ORDER BY name, id`,
+      [workspaceId],
+    )
+    const unread = await sql.query<Record<string, unknown>>(
+      `SELECT m.channel_id AS "channelId", count(*)::integer AS count FROM ${unreadMessages} AND m.author_id <> $2 GROUP BY m.channel_id ORDER BY m.channel_id`,
+      [workspaceId, userId],
     )
     const cursorRows = await sql.query<Record<string, unknown>>(
       'SELECT cursor::text FROM workspace WHERE id = $1',
       [workspaceId],
     )
     const { cursor } = z.object({ cursor: z.string() }).parse(cursorRows.rows[0])
-    return { workspace, channels: Channel.array().parse(rows.rows), cursor }
+    return {
+      workspace,
+      rooms: Room.array().parse(rooms.rows),
+      channels: Channel.array().parse(channels.rows),
+      unread: Unread.array().parse(unread.rows),
+      cursor,
+    }
   }, true)
 }
-export async function createChannel(userId: UserId, input: z.infer<typeof CreateChannel>) {
-  const channel = Channel.parse({ id: randomUUID(), ...input })
+export async function createRoom(userId: UserId, input: z.infer<typeof CreateRoom>) {
+  const room = Room.parse({ id: randomUUID(), ...input })
   await transaction(async (sql) => {
-    await lockWorkspace(sql, input.workspaceId)
-    await requireMember(sql, userId, input.workspaceId, true)
-    await sql.query('INSERT INTO channel(id, workspace_id, name) VALUES ($1, $2, $3)', [
-      channel.id,
-      channel.workspaceId,
-      channel.name,
+    await lockWorkspace(sql, room.workspaceId)
+    await requireMember(sql, userId, room.workspaceId, true)
+    await sql.query('INSERT INTO room(id, workspace_id, name) VALUES ($1, $2, $3)', [
+      room.id,
+      room.workspaceId,
+      room.name,
     ])
+    await appendEvent(sql, room.workspaceId, (cursor) => ({ kind: 'room.created', room, cursor }))
+  })
+  return room
+}
+export async function createChannel(userId: UserId, input: z.infer<typeof CreateChannel>) {
+  return transaction(async (sql) => {
+    const rows = await sql.query<Record<string, unknown>>(
+      `SELECT ${roomColumns} FROM room WHERE id = $1`,
+      [input.roomId],
+    )
+    if (!rows.rowCount) throw new DomainError(404, 'Room not found.')
+    const room = Room.parse(rows.rows[0])
+    const channel = Channel.parse({ id: randomUUID(), workspaceId: room.workspaceId, ...input })
+    await lockWorkspace(sql, room.workspaceId)
+    await requireMember(sql, userId, room.workspaceId, true)
+    await sql.query(
+      'INSERT INTO channel(id, workspace_id, room_id, name) VALUES ($1, $2, $3, $4)',
+      [channel.id, channel.workspaceId, channel.roomId, channel.name],
+    )
     await appendEvent(sql, channel.workspaceId, (cursor) => ({
       kind: 'channel.created',
       channel,
       cursor,
     }))
+    return channel
   })
-  return channel
 }
 export async function history(userId: UserId, channelId: ChannelId, before?: string) {
   return transaction(async (sql) => {
-    const rows = await sql.query<Record<string, unknown>>(
-      `SELECT ${channelColumns} FROM channel WHERE id = $1`,
-      [channelId],
-    )
-    if (!rows.rowCount) throw new DomainError(404, 'Channel not found.')
-    const channel = Channel.parse(rows.rows[0])
+    const channel = await findChannel(sql, channelId)
     await requireMember(sql, userId, channel.workspaceId)
     const messages = await sql.query<Record<string, unknown>>(
-      `SELECT ${messageColumns} FROM message WHERE channel_id = $1 AND ($2::bigint IS NULL OR cursor < $2::bigint) ORDER BY cursor DESC LIMIT 100`,
+      `SELECT ${messageColumns} FROM message m WHERE m.channel_id = $1 AND ($2::bigint IS NULL OR m.cursor < $2::bigint) ORDER BY m.cursor DESC LIMIT 100`,
       [channelId, before ?? null],
     )
     return Message.array().parse(messages.rows).reverse()
@@ -164,16 +200,11 @@ export async function sendMessage(
 ) {
   const result = await transaction(async (sql) => {
     await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [user.id])
-    const rows = await sql.query<Record<string, unknown>>(
-      `SELECT ${channelColumns} FROM channel WHERE id = $1`,
-      [input.channelId],
-    )
-    if (!rows.rowCount) throw new DomainError(404, 'Channel not found.')
-    const channel = Channel.parse(rows.rows[0])
+    const channel = await findChannel(sql, input.channelId)
     await lockWorkspace(sql, channel.workspaceId)
     await requireMember(sql, user.id, channel.workspaceId)
     const duplicate = await sql.query<Record<string, unknown>>(
-      `SELECT ${messageColumns} FROM message WHERE author_id = $1 AND retry_id = $2`,
+      `SELECT ${messageColumns} FROM message m WHERE m.author_id = $1 AND m.retry_id = $2`,
       [user.id, input.retryId],
     )
     if (duplicate.rowCount) {
@@ -209,9 +240,87 @@ export async function sendMessage(
         JSON.stringify(message.authorAvatar),
       ],
     )
+    const members = await sql.query<Record<string, unknown>>(
+      'SELECT u.id, u.name FROM membership m JOIN "user" u ON u.id = m.user_id WHERE m.workspace_id = $1',
+      [channel.workspaceId],
+    )
+    const mentioned = mentionedUsers(
+      message.body,
+      z.object({ id: UserId, name: z.string() }).array().parse(members.rows),
+      user.id,
+    )
+    if (mentioned.length)
+      await sql.query(
+        'INSERT INTO message_mention(message_id, user_id) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING',
+        [message.id, mentioned],
+      )
     return { message, workspaceId: channel.workspaceId }
   })
   return result.message
+}
+export function mentionedUsers(
+  body: string,
+  members: { id: UserId; name: string }[],
+  authorId: UserId,
+): UserId[] {
+  const mentions = (name: string) =>
+    name !== '' &&
+    new RegExp(
+      `(?:^|[^\\p{L}\\p{N}_])@${name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}(?![\\p{L}\\p{N}_])`,
+      'iu',
+    ).test(body)
+  return members
+    .filter((member) => member.id !== authorId)
+    .filter((member) => {
+      const name = member.name.trim()
+      return mentions(name) || mentions(name.split(/\s+/)[0] ?? '')
+    })
+    .map((member) => member.id)
+}
+export async function markRead(userId: UserId, input: z.infer<typeof MarkRead>) {
+  await transaction(async (sql) => {
+    const workspaceId =
+      input.kind === 'workspace'
+        ? input.workspaceId
+        : (await findChannel(sql, input.channelId)).workspaceId
+    await requireMember(sql, userId, workspaceId)
+    await sql.query(
+      'INSERT INTO channel_read(user_id, channel_id, cursor) SELECT $1, c.id, LEAST($4::numeric, w.cursor) FROM channel c JOIN workspace w ON w.id = c.workspace_id WHERE c.workspace_id = $2 AND ($3::uuid IS NULL OR c.id = $3) ON CONFLICT (user_id, channel_id) DO UPDATE SET cursor = GREATEST(channel_read.cursor, excluded.cursor)',
+      [userId, workspaceId, input.kind === 'channel' ? input.channelId : null, input.cursor],
+    )
+  })
+}
+export async function home(userId: UserId, workspaceId: WorkspaceId) {
+  return transaction(async (sql) => {
+    await requireMember(sql, userId, workspaceId)
+    const mentions = await sql.query<Record<string, unknown>>(
+      `SELECT ${messageColumns} FROM ${unreadMessages} AND EXISTS (SELECT 1 FROM message_mention mm WHERE mm.message_id = m.id AND mm.user_id = $2) ORDER BY m.cursor DESC LIMIT 50`,
+      [workspaceId, userId],
+    )
+    const channels = await sql.query<Record<string, unknown>>(
+      `WITH unread AS (SELECT m.*, count(*) OVER (PARTITION BY m.channel_id) AS count, row_number() OVER (PARTITION BY m.channel_id ORDER BY m.cursor DESC) AS rank FROM ${unreadMessages} AND m.author_id <> $2) SELECT ${messageColumns}, m.count::integer AS count FROM unread m WHERE m.rank = 1 ORDER BY m.cursor DESC LIMIT 50`,
+      [workspaceId, userId],
+    )
+    return Home.parse({
+      items: [
+        ...mentions.rows.map((row) => ({ kind: 'mention', message: row })),
+        ...channels.rows.map((row) => ({
+          kind: 'channel',
+          channelId: row.channelId,
+          count: row.count,
+          latest: row,
+        })),
+      ],
+    })
+  }, true)
+}
+async function findChannel(sql: PoolClient, channelId: ChannelId) {
+  const rows = await sql.query<Record<string, unknown>>(
+    `SELECT ${channelColumns} FROM channel WHERE id = $1`,
+    [channelId],
+  )
+  if (!rows.rowCount) throw new DomainError(404, 'Channel not found.')
+  return Channel.parse(rows.rows[0])
 }
 export async function createInvitation(userId: UserId, workspaceId: WorkspaceId) {
   const code = randomBytes(32).toString('base64url')

@@ -12,6 +12,7 @@
     "email:test": "node --env-file=../../.env --import tsx scripts/email-test.ts",
     "test:email": "node --env-file=../../.env --import tsx scripts/email-integration.ts",
     "test:access": "node --env-file=../../.env --import tsx scripts/access-integration.ts",
+    "test:rooms-migration": "node --env-file=../../.env --import tsx scripts/rooms-migration-check.ts",
     "account:reset": "node --env-file=../../.env --import tsx scripts/account-reset.ts"
   },
   "dependencies": {

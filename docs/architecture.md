@@ -12,7 +12,8 @@ The desktop sends explicit HTTP requests for application operations. It opens an
 
 ```ts
 const workspace = await client.createWorkspace({ name: 'Studio' })
-const channel = await client.createChannel({ workspaceId: workspace.id, name: 'general' })
+const room = await client.createRoom({ workspaceId: workspace.id, name: 'Studio' })
+const channel = await client.createChannel({ roomId: room.id, name: 'general' })
 await client.watchWorkspace({ workspaceId: workspace.id, after: snapshot.cursor })
 await client.sendMessage({
   channelId: channel.id,
@@ -29,10 +30,13 @@ Better Auth owns users, sessions and linked company accounts. Huddle owns staged
 
 - Workspace has an owner-created identity, a name, and a transactionally updated event cursor.
 - Membership associates a user and workspace with an owner or member role.
-- Channel belongs to a workspace and has a unique normalized name within it.
+- Room belongs to a workspace and has a case-insensitively unique name within it. Every member sees every room.
+- Channel belongs to a room and has a unique normalized name within it. It also records its workspace, and a composite foreign key keeps the two consistent.
 - Message has an author, channel, body, stable retry UUID, and committed event cursor.
 - WorkspaceEvent records each public workspace change at its cursor.
 - Invitation stores a hash of an opaque random code, expiry, and consumption state.
+- A read marker stores, per user and channel, the highest cursor that user has read. It only moves forward and never passes the workspace cursor. Read state is private, so it emits no workspace event.
+- A mention records which members a message names with `@` followed by their full or first name.
 
 Each workspace write locks the workspace row, checks membership, applies its mutation, advances the workspace cursor, inserts its event, and commits. Event cursors are decimal strings over the network. Database allocation follows commit order because the same row serializes mutations. A bare sequence or timestamp is insufficient.
 
@@ -69,7 +73,7 @@ An invitation is an explicit, expiring possession grant. Creation requires works
 
 HTTP is the sole write and query API. The socket accepts only authentication and workspace-watch control frames. Do not implement chat commands or correlated mutation acknowledgements on the socket.
 
-The initial workspace snapshot returns channels and an exact event cursor from one consistent database snapshot. Channel history supports ordered pagination. The client then watches events after the snapshot cursor. Every public change is replayable from PostgreSQL, including a channel created while a client was disconnected.
+The initial workspace snapshot returns rooms, channels, the caller's unread counts, and an exact event cursor from one consistent database snapshot. The client increments unread counts from live events after that cursor. Channel history supports ordered pagination. The client then watches events after the snapshot cursor. Every public change is replayable from PostgreSQL, including a channel created while a client was disconnected.
 
 The server sends committed event pages in cursor order. PostgreSQL NOTIFY delivers post-commit wakeups to the companion listener. A periodic database check recovers a missed wakeup even when a socket stays connected. Each batch revalidates the session and workspace access. Slow clients disconnect with a retryable reason. The client advances its replay cursor only after applying a complete page and merges history and live messages by stable IDs.
 
