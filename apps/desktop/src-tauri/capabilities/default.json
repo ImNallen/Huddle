@@ -3,5 +3,19 @@
   "identifier": "default",
   "description": "Huddle window and system browser access",
   "windows": ["main"],
-  "permissions": ["core:default", "opener:allow-open-url"]
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://localhost/*" },
+        { "url": "http://localhost:*" },
+        { "url": "http://127.0.0.1/*" },
+        { "url": "http://127.0.0.1:*" },
+        { "url": "http://[[]::1[]]/*" },
+        { "url": "http://[[]::1[]]:*" }
+      ]
+    }
+  ]
 }

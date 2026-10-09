@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A home for your team's conversations"
 authors = ["Huddle contributors"]
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.90"
 
 [lib]
 name = "huddle_lib"
