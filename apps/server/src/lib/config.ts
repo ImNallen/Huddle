@@ -6,6 +6,17 @@ const Environment = z
   .object({
     DATABASE_URL: z.url(),
     BETTER_AUTH_SECRET: z.string().min(32),
+    AUTH_ENCRYPTION_KEYS: z
+      .string()
+      .transform((value) =>
+        z
+          .array(
+            z.object({ version: z.number().int().positive(), secret: z.string().min(32) }).strict(),
+          )
+          .min(1)
+          .parse(JSON.parse(value)),
+      )
+      .optional(),
     SERVER_URL: z.string().default('http://localhost:3000').transform(serverOrigin),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     WS_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
@@ -15,6 +26,7 @@ const Environment = z
       .default(
         'http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost',
       ),
+    AUTH_POLICY: z.enum(['mixed', 'sso-only']).default('mixed'),
     OIDC_DISCOVERY_URL: z.url().optional(),
     OIDC_CLIENT_ID: z.string().min(1).optional(),
     OIDC_CLIENT_SECRET: z.string().min(1).optional(),
@@ -23,6 +35,8 @@ const Environment = z
     const count = [env.OIDC_DISCOVERY_URL, env.OIDC_CLIENT_ID, env.OIDC_CLIENT_SECRET].filter(
       Boolean,
     ).length
+    if (env.AUTH_POLICY === 'sso-only' && count !== 3)
+      ctx.addIssue({ code: 'custom', message: 'SSO-only policy requires company OIDC.' })
     if (count !== 0 && count !== 3)
       ctx.addIssue({ code: 'custom', message: 'Set all three OIDC values together.' })
     if (/change|example|secretsecret|password/i.test(env.BETTER_AUTH_SECRET))

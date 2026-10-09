@@ -1,5 +1,6 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
 import '../style.css'
+import '@huddle/ui/style.css'
 export const Route = createRootRoute({
   head: () => ({
     meta: [

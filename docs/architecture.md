@@ -25,7 +25,7 @@ These are caller-facing responsibilities. Implementation may use an HTTP client 
 
 ## Data shape
 
-Better Auth owns credentials, sessions, linked accounts, verification, and device authorization. Huddle owns these tables:
+Better Auth owns users, sessions and linked company accounts. Huddle owns staged authentication ceremonies, session proofs, factors, recovery and device grants, alongside these application tables:
 
 - Workspace has an owner-created identity, a name, and a transactionally updated event cursor.
 - Membership associates a user and workspace with an owner or member role.
@@ -45,7 +45,8 @@ Pending messages use a discriminated sending or failed state. Before the first H
 - `apps/server` owns Start HTTP routes, Better Auth, application SQL, and the realtime server runtime.
 - One server domain module owns workspace permissions and application transactions. Routes parse input and call it directly.
 - One realtime module owns authentication, watch subscriptions, replay, session revalidation, bounded buffers, and disconnects. It cannot mutate application tables.
-- `apps/desktop` owns the shared React interface, TanStack Router, client synchronization, and the Tauri shell.
+- `packages/ui` owns the shared React interface, browser transport and client synchronization.
+- `apps/desktop` owns TanStack Router, the native transport, OS credential storage and the Tauri shell.
 - `packages/contracts` owns network schemas and their inferred TypeScript types. It has no server secrets or database connections.
 
 Validate configuration and incoming network data at boundaries. Use parameterized SQL. Keep framework wiring thin. Avoid repository, service, and controller layers that only forward arguments.
@@ -56,7 +57,9 @@ Better Auth runs directly in the Node-hosted Start server and stores its data in
 
 Native clients use Better Auth's Bearer session support. Store the durable credential in the operating system credential store, scoped to the canonical company server. Do not put session tokens in browser localStorage. Clear credentials and active subscriptions on logout and server changes.
 
-Company login uses an environment-configured Generic OAuth OIDC provider. Native browser login uses Better Auth's first-party Device Authorization flow. The desktop displays a code, opens the server approval page in the system browser, and polls at the server's interval. The approval page requires login, displays the code and Huddle client name, and requires explicit approval or denial. The resulting credential is a Better Auth session token, not a custom OAuth refresh token.
+Company login uses an environment-configured Generic OAuth OIDC provider with signed ID-token verification. Huddle owns native device authorization. The desktop displays a code, opens the server approval page in the system browser, and polls at the server's interval. The approval page requires an admitted session, displays the code and Huddle client name, and requires explicit approval or denial. The resulting credential is a Better Auth session token with a Huddle proof.
+
+Local email sign-in requires TOTP enrollment or verification before application access. Passkeys require user verification and bypass TOTP. Account epochs revoke stale HTTP, socket, watch-ticket and device authority after sensitive changes. See [passwordless authentication](passwordless.md) for the full assurance and recovery model.
 
 Require HTTPS for remote company servers. Permit HTTP only for explicit loopback development. Enforce configured origins at auth, mutation, and socket boundaries. Credential changes must not reach a different server. Workspace permissions remain in Huddle, independently of login providers.
 
@@ -90,10 +93,10 @@ Voice, video, file uploads, message editing, and mobile clients are follow-up sl
 
 Use real PostgreSQL and Better Auth to verify anonymous rejection, cross-workspace isolation, invitation redemption, two-client delivery, retry deduplication and conflicting retries, concurrent commit ordering, snapshot/watch overlap, session revocation, missed-wakeup recovery, and persistence after server restart.
 
-Drive the interface through account creation, sign-in, workspace and channel creation, an invitation, message send, reconnect, and logout. Exercise native device approval with local browser login. Company OIDC configuration is supported, but real company login remains unverified until credentials or a genuine local provider fixture are available.
+Drive the interface through account creation, sign-in, workspace and channel creation, an invitation, message send, reconnect, and logout. Exercise native device approval with local browser login. A signed local OIDC fixture verifies company callbacks and rejection paths. Customer identity providers still require release testing.
 
 Typecheck and build both JavaScript applications. Compile and launch Tauri on macOS. Windows and Linux remain unverified unless this session obtains those environments.
 
 ## Implementation reconciliation
 
-The Start production fetch handler runs in a Node HTTP service with a companion WebSocket listener on a separately configured port. PostgreSQL NOTIFY crosses the framework bundle boundary; a one-second poll remains the recovery mechanism. Watch tickets bridge browser cookie host scoping and native authentication without exposing browser session tokens. PostgreSQL migrations own ticket persistence. The server serves only operator and device login pages. The browser preview uses the Vite same-origin API proxy. The native client selects its server at runtime and stores credentials through Rust keyring commands.
+The Start production fetch handler runs in a Node HTTP service with a companion WebSocket listener on a separately configured port. PostgreSQL NOTIFY crosses the framework bundle boundary; a one-second poll remains the recovery mechanism. Watch tickets bridge browser cookie host scoping and native authentication without exposing browser session tokens. PostgreSQL migrations own ticket persistence. The server serves the shared browser application and device approval pages. The local desktop frontend uses the Vite API proxy for the default local server. The native client selects its server at runtime and stores credentials through Rust keyring commands.

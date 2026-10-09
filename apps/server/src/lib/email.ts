@@ -1,6 +1,5 @@
 import { createConnection, type Socket } from 'node:net'
 import type { SMTPTransportOptions } from 'nodemailer/lib/smtp-transport'
-import type { EmailOTPOptions } from 'better-auth/plugins/email-otp'
 import type { EmailConfig, EmailRecipient } from './email-config'
 import { EmailError } from './email-error'
 
@@ -12,22 +11,15 @@ export const SMTP_TIMEOUTS = {
   operation: 15_000,
 }
 
-type AuthEmailPurpose = Parameters<EmailOTPOptions['sendVerificationOTP']>[0]['type']
 export type EmailMessage =
   | { kind: 'installation-test'; recipient: EmailRecipient }
   | {
       kind: 'authentication-code'
       recipient: EmailRecipient
       code: string
-      purpose: AuthEmailPurpose
+      purpose: 'sign-in'
     }
 
-const purposes: Record<AuthEmailPurpose, string> = {
-  'sign-in': 'sign in',
-  'change-email': 'change your email address',
-  'email-verification': 'verify your email address',
-  'forget-password': 'reset your password',
-}
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => {
     switch (character) {
@@ -54,7 +46,7 @@ function renderEmail(message: EmailMessage, serverName: string, serverUrl: strin
         html: `<p>This is an installation test from ${escapeHtml(identity)}.</p><p>The SMTP relay accepted this message. Inbox delivery depends on your email provider.</p>`,
       }
     case 'authentication-code': {
-      const action = purposes[message.purpose]
+      const action = 'sign in'
       const expiry = AUTH_EMAIL_EXPIRY_SECONDS / 60
       return {
         subject: `${serverName} authentication code`,
