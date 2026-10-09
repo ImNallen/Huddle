@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import {
-  Channel,
   EventPage,
   Message,
   Snapshot,
+  type ChannelId,
   type Workspace,
+  type Channel,
+  type Room,
   type UserId,
   SendMessage,
 } from '@huddle/contracts'
@@ -20,12 +22,45 @@ const StoredPending = SendMessage.extend({
   error: z.string().optional(),
 })
 export type Pending =
-  | { kind: 'sending'; retryId: string; channelId: Channel['id']; body: string }
-  | { kind: 'failed'; retryId: string; channelId: Channel['id']; body: string; error: string }
-export function useWorkspace(client: Transport, workspace: Workspace, userId: UserId) {
+  | { kind: 'sending'; retryId: string; channelId: ChannelId; body: string }
+  | { kind: 'failed'; retryId: string; channelId: ChannelId; body: string; error: string }
+export type Unread = ReadonlyMap<ChannelId, number>
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+type Created = { kind: 'room.created'; room: Room } | { kind: 'channel.created'; channel: Channel }
+function apply(snapshot: Snapshot, event: Created) {
+  switch (event.kind) {
+    case 'room.created':
+      return {
+        ...snapshot,
+        rooms: [...snapshot.rooms.filter((room) => room.id !== event.room.id), event.room].sort(
+          byName,
+        ),
+      }
+    case 'channel.created':
+      return {
+        ...snapshot,
+        channels: [
+          ...snapshot.channels.filter((channel) => channel.id !== event.channel.id),
+          event.channel,
+        ].sort(byName),
+      }
+  }
+}
+function isVisible() {
+  return typeof document === 'undefined' || document.visibilityState === 'visible'
+}
+export function useWorkspace(
+  client: Transport,
+  workspace: Workspace,
+  userId: UserId,
+  open: ChannelId | null,
+) {
   const storageKey = `huddle.pending:${client.origin}:${userId}:${workspace.id}`
   const [state, setState] = useState<WorkspaceState>({ kind: 'loading' })
   const [messages, setMessages] = useState<Message[]>([])
+  const [unread, setUnread] = useState<Unread>(new Map())
+  const [changes, setChanges] = useState(0)
+  const [visible, setVisible] = useState(isVisible)
   const [pending, setPending] = useState<Pending[]>(() => {
     try {
       const rows = StoredPending.array().parse(
@@ -59,14 +94,22 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
   }
   const [connection, setConnection] = useState('Connecting')
   const [attempt, setAttempt] = useState(0)
-  const [selected, setSelected] = useState<Channel['id'] | null>(null)
   const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [historyError, setHistoryError] = useState('')
   const active = useRef(true)
+  const cursor = useRef('0')
+  const openRef = useRef(open)
+  openRef.current = open
+  const reads = useRef<Promise<unknown>>(Promise.resolve())
+  const marked = useRef(new Map<ChannelId, string>())
+  const flush = useRef<(() => void) | null>(null)
   useEffect(() => {
     active.current = true
+    const update = () => setVisible(isVisible())
+    document.addEventListener('visibilitychange', update)
     return () => {
       active.current = false
+      document.removeEventListener('visibilitychange', update)
     }
   }, [])
   const merge = (incoming: Message[]) =>
@@ -75,12 +118,20 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
       for (const message of incoming) indexed.set(message.id, message)
       return [...indexed.values()].sort((a, b) => (BigInt(a.cursor) < BigInt(b.cursor) ? -1 : 1))
     })
+  function read(body: { kind: 'channel'; channelId: ChannelId; cursor: string }) {
+    reads.current = reads.current
+      .then(() => client.request('/api/read', z.unknown(), body))
+      .then(
+        () => setChanges((value) => value + 1),
+        () => marked.current.delete(body.channelId),
+      )
+  }
   useEffect(() => {
     const abort = new AbortController()
     let socket: WebSocket | undefined
     let reconnect: ReturnType<typeof setTimeout> | undefined
-    let cursor = '0'
     let stopped = false
+    cursor.current = '0'
     setState({ kind: 'loading' })
     setMessages([])
     setConnection('Connecting')
@@ -96,13 +147,9 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
           client.info(),
         ])
         if (stopped) return
-        cursor = snapshot.cursor
+        cursor.current = snapshot.cursor
         setState({ kind: 'ready', snapshot })
-        setSelected((current) =>
-          snapshot.channels.some((channel) => channel.id === current)
-            ? current
-            : (snapshot.channels[0]?.id ?? null),
-        )
+        setUnread(new Map(snapshot.unread.map((item) => [item.channelId, item.count])))
         async function watch() {
           if (stopped) return
           let ticket: string
@@ -123,41 +170,47 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
           socket = new WebSocket(info.websocketUrl)
           socket.onopen = () =>
             socket?.send(
-              JSON.stringify({ kind: 'watch', workspaceId: workspace.id, after: cursor, ticket }),
+              JSON.stringify({
+                kind: 'watch',
+                workspaceId: workspace.id,
+                after: cursor.current,
+                ticket,
+              }),
             )
           socket.onmessage = (event) => {
             try {
               const page = EventPage.parse(JSON.parse(String(event.data)))
+              let heard = false
               for (const event of page.events) {
-                if (BigInt(event.cursor) <= BigInt(cursor)) continue
-                if (event.kind === 'message.created') {
-                  merge([event.message])
-                  if (event.message.authorId === userId)
-                    updatePending((current) =>
-                      current.filter((item) => item.retryId !== event.message.retryId),
-                    )
-                } else {
+                if (BigInt(event.cursor) <= BigInt(cursor.current)) continue
+                if (event.kind !== 'message.created') {
                   setState((current) =>
                     current.kind === 'ready'
-                      ? {
-                          kind: 'ready',
-                          snapshot: {
-                            ...current.snapshot,
-                            channels: [
-                              ...current.snapshot.channels.filter(
-                                (channel) => channel.id !== event.channel.id,
-                              ),
-                              event.channel,
-                            ].sort((a, b) => a.name.localeCompare(b.name)),
-                          },
-                        }
+                      ? { kind: 'ready', snapshot: apply(current.snapshot, event) }
                       : current,
                   )
-                  setSelected((current) => current ?? event.channel.id)
+                  continue
                 }
+                const message = event.message
+                merge([message])
+                if (message.authorId === userId) {
+                  updatePending((current) =>
+                    current.filter((item) => item.retryId !== message.retryId),
+                  )
+                  continue
+                }
+                heard = true
+                if (message.channelId !== openRef.current || !isVisible())
+                  setUnread((current) =>
+                    new Map(current).set(
+                      message.channelId,
+                      (current.get(message.channelId) ?? 0) + 1,
+                    ),
+                  )
               }
               const last = page.events.at(-1)
-              if (last) cursor = last.cursor
+              if (last && BigInt(last.cursor) > BigInt(cursor.current)) cursor.current = last.cursor
+              if (heard) setChanges((value) => value + 1)
               setConnection('Connected')
             } catch {
               socket?.close()
@@ -189,7 +242,7 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
     }
   }, [client, workspace.id, attempt])
   useEffect(() => {
-    if (!selected) {
+    if (!open) {
       setHistoryState('ready')
       return
     }
@@ -197,7 +250,7 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
     setHistoryState('loading')
     setHistoryError('')
     void client
-      .request(`/api/messages?channelId=${selected}`, Message.array(), undefined, abort.signal)
+      .request(`/api/messages?channelId=${open}`, Message.array(), undefined, abort.signal)
       .then((messages) => {
         if (!abort.signal.aborted) {
           merge(messages)
@@ -217,7 +270,31 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
         }
       })
     return () => abort.abort()
-  }, [client, selected, attempt])
+  }, [client, open, attempt])
+  const latest = open
+    ? messages.filter((message) => message.channelId === open).at(-1)?.cursor
+    : undefined
+  useEffect(() => {
+    flush.current = null
+    if (!open || !visible) return
+    setUnread((current) => {
+      if (!current.has(open)) return current
+      const next = new Map(current)
+      next.delete(open)
+      return next
+    })
+    if (!latest || marked.current.get(open) === latest) return
+    const run = () => {
+      clearTimeout(timer)
+      flush.current = null
+      marked.current.set(open, latest)
+      read({ kind: 'channel', channelId: open, cursor: latest })
+    }
+    const timer = setTimeout(run, 300)
+    flush.current = run
+    return () => clearTimeout(timer)
+  }, [open, latest, visible])
+  useEffect(() => () => flush.current?.(), [open])
   async function send(item: Pick<Pending, 'retryId' | 'body' | 'channelId'>) {
     if (
       !updatePending((current) => [
@@ -247,27 +324,49 @@ export function useWorkspace(client: Transport, workspace: Workspace, userId: Us
     }
   }
   async function older() {
-    const first = messages.find((message) => message.channelId === selected)
-    if (!first || !selected) return
+    const first = messages.find((message) => message.channelId === open)
+    if (!first || !open) return
     const rows = await client.request(
-      `/api/messages?channelId=${selected}&before=${first.cursor}`,
+      `/api/messages?channelId=${open}&before=${first.cursor}`,
       Message.array(),
     )
     merge(rows)
     return rows.length
   }
+  async function markAllRead() {
+    const request = reads.current.then(() =>
+      client.request('/api/read', z.unknown(), {
+        kind: 'workspace',
+        workspaceId: workspace.id,
+        cursor: cursor.current,
+      }),
+    )
+    reads.current = request.catch(() => undefined)
+    await request
+    if (!active.current) return
+    setUnread(new Map())
+    setChanges((value) => value + 1)
+  }
   return {
     state,
     messages,
     pending,
-    selected,
-    setSelected,
+    unread,
+    changes,
+    include: (created: Created) =>
+      setState((current) =>
+        current.kind === 'ready'
+          ? { kind: 'ready', snapshot: apply(current.snapshot, created) }
+          : current,
+      ),
     connection,
     historyState,
     historyError,
     queueError,
     send,
     older,
+    markAllRead,
+    settled: () => reads.current,
     retry: () => setAttempt((value) => value + 1),
   }
 }
