@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
+  Avatar,
   Channel,
   Message,
   Workspace,
@@ -24,7 +25,7 @@ export class DomainError extends Error {
 }
 const channelColumns = 'id, workspace_id AS "workspaceId", name'
 const messageColumns =
-  'id, channel_id AS "channelId", author_id AS "authorId", author_name AS "authorName", retry_id AS "retryId", body, cursor::text, to_char(created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
+  'id, channel_id AS "channelId", author_id AS "authorId", author_name AS "authorName", author_avatar AS "authorAvatar", retry_id AS "retryId", body, cursor::text, to_char(created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
 
 async function transaction<T>(
   operation: (sql: PoolClient) => Promise<T>,
@@ -53,7 +54,7 @@ export async function requireMember(
   owner = false,
 ) {
   const result = await sql.query<Record<string, unknown>>(
-    'SELECT w.id, w.name, m.role FROM workspace w JOIN membership m ON m.workspace_id = w.id WHERE w.id = $1 AND m.user_id = $2',
+    'SELECT w.id, w.name, m.role, (SELECT count(*)::integer FROM membership WHERE workspace_id=w.id) AS "memberCount", (SELECT count(*)::integer FROM channel WHERE workspace_id=w.id) AS "channelCount" FROM workspace w JOIN membership m ON m.workspace_id = w.id WHERE w.id = $1 AND m.user_id = $2',
     [workspaceId, userId],
   )
   if (!result.rowCount) throw new DomainError(403, 'You do not have access to this workspace.')
@@ -86,13 +87,19 @@ async function appendEvent<T extends z.infer<typeof WorkspaceEvent>>(
 }
 export async function listWorkspaces(userId: UserId) {
   const result = await db.query<Record<string, unknown>>(
-    'SELECT w.id, w.name, m.role FROM workspace w JOIN membership m ON w.id = m.workspace_id WHERE m.user_id = $1 ORDER BY w.name, w.id',
+    'SELECT w.id, w.name, m.role, (SELECT count(*)::integer FROM membership WHERE workspace_id=w.id) AS "memberCount", (SELECT count(*)::integer FROM channel WHERE workspace_id=w.id) AS "channelCount" FROM workspace w JOIN membership m ON w.id = m.workspace_id WHERE m.user_id = $1 ORDER BY w.name, w.id',
     [userId],
   )
   return Workspace.array().parse(result.rows)
 }
 export async function createWorkspace(userId: UserId, name: string) {
-  const workspace = Workspace.parse({ id: randomUUID(), name, role: 'owner' })
+  const workspace = Workspace.parse({
+    id: randomUUID(),
+    name,
+    role: 'owner',
+    memberCount: 1,
+    channelCount: 0,
+  })
   await transaction(async (sql) => {
     await sql.query('INSERT INTO workspace(id, name) VALUES ($1, $2)', [workspace.id, name])
     await sql.query(
@@ -152,7 +159,7 @@ export async function history(userId: UserId, channelId: ChannelId, before?: str
   }, true)
 }
 export async function sendMessage(
-  user: { id: UserId; name: string },
+  user: { id: UserId; name: string; avatar: z.infer<typeof Avatar> },
   input: z.infer<typeof SendMessage>,
 ) {
   const result = await transaction(async (sql) => {
@@ -183,12 +190,13 @@ export async function sendMessage(
         ...input,
         authorId: user.id,
         authorName: user.name,
+        authorAvatar: user.avatar,
         cursor,
         createdAt: new Date().toISOString(),
       },
     }))
     await sql.query(
-      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
       [
         message.id,
         message.channelId,
@@ -198,6 +206,7 @@ export async function sendMessage(
         message.body,
         message.cursor,
         message.createdAt,
+        JSON.stringify(message.authorAvatar),
       ],
     )
     return { message, workspaceId: channel.workspaceId }
@@ -261,7 +270,7 @@ export async function createWatchTicket(sessionId: string) {
 }
 export async function consumeWatchTicket(ticket: string) {
   const result = await db.query<Record<string, unknown>>(
-    'WITH claimed AS (DELETE FROM watch_ticket WHERE hash = $1 AND expires_at > now() RETURNING session_id) SELECT s.token FROM session s JOIN claimed ON claimed.session_id = s.id',
+    'WITH claimed AS (DELETE FROM watch_ticket WHERE hash = $1 AND expires_at > now() RETURNING session_id) SELECT s.token FROM session s JOIN claimed ON claimed.session_id = s.id JOIN session_proof p ON p.session_id=s.id JOIN account_security a ON a.user_id=p.user_id AND a.epoch=p.epoch WHERE s."expiresAt">now() AND p.stage=\'ready\'',
     [hash(ticket)],
   )
   return z.object({ token: z.string() }).parse(result.rows[0]).token

@@ -9,7 +9,7 @@ import {
   type UserId,
   SendMessage,
 } from '@huddle/contracts'
-import { Client, errorText } from './client'
+import { errorText, type Transport } from './transport'
 
 type WorkspaceState =
   | { kind: 'loading' }
@@ -22,13 +22,17 @@ const StoredPending = SendMessage.extend({
 export type Pending =
   | { kind: 'sending'; retryId: string; channelId: Channel['id']; body: string }
   | { kind: 'failed'; retryId: string; channelId: Channel['id']; body: string; error: string }
-export function useWorkspace(client: Client, workspace: Workspace, userId: UserId) {
+export function useWorkspace(client: Transport, workspace: Workspace, userId: UserId) {
   const storageKey = `huddle.pending:${client.origin}:${userId}:${workspace.id}`
   const [state, setState] = useState<WorkspaceState>({ kind: 'loading' })
   const [messages, setMessages] = useState<Message[]>([])
   const [pending, setPending] = useState<Pending[]>(() => {
     try {
-      const rows = StoredPending.array().parse(JSON.parse(localStorage.getItem(storageKey) ?? '[]'))
+      const rows = StoredPending.array().parse(
+        JSON.parse(
+          typeof localStorage === 'undefined' ? '[]' : (localStorage.getItem(storageKey) ?? '[]'),
+        ),
+      )
       return rows.map((item) => ({
         ...item,
         kind: 'failed',

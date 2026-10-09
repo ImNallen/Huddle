@@ -1,15 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
-import { randomUUID } from 'node:crypto'
-
-async function signup(page: Page, name: string) {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Create an account' }).click()
-  await page.getByLabel('Your name').fill(name)
-  await page.getByLabel('Email address').fill(`${randomUUID()}@huddle.test`)
-  await page.getByLabel('Password', { exact: true }).fill('UI-verification-password-42!')
-  await page.getByRole('button', { name: 'Create account', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Your team starts here.' })).toBeVisible()
-}
+import { expect, test } from '@playwright/test'
+import { DeviceCode, DeviceToken, Session } from '../packages/contracts/src/index'
+import { signup, serverURL } from './passwordless'
 
 test('two colleagues join a private workspace, send, reconnect, and sign out', async ({
   browser,
@@ -67,6 +58,7 @@ test('two colleagues join a private workspace, send, reconnect, and sign out', a
     await second.getByRole('button', { name: 'Send message' }).click()
     await expect(second.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
     await second.reload()
+    await second.getByRole('button', { name: /UI studio/ }).click()
     await expect(
       second.getByText('Keep my message through a restart.', { exact: true }),
     ).toBeVisible()
@@ -84,37 +76,38 @@ test('two colleagues join a private workspace, send, reconnect, and sign out', a
     expect(attempts[1]).toEqual(attempts[0])
     await page.screenshot({ path: 'test-results/conversation.png', fullPage: true })
     await second.getByRole('button', { name: 'Sign out', exact: true }).click()
-    await expect(second.getByRole('heading', { name: 'Welcome back.' })).toBeVisible()
+    await expect(second.getByRole('heading', { name: /Sign in to/ })).toBeVisible()
   } finally {
     await colleague.close()
   }
 })
 
 test('the browser claims a device code and requires explicit approval', async ({ page }) => {
-  const { DeviceCode, DeviceToken, Session } = await import('../packages/contracts/src/index')
-  const codeResponse = await page.request.post('http://localhost:3000/api/auth/device/code', {
+  const codeResponse = await page.request.post(serverURL + '/api/auth/device/code', {
+    headers: { Origin: serverURL },
     data: { client_id: 'huddle-desktop' },
   })
   expect(codeResponse.ok()).toBeTruthy()
   const rawCode: unknown = await codeResponse.json()
   const code = DeviceCode.parse(rawCode)
   const redirect = `/device?user_code=${encodeURIComponent(code.user_code)}`
-  await page.goto(`http://localhost:3000/login?redirect=${encodeURIComponent(redirect)}`)
-  await page.getByRole('button', { name: 'New here? Create an account' }).click()
-  await page.getByLabel('Name', { exact: true }).fill('Device browser owner')
-  await page.getByLabel('Email', { exact: true }).fill(`${randomUUID()}@huddle.test`)
-  await page.getByLabel('Password', { exact: true }).fill('Device-UI-verification-42!')
-  await page.getByRole('button', { name: 'Create account', exact: true }).click()
+  await signup(
+    page,
+    'Device browser owner',
+    `${serverURL}/login?redirect=${encodeURIComponent(redirect)}`,
+  )
   await expect(page.getByLabel('Device code')).toHaveValue(code.user_code)
   await expect(page.getByRole('button', { name: 'Approve this desktop' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Check code' }).click()
   await expect(page.getByText(code.user_code, { exact: true })).toBeVisible()
   await expect(page.getByText('Huddle Desktop', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Approve this desktop' })).toBeDisabled()
+  await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
   await page.getByRole('button', { name: 'Approve this desktop' }).click()
-  await expect(page.getByRole('heading', { name: 'You are connected.' })).toBeVisible()
-  const response = await fetch('http://localhost:3000/api/auth/device/token', {
+  await expect(page.getByRole('heading', { name: 'You are connected' })).toBeVisible()
+  const response = await fetch(serverURL + '/api/auth/device/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:3000' },
+    headers: { 'Content-Type': 'application/json', Origin: serverURL },
     body: JSON.stringify({
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       device_code: code.device_code,
@@ -123,7 +116,7 @@ test('the browser claims a device code and requires explicit approval', async ({
   })
   const tokenValue: unknown = await response.json()
   const token = DeviceToken.parse(tokenValue)
-  const sessionResponse = await fetch('http://localhost:3000/api/auth/get-session', {
+  const sessionResponse = await fetch(serverURL + '/api/auth/get-session', {
     headers: { Authorization: `Bearer ${token.access_token}` },
   })
   const sessionValue: unknown = await sessionResponse.json()

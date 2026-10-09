@@ -1,0 +1,24 @@
+{
+  "name": "@huddle/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./style.css": "./src/style.css"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@huddle/contracts": "workspace:*",
+    "lucide-react": "0.468.0",
+    "qrcode": "1.5.4",
+    "react": "19.3.0",
+    "zod": "4.6.5",
+    "@simplewebauthn/browser": "13.2.2"
+  },
+  "devDependencies": {
+    "@types/qrcode": "1.5.5",
+    "@types/react": "19.2.2"
+  }
+}

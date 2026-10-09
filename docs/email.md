@@ -69,6 +69,6 @@ Use a disposable Mailpit instance. The suite reads captured messages but does no
 TEST_SMTP_HOST=127.0.0.1 TEST_SMTP_PORT=1025 TEST_MAILPIT_URL=http://127.0.0.1:8025 pnpm test:email
 ```
 
-The suite uses actual SMTP sockets, generates temporary certificates with `openssl`, verifies trusted and untrusted STARTTLS and implicit TLS, and cleans its listeners and temporary files. It checks both message alternatives, recipient cooldown, rejection, connection failure, dropped connections, greeting and whole-operation timeouts, safe CLI diagnostics, setup preservation, and the absence of an email-code sign-in route. The route check uses your configured disposable database. Run migrations first and run `pnpm test:integration` for the existing auth and device regression.
+The suite uses actual SMTP sockets, generates temporary certificates with `openssl`, verifies trusted and untrusted STARTTLS and implicit TLS, and cleans its listeners and temporary files. It checks both message alternatives, rejection, connection failure, dropped connections, greeting and whole-operation timeouts, safe CLI diagnostics and setup preservation. Run migrations first, then use `pnpm test:integration` and `pnpm test:access` with disposable services for authentication, durable cooldown and device admission checks.
 
-See [email configuration and limits](email-config.md) for the configuration fields, deadlines, and callback policy.
+See [email configuration and limits](email-config.md) for the configuration fields, deadlines and authentication policy.

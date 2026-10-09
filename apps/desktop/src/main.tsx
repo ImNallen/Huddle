@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { App } from './App'
-import './style.css'
+import '@huddle/ui/style.css'
 const rootRoute = createRootRoute({ component: App })
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/' })
 const router = createRouter({ routeTree: rootRoute.addChildren([indexRoute]) })

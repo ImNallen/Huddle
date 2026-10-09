@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws'
 import { UserId, WatchFrame } from '@huddle/contracts'
-import { auth } from './auth'
+import { requireAccess } from './access'
 import { config, origins } from './config'
 import { replay, consumeWatchTicket } from './domain'
 import { db } from './db'
@@ -40,7 +40,7 @@ export async function startRealtime() {
       if (!watch || busy || closed) return
       busy = true
       try {
-        const session = await auth.api.getSession({ headers })
+        const session = await requireAccess(headers)
         if (!session) {
           socket.close(1008, 'Session expired.')
           return

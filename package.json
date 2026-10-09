@@ -11,6 +11,7 @@
     "typecheck": "pnpm -r typecheck",
     "db:migrate": "pnpm --filter @huddle/server db:migrate",
     "test:integration": "pnpm --filter @huddle/server test:integration",
+    "test:access": "pnpm --filter @huddle/server test:access",
     "desktop": "pnpm --filter @huddle/desktop tauri dev",
     "setup:local": "node scripts/setup.mjs",
     "test:ui": "playwright test",
@@ -22,6 +23,7 @@
     "@playwright/test": "1.56.1",
     "@types/node": "24.10.1",
     "prettier": "3.6.2",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "otpauth": "9.4.1"
   }
 }

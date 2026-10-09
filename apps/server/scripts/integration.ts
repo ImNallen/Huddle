@@ -4,9 +4,11 @@ import { once } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import { TOTP } from 'otpauth'
 import { WebSocket } from 'ws'
 import pg from 'pg'
 import {
+  AccessView,
   Channel,
   DeviceCode,
   DeviceToken,
@@ -31,7 +33,7 @@ async function start() {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      NODE_ENV: 'test',
+      NODE_ENV: process.env.SMTP_SECURITY === 'local' ? 'development' : 'test',
       PORT: String(port),
       WS_PORT: String(socketPort),
       SERVER_URL: origin,
@@ -87,24 +89,78 @@ async function call<T>(path: string, schema: z.ZodType<T>, token?: string, body?
   return schema.parse(data)
 }
 async function signup(name: string) {
-  const { response, data } = await request('/api/auth/sign-up/email', {
-    body: {
-      name,
-      email: `${randomUUID()}@huddle.test`,
-      password: 'Verification-only-password-42!',
-    },
+  const email = `${randomUUID()}@huddle.test`
+  let cookie = ''
+  async function act(body: unknown) {
+    const result = await request('/api/access', { cookie, body })
+    assert.equal(result.response.status, 200, 'Passwordless signup failed')
+    const updates = result.response.headers
+      .getSetCookie()
+      .map((header) => header.split(';')[0])
+      .filter((value): value is string => Boolean(value))
+    const jar = new Map(
+      cookie
+        .split('; ')
+        .filter(Boolean)
+        .map((pair) => {
+          const index = pair.indexOf('=')
+          return [pair.slice(0, index), pair.slice(index + 1)]
+        }),
+    )
+    for (const pair of updates) {
+      const index = pair.indexOf('=')
+      jar.set(pair.slice(0, index), pair.slice(index + 1))
+    }
+    cookie = [...jar].map(([key, value]) => `${key}=${value}`).join('; ')
+    return AccessView.parse(result.data)
+  }
+  await act({ kind: 'email.send', email })
+  const mailpit = process.env.MAILPIT_URL ?? 'http://127.0.0.1:8025'
+  const messages = z
+    .object({
+      messages: z.array(
+        z.object({ ID: z.string(), To: z.array(z.object({ Address: z.string() })) }),
+      ),
+    })
+    .parse(await (await fetch(`${mailpit}/api/v1/messages`)).json())
+  const message = messages.messages.find((message) => message.To.some((to) => to.Address === email))
+  assert(message, 'SMTP must deliver the integration signup code')
+  const mail = z
+    .object({ Text: z.string() })
+    .parse(await (await fetch(`${mailpit}/api/v1/message/${message.ID}`)).json())
+  const code = mail.Text.match(/\b\d{6}\b/)?.[0]
+  assert(code)
+  let view = await act({ kind: 'email.verify', code })
+  assert(view.stage.kind === 'enroll')
+  view = await act({
+    kind: 'enrollment.verify',
+    generation: view.stage.generation,
+    code: new TOTP({
+      secret: view.stage.secret,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+    }).generate(),
   })
-  assert.equal(response.status, 200, JSON.stringify(data))
-  const { token, user } = z
-    .object({ token: z.string(), user: z.object({ id: z.string() }) })
-    .parse(data)
-  const cookie = response.headers
-    .getSetCookie()
-    .map((header) => header.split(';')[0])
-    .join('; ')
-  assert.ok(cookie.includes('session_token'))
-  return { token, cookie, user }
+  assert(view.stage.kind === 'save-recovery')
+  await act({ kind: 'recovery.ack', batch: view.stage.batch })
+  await act({ kind: 'passkey.skip' })
+  view = await act({
+    kind: 'profile.save',
+    profile: { name, avatar: { kind: 'mascot', shape: 'circle', color: 'indigo' } },
+  })
+  assert(view.stage.kind === 'ready')
+  const encoded = cookie
+    .split('; ')
+    .find((pair) => pair.includes('session_token='))
+    ?.split('=')
+    .slice(1)
+    .join('=')
+  assert(encoded)
+  const token = decodeURIComponent(encoded)
+  return { token, cookie, user: view.stage.user }
 }
+
 function watch(token: string, workspaceId: string, after: string, ticket?: string) {
   const socket = new WebSocket(wsURL, { origin })
   sockets.add(socket)
@@ -471,7 +527,7 @@ try {
   const deviceToken = await call('/api/auth/device/token', DeviceToken, undefined, pendingBody)
   const deviceSession = await call('/api/auth/get-session', Session, deviceToken.access_token)
   assert.equal(deviceSession.user.id, owner.user.id)
-  pass('real Better Auth device claim, explicit approval, slow_down, and bearer session')
+  pass('passwordless device claim, explicit approval, slow_down, and bearer session')
   await call('/api/auth/sign-out', z.unknown(), member.token, {})
   await eventually(
     () => reconnected.socket.readyState === WebSocket.CLOSED,

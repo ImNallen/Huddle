@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { startRealtime } from '../src/lib/realtime'
 import { config } from '../src/lib/config'
 import { db } from '../src/lib/db'
+import { applicationRequest } from '../src/lib/http'
+import { pruneAccess } from '../src/lib/access-maintenance'
 
 const serverPath = new URL('../dist/server/server.js', import.meta.url).href
 const entry: unknown = await import(serverPath)
@@ -29,8 +31,10 @@ const realtime = await startRealtime()
 const server = serve({
   port: config.PORT,
   hostname: '0.0.0.0',
-  fetch: async (request) => {
+  fetch: async (request, env) => {
     const pathname = new URL(request.url).pathname
+    if (pathname.startsWith('/api/'))
+      return applicationRequest(request, env.incoming.socket.remoteAddress)
     if (pathname.startsWith('/assets/')) {
       const file = resolve(clientRoot, `.${decodeURIComponent(pathname)}`)
       if (!file.startsWith(clientRoot + sep)) return new Response(null, { status: 400 })
@@ -48,7 +52,12 @@ const server = serve({
     return handler.fetch(request)
   },
 })
+const maintenance = setInterval(() => {
+  void pruneAccess().catch(() => console.error({ event: 'access.maintenance.failed' }))
+}, 60000)
+maintenance.unref()
 async function stop() {
+  clearInterval(maintenance)
   realtime.clients.forEach((socket) => socket.terminate())
   realtime.close()
   server.close()

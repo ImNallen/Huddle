@@ -8,15 +8,9 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
-import { mock } from 'node:test'
 import { emailRecipient, parseEmailConfig } from '../src/lib/email-config'
 import { EmailError, emailDiagnostic } from '../src/lib/email-error'
 import { createEmailSender, SMTP_TIMEOUTS, AUTH_EMAIL_EXPIRY_SECONDS } from '../src/lib/email'
-import {
-  createAuthEmailCallback,
-  AUTH_EMAIL_COOLDOWN_MS,
-  AUTH_EMAIL_MAX_RECIPIENTS,
-} from '../src/lib/auth-email'
 import { smtpFixture, type FixtureMode } from './smtp-fixture'
 
 const run = promisify(execFile)
@@ -157,19 +151,17 @@ try {
     !rootCommand.stderr.includes('fixture-sensitive'),
     'Root command stderr must omit SMTP response secrets',
   )
-  const callback = createAuthEmailCallback(
-    createEmailSender(parseEmailConfig(localEnv), 'https://huddle.test'),
-  )
-  const outcomes = await Promise.allSettled([
-    callback({ email: recipient, otp: 'fixture-sensitive-code<&>', type: 'sign-in' }),
-    callback({ email: recipient.toUpperCase(), otp: 'fixture-sensitive-code<&>', type: 'sign-in' }),
-  ])
-  assert.equal(outcomes.filter((outcome) => outcome.status === 'fulfilled').length, 1)
-  const failed = outcomes.find((outcome) => outcome.status === 'rejected')
-  assert.ok(failed?.status === 'rejected' && failed.reason instanceof EmailError)
-  assert.equal(failed.reason.kind, 'rate-limit')
+  await createEmailSender(
+    parseEmailConfig(localEnv),
+    'https://huddle.test',
+  )({
+    kind: 'authentication-code',
+    recipient,
+    code: 'fixture-sensitive-code<&>',
+    purpose: 'sign-in',
+  })
   const messages = await captured()
-  assert.equal(messages.length, 3, 'Both CLI commands and one concurrent callback may deliver')
+  assert.equal(messages.length, 3, 'Both CLI commands and the authentication message must deliver')
   const login = messages.find((message) => message.Subject.endsWith('authentication code'))
   assert.ok(login)
   assert.ok(login.Text.includes('fixture-sensitive-code<&>'))
@@ -180,43 +172,6 @@ try {
   assert.ok(!login.HTML.includes('fixture-sensitive-code<&>'))
   assert.equal(login.From.Address, localEnv.SMTP_FROM)
   assert.equal(login.From.Name, localEnv.SMTP_SERVER_NAME)
-  stage = 'cooldown expiry and bounded capacity'
-  mock.timers.enable({ apis: ['Date'], now: Date.now() })
-  try {
-    const expiring = createAuthEmailCallback(
-      createEmailSender(parseEmailConfig(localEnv), 'https://huddle.test'),
-    )
-    await expiring({ email: recipient, otp: 'synthetic-expiry', type: 'email-verification' })
-    await expectedFailure(
-      expiring({ email: recipient, otp: 'synthetic-expiry', type: 'email-verification' }),
-      'rate-limit',
-    )
-    mock.timers.tick(AUTH_EMAIL_COOLDOWN_MS)
-    await expiring({ email: recipient, otp: 'synthetic-expiry', type: 'change-email' })
-    const bounded = createAuthEmailCallback(
-      createEmailSender({ kind: 'disabled' }, 'https://huddle.test'),
-    )
-    for (let index = 0; index < AUTH_EMAIL_MAX_RECIPIENTS; index++)
-      await expectedFailure(
-        bounded({
-          email: `capacity-${index}@huddle.test`,
-          otp: 'synthetic',
-          type: 'forget-password',
-        }),
-        'disabled',
-      )
-    await expectedFailure(
-      bounded({ email: 'over-capacity@huddle.test', otp: 'synthetic', type: 'forget-password' }),
-      'rate-limit',
-    )
-    mock.timers.tick(AUTH_EMAIL_COOLDOWN_MS)
-    await expectedFailure(
-      bounded({ email: 'over-capacity@huddle.test', otp: 'synthetic', type: 'forget-password' }),
-      'disabled',
-    )
-  } finally {
-    mock.timers.reset()
-  }
   const invalid = await cli(localEnv, ['bad\r\nBcc: victim@example.com'])
   assert.notEqual(invalid.code, 0)
   assert.ok(!invalid.output.includes('victim@example.com'))
@@ -253,17 +208,6 @@ try {
       assert.equal(fixture.closes, fixture.connections, 'Failed operation must close SMTP socket')
       if (mode === 'reject') {
         assert.notEqual((await cli(env)).code, 0)
-        const rejectedCallback = createAuthEmailCallback(
-          createEmailSender(parseEmailConfig(env), 'https://huddle.test'),
-        )
-        await expectedFailure(
-          rejectedCallback({ email: recipient, otp: 'synthetic', type: 'sign-in' }),
-          'rejected',
-        )
-        await expectedFailure(
-          rejectedCallback({ email: recipient, otp: 'synthetic', type: 'sign-in' }),
-          'rate-limit',
-        )
       }
     } finally {
       await fixture.close()
@@ -356,8 +300,22 @@ try {
   await rm(join(setupDir, '.env'))
   await run(process.execPath, [join(setupDir, 'scripts/setup.mjs')])
   const fresh = await readFile(join(setupDir, '.env'), 'utf8')
-  assert.ok(fresh.includes('# SMTP_HOST=127.0.0.1'))
-  assert.ok(!/^SMTP_/m.test(fresh), 'fresh SMTP defaults must remain opt-in')
+  assert.equal(
+    parseEmailConfig(
+      Object.fromEntries(
+        fresh
+          .trim()
+          .split('\n')
+          .filter((line) => line.includes('='))
+          .map((line) => {
+            const index = line.indexOf('=')
+            return [line.slice(0, index), line.slice(index + 1)]
+          }),
+      ),
+    ).kind,
+    'smtp',
+    'fresh setup must enable local Mailpit',
+  )
   stage = 'unregistered email OTP route'
   const { auth } = await import('../src/lib/auth')
   const { db } = await import('../src/lib/db')
@@ -374,7 +332,7 @@ try {
     await db.end()
   }
   process.stdout.write(
-    'Email integration passed: real SMTP, TLS, capture, cooldown, bounded failures, safe diagnostics and inactive email OTP.\n',
+    'Email integration passed: real SMTP, TLS, capture, setup preservation, bounded failures, safe diagnostics and inactive email OTP.\n',
   )
 } catch {
   process.stderr.write(

@@ -14,11 +14,14 @@ import {
   Server,
   Users,
   X,
+  Settings,
 } from 'lucide-react'
 import { z } from 'zod'
 import { Channel, Workspace, type Session } from '@huddle/contracts'
-import { Client, errorText } from './client'
+import { errorText, type Transport } from './transport'
 import { useWorkspace } from './useWorkspace'
+import { Avatar } from './Avatar'
+import { Frame } from './primitives'
 
 type Workspaces =
   | { kind: 'loading' }
@@ -30,11 +33,13 @@ export function Chat({
   session,
   onLogout,
   onServer,
+  onSecurity,
 }: {
-  client: Client
+  client: Transport
   session: Session
   onLogout: () => void
-  onServer: () => void
+  onServer?: () => void
+  onSecurity: () => void
 }) {
   const [workspaces, setWorkspaces] = useState<Workspaces>({ kind: 'loading' })
   const [selected, setSelected] = useState<Workspace | null>(null)
@@ -47,9 +52,7 @@ export function Chat({
       .request('/api/workspaces', Workspace.array())
       .then((items) => {
         setWorkspaces({ kind: 'ready', items })
-        setSelected(
-          (current) => items.find((workspace) => workspace.id === current?.id) ?? items[0] ?? null,
-        )
+        setSelected((current) => items.find((workspace) => workspace.id === current?.id) ?? null)
       })
       .catch((error: unknown) => setWorkspaces({ kind: 'failed', message: errorText(error) }))
   }
@@ -76,58 +79,62 @@ export function Chat({
     }
   }
   return (
-    <div className="shell">
-      <nav className="server-rail" aria-label="Workspaces">
-        <div className="app-mark" title="Huddle">
-          <MessageSquare size={24} strokeWidth={2.7} />
-        </div>
-        <div className="rail-divider" />
-        {workspaces.kind === 'ready' &&
-          workspaces.items.map((workspace) => (
-            <button
-              key={workspace.id}
-              className={`workspace-icon ${workspace.id === selected?.id ? 'active' : ''}`}
-              title={workspace.name}
-              aria-label={workspace.name}
-              aria-pressed={workspace.id === selected?.id}
-              onClick={() => setSelected(workspace)}
-            >
-              {workspace.name.slice(0, 2).toUpperCase()}
-            </button>
-          ))}
-        <button
-          className="workspace-icon add"
-          aria-label="Create workspace"
-          title="Create workspace"
-          onClick={() => {
-            setDialog({ kind: 'workspace' })
-            setError('')
-          }}
-        >
-          <Plus size={23} />
-        </button>
-        <button
-          className="workspace-icon add"
-          aria-label="Join workspace"
-          title="Join with invitation"
-          onClick={() => {
-            setDialog({ kind: 'join' })
-            setError('')
-          }}
-        >
-          <Users size={20} />
-        </button>
-        <div className="rail-bottom">
+    <div className={selected ? 'shell' : 'access-shell'}>
+      {selected && (
+        <nav className="server-rail" aria-label="Workspaces">
+          <div className="app-mark" title="Huddle">
+            <MessageSquare size={24} strokeWidth={2.7} />
+          </div>
+          <div className="rail-divider" />
+          {workspaces.kind === 'ready' &&
+            workspaces.items.map((workspace) => (
+              <button
+                key={workspace.id}
+                className={`workspace-icon ${workspace.id === selected?.id ? 'active' : ''}`}
+                title={workspace.name}
+                aria-label={workspace.name}
+                aria-pressed={workspace.id === selected?.id}
+                onClick={() => setSelected(workspace)}
+              >
+                {workspace.name.slice(0, 2).toUpperCase()}
+              </button>
+            ))}
           <button
-            className="icon-button"
-            aria-label="Server settings"
-            title="Server settings"
-            onClick={onServer}
+            className="workspace-icon add"
+            aria-label="Create workspace"
+            title="Create workspace"
+            onClick={() => {
+              setDialog({ kind: 'workspace' })
+              setError('')
+            }}
           >
-            <Server size={20} />
+            <Plus size={23} />
           </button>
-        </div>
-      </nav>
+          <button
+            className="workspace-icon add"
+            aria-label="Join workspace"
+            title="Join with invitation"
+            onClick={() => {
+              setDialog({ kind: 'join' })
+              setError('')
+            }}
+          >
+            <Users size={20} />
+          </button>
+          {onServer && (
+            <div className="rail-bottom">
+              <button
+                className="icon-button"
+                aria-label="Switch server"
+                title="Switch server"
+                onClick={onServer}
+              >
+                <Server size={20} />
+              </button>
+            </div>
+          )}
+        </nav>
+      )}
       {selected ? (
         <WorkspaceView
           key={selected.id}
@@ -135,12 +142,11 @@ export function Chat({
           workspace={selected}
           session={session}
           onLogout={onLogout}
+          onSecurity={onSecurity}
+          onChoose={() => setSelected(null)}
         />
       ) : (
-        <main className="workspace-empty">
-          <div className="empty-orbit">
-            <MessageSquare size={36} />
-          </div>
+        <Frame account={session.user.email} onSignOut={onLogout} onServer={onServer} wide>
           {workspaces.kind === 'loading' ? (
             <h1 role="status">Finding your workspaces…</h1>
           ) : workspaces.kind === 'failed' ? (
@@ -153,28 +159,40 @@ export function Chat({
             </>
           ) : (
             <>
-              <p className="eyebrow">WELCOME TO HUDDLE</p>
-              <h1>Your team starts here.</h1>
-              <p>
-                Create a private workspace for your team,
-                <br />
-                or join one with an invitation from a colleague.
-              </p>
+              <h1>Choose a workspace</h1>
+              <p>Workspaces keep teams and conversations together.</p>
+              <div className="access-workspace-list" style={{ width: 'min(520px, 100%)' }}>
+                {workspaces.items.map((workspace) => (
+                  <button key={workspace.id} onClick={() => setSelected(workspace)}>
+                    <i className="access-server-tile">{workspace.name.slice(0, 1).toUpperCase()}</i>
+                    <span>
+                      {workspace.name}
+                      <small>
+                        {workspace.memberCount} members · {workspace.channelCount} channels
+                      </small>
+                    </span>
+                    <ArrowRight size={17} />
+                  </button>
+                ))}
+              </div>
               <div className="button-row">
-                <button className="primary" onClick={() => setDialog({ kind: 'workspace' })}>
+                <button
+                  className="access-secondary"
+                  onClick={() => setDialog({ kind: 'workspace' })}
+                >
                   <Plus size={17} />
                   Create a workspace
                 </button>
-                <button className="secondary" onClick={() => setDialog({ kind: 'join' })}>
+                <button className="access-secondary" onClick={() => setDialog({ kind: 'join' })}>
                   Join with an invitation
                 </button>
               </div>
+              <button className="text-button" style={{ marginTop: 20 }} onClick={onSecurity}>
+                Account security
+              </button>
             </>
           )}
-          <button className="text-button empty-logout" onClick={onLogout}>
-            Sign out of {session.user.name}
-          </button>
-        </main>
+        </Frame>
       )}
       {dialog.kind !== 'none' && (
         <Modal
@@ -228,11 +246,15 @@ function WorkspaceView({
   workspace,
   session,
   onLogout,
+  onSecurity,
+  onChoose,
 }: {
-  client: Client
+  client: Transport
   workspace: Workspace
   session: Session
   onLogout: () => void
+  onSecurity: () => void
+  onChoose: () => void
 }) {
   const sync = useWorkspace(client, workspace, session.user.id)
   const [dialog, setDialog] = useState<'none' | 'channel' | 'invite'>('none')
@@ -304,7 +326,16 @@ function WorkspaceView({
   return (
     <>
       <aside className="channel-sidebar">
-        <header className="workspace-header">
+        <header
+          className="workspace-header"
+          onClick={onChoose}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onChoose()
+          }}
+          aria-label="Choose workspace"
+        >
           <div>
             <span className="eyebrow">WORKSPACE</span>
             <h2>{workspace.name}</h2>
@@ -370,14 +401,24 @@ function WorkspaceView({
           </button>
         )}
         <footer className="account-bar">
-          <div className="avatar self">
-            {session.user.name.slice(0, 2).toUpperCase()}
-            <i />
-          </div>
+          <Avatar
+            avatar={session.user.avatar}
+            name={session.user.name}
+            photo={client.photo?.bind(client)}
+            size={34}
+          />
           <div className="account-name">
             <strong>{session.user.name}</strong>
             <span>{workspace.role === 'owner' ? 'Workspace owner' : 'Team member'}</span>
           </div>
+          <button
+            className="icon-button"
+            title="Account security"
+            aria-label="Account security"
+            onClick={onSecurity}
+          >
+            <Settings size={17} />
+          </button>
           <button className="icon-button" title="Sign out" aria-label="Sign out" onClick={onLogout}>
             <LogOut size={17} />
           </button>
@@ -475,9 +516,12 @@ function WorkspaceView({
               )}
               {messages.map((message) => (
                 <article className="message" key={message.id}>
-                  <div className={`avatar ${message.authorId === session.user.id ? 'self' : ''}`}>
-                    {message.authorName.slice(0, 2).toUpperCase()}
-                  </div>
+                  <Avatar
+                    avatar={message.authorAvatar}
+                    name={message.authorName}
+                    photo={client.photo?.bind(client)}
+                    size={36}
+                  />
                   <div className="message-content">
                     <div className="message-meta">
                       <strong>{message.authorName}</strong>
@@ -500,7 +544,12 @@ function WorkspaceView({
               ))}
               {pending.map((message) => (
                 <article className={`message pending ${message.kind}`} key={message.retryId}>
-                  <div className="avatar self">{session.user.name.slice(0, 2).toUpperCase()}</div>
+                  <Avatar
+                    avatar={session.user.avatar}
+                    name={session.user.name}
+                    photo={client.photo?.bind(client)}
+                    size={36}
+                  />
                   <div className="message-content">
                     <div className="message-meta">
                       <strong>{session.user.name}</strong>

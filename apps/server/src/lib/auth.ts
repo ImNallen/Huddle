@@ -1,7 +1,9 @@
 import { betterAuth } from 'better-auth'
-import { bearer, deviceAuthorization, genericOAuth } from 'better-auth/plugins'
+import { bearer, genericOAuth } from 'better-auth/plugins'
 import { config, origins } from './config'
 import { db } from './db'
+import { bridgePlugin } from './auth-bridge'
+import { companySession, companyUser } from './auth-provider'
 
 export const auth = betterAuth({
   appName: 'Huddle',
@@ -9,14 +11,13 @@ export const auth = betterAuth({
   secret: config.BETTER_AUTH_SECRET,
   database: db,
   trustedOrigins: [...origins],
-  emailAndPassword: { enabled: true, minPasswordLength: 12 },
+  emailAndPassword: { enabled: false },
+  account: { accountLinking: { enabled: false } },
+  databaseHooks: { session: { create: { after: companySession } } },
   session: { cookieCache: { enabled: false } },
   plugins: [
     bearer(),
-    deviceAuthorization({
-      verificationUri: `${config.SERVER_URL}/device`,
-      validateClient: (clientId) => clientId === 'huddle-desktop',
-    }),
+    bridgePlugin,
     ...(config.OIDC_DISCOVERY_URL && config.OIDC_CLIENT_ID && config.OIDC_CLIENT_SECRET
       ? [
           genericOAuth({
@@ -28,6 +29,8 @@ export const auth = betterAuth({
                 clientSecret: config.OIDC_CLIENT_SECRET,
                 scopes: ['openid', 'profile', 'email'],
                 pkce: true,
+                requireIdTokenVerification: true,
+                getUserInfo: companyUser,
               },
             ],
           }),

@@ -2,7 +2,7 @@
 
 Huddle is a desktop home for your team's conversations. Run your own server, create a private workspace, invite a colleague, and exchange persistent text messages.
 
-The desktop uses Tauri 2, React, and TanStack Router. TanStack Start serves the HTTP API and login pages. Better Auth manages accounts and sessions in PostgreSQL. WebSockets replay committed workspace events. There are no cloud services required for email and password login.
+The desktop uses Tauri 2, React, and TanStack Router. TanStack Start serves the HTTP API and login pages. Better Auth manages accounts and sessions in PostgreSQL. WebSockets replay committed workspace events. Local passwordless sign-in uses SMTP email codes and an authenticator.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ Install Node.js 24 LTS, pnpm 11.23.0, and Docker. Native development also needs 
 ```sh
 pnpm install --frozen-lockfile
 pnpm setup:local
-docker compose up -d db
+docker compose --profile dev up -d db mailpit
 pnpm db:migrate
 pnpm dev
 ```
@@ -61,21 +61,21 @@ The server starts HTTP and WebSocket listeners in one Node service. Configure `P
 
 ## Configure email delivery
 
-SMTP is optional. Existing email and password login works without it. See [send an installation test](docs/email.md) to capture development mail in Mailpit or configure a production relay. Run `pnpm --silent email:test recipient@example.com` to verify relay acceptance before onboarding users.
+SMTP is required for local passwordless login. An installation can instead require company OIDC with `AUTH_POLICY=sso-only`. See [send an installation test](docs/email.md) to capture development mail in Mailpit or configure a production relay. Run `pnpm --silent email:test recipient@example.com` to verify relay acceptance before onboarding users.
 
-Email-code login is not enabled. The prepared sender requires a future TOTP gate across HTTP, WebSockets, and desktop authorization before public activation.
+Email-code login requires an authenticator before chat or desktop admission. New local accounts enroll one and save recovery codes; returning accounts verify their existing authenticator. Passkeys sign in directly with user verification.
 
 ## Configure company login
 
 Set `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` in `.env`. Register this callback URL with your provider:
 
 ```text
-https://YOUR_HUDDLE_SERVER/api/auth/oauth2/callback/company
+https://YOUR_HUDDLE_SERVER/api/auth/callback/company
 ```
 
 Huddle requests `openid`, `profile`, and `email` with PKCE. Company login authenticates an account. It never grants workspace membership based on an email domain.
 
-On native desktop, select **Sign in with your browser**. The browser supports email login and the configured company provider. Check that the displayed code matches your desktop, then approve the request. Better Auth issues the desktop a session token. Polling honors expiry, the server interval, and `slow_down`.
+On native desktop, select **Sign in with your browser**. The browser supports email login and the configured company provider. Check that the displayed code matches your desktop, then approve the request. Huddle issues the desktop an admitted session only after explicit browser approval. Polling honors expiry, the server interval, and `slow_down`.
 
 No company provider credentials ship with this repository. Real company OIDC login has not been verified against an external provider. Email login and the first-party device authorization flow have automated integration coverage.
 
@@ -108,3 +108,7 @@ If Google Chrome is already installed, use `PLAYWRIGHT_CHANNEL=chrome pnpm test:
 The Docker server build and runtime are verified on Node.js 24. Native macOS checks cover launch, signup, invitation redemption, live chat, browser device approval, credential restoration, and logout after restart. Windows and Linux still need native runtime verification. Real company OIDC needs provider credentials. Voice, video, file uploads, message editing, and mobile clients are outside this first slice. LiveKit is planned for media.
 
 See [the architecture](docs/architecture.md) for authorization, event ordering, pending-message storage, and reconnect behavior.
+
+See [passwordless security and operator recovery](docs/passwordless.md) for migration, policy, recovery and verification.
+
+See [passwordless review and verification](docs/passwordless-review.md) for accepted review findings, test recipes and release limits.
