@@ -17,6 +17,7 @@ export const Avatar = z.discriminatedUnion('kind', [
 ])
 
 export const WorkspaceId = z.uuid().brand<'WorkspaceId'>()
+export const RoomId = z.uuid().brand<'RoomId'>()
 export const ChannelId = z.uuid().brand<'ChannelId'>()
 export const UserId = z.string().min(1).brand<'UserId'>()
 export const Cursor = z.string().regex(/^(0|[1-9][0-9]{0,18})$/)
@@ -27,7 +28,13 @@ export const Workspace = z.object({
   memberCount: z.number().int().nonnegative(),
   channelCount: z.number().int().nonnegative(),
 })
-export const Channel = z.object({ id: ChannelId, workspaceId: WorkspaceId, name: z.string() })
+export const Room = z.object({ id: RoomId, workspaceId: WorkspaceId, name: z.string() })
+export const Channel = z.object({
+  id: ChannelId,
+  workspaceId: WorkspaceId,
+  roomId: RoomId,
+  name: z.string(),
+})
 export const Message = z.object({
   id: z.uuid(),
   channelId: ChannelId,
@@ -40,6 +47,7 @@ export const Message = z.object({
   createdAt: z.string(),
 })
 export const WorkspaceEvent = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('room.created'), cursor: Cursor, room: Room }),
   z.object({ kind: z.literal('channel.created'), cursor: Cursor, channel: Channel }),
   z.object({ kind: z.literal('message.created'), cursor: Cursor, message: Message }),
 ])
@@ -53,17 +61,37 @@ export const WatchFrame = z
   })
   .strict()
 export const EventPage = z.object({ kind: z.literal('events'), events: z.array(WorkspaceEvent) })
+export const Unread = z.object({ channelId: ChannelId, count: z.number().int().positive() })
 export const Snapshot = z.object({
   workspace: Workspace,
+  rooms: z.array(Room),
   channels: z.array(Channel),
+  unread: z.array(Unread),
   cursor: Cursor,
 })
+export const HomeItem = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('mention'), message: Message }),
+  z.object({
+    kind: z.literal('channel'),
+    channelId: ChannelId,
+    count: z.number().int().positive(),
+    latest: Message,
+  }),
+])
+export const Home = z.object({ items: z.array(HomeItem) })
+export const MarkRead = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('channel'), channelId: ChannelId, cursor: Cursor }).strict(),
+  z.object({ kind: z.literal('workspace'), workspaceId: WorkspaceId, cursor: Cursor }).strict(),
+])
 export const SendMessage = z
   .object({ channelId: ChannelId, retryId: z.uuid(), body: z.string().trim().min(1).max(8000) })
   .strict()
+export const CreateRoom = z
+  .object({ workspaceId: WorkspaceId, name: z.string().trim().min(1).max(40) })
+  .strict()
 export const CreateChannel = z
   .object({
-    workspaceId: WorkspaceId,
+    roomId: RoomId,
     name: z
       .string()
       .trim()
@@ -93,12 +121,18 @@ export const DeviceCode = z.object({
 })
 export const DeviceToken = z.object({ access_token: z.string() })
 export type Workspace = z.infer<typeof Workspace>
+export type Room = z.infer<typeof Room>
 export type Channel = z.infer<typeof Channel>
+export type Unread = z.infer<typeof Unread>
+export type HomeItem = z.infer<typeof HomeItem>
+export type Home = z.infer<typeof Home>
+export type MarkRead = z.infer<typeof MarkRead>
 export type Message = z.infer<typeof Message>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEvent>
 export type Snapshot = z.infer<typeof Snapshot>
 export type Session = z.infer<typeof Session>
 export type WorkspaceId = z.infer<typeof WorkspaceId>
+export type RoomId = z.infer<typeof RoomId>
 export type ChannelId = z.infer<typeof ChannelId>
 export type UserId = z.infer<typeof UserId>
 
