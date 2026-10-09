@@ -59,6 +59,12 @@ pnpm --filter @huddle/server start
 
 The server starts HTTP and WebSocket listeners in one Node service. Configure `PORT`, `WS_PORT`, and `WS_PUBLIC_URL` together if you change ports.
 
+## Configure email delivery
+
+SMTP is optional. Existing email and password login works without it. See [send an installation test](docs/email.md) to capture development mail in Mailpit or configure a production relay. Run `pnpm email:test recipient@example.com` to verify relay acceptance before onboarding users.
+
+Email-code login is not enabled. The prepared sender requires a future TOTP gate across HTTP, WebSockets, and desktop authorization before public activation.
+
 ## Configure company login
 
 Set `OIDC_DISCOVERY_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` in `.env`. Register this callback URL with your provider:

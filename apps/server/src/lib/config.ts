@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { serverOrigin } from '@huddle/contracts'
+import { parseEmailConfig } from './email-config'
 
 const Environment = z
   .object({
@@ -32,7 +33,7 @@ const Environment = z
     if (env.SERVER_URL.startsWith('https:') && !env.WS_PUBLIC_URL.startsWith('wss:'))
       ctx.addIssue({ code: 'custom', message: 'HTTPS installations require WSS.' })
   })
-export const config = Environment.parse(process.env)
+export const config = { ...Environment.parse(process.env), EMAIL: parseEmailConfig(process.env) }
 export const origins = new Set([
   config.SERVER_URL,
   ...config.TRUSTED_ORIGINS.split(',').filter(Boolean),
