@@ -8,7 +8,9 @@
     "start": "node --env-file=../../.env --import tsx runtime/production.ts",
     "typecheck": "tsc",
     "db:migrate": "node --env-file=../../.env --import tsx scripts/migrate.ts",
-    "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts"
+    "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts",
+    "email:test": "node --env-file=../../.env --import tsx scripts/email-test.ts",
+    "test:email": "node --env-file=../../.env --import tsx scripts/email-integration.ts"
   },
   "dependencies": {
     "@huddle/contracts": "workspace:*",
@@ -21,9 +23,11 @@
     "react-dom": "19.3.0",
     "ws": "8.18.3",
     "zod": "4.6.5",
-    "tsx": "4.20.6"
+    "tsx": "4.20.6",
+    "nodemailer": "10.0.16"
   },
   "devDependencies": {
+    "@types/nodemailer": "8.0.2",
     "@types/pg": "8.15.6",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",

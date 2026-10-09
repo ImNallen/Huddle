@@ -14,7 +14,9 @@
     "desktop": "pnpm --filter @huddle/desktop tauri dev",
     "setup:local": "node scripts/setup.mjs",
     "test:ui": "playwright test",
-    "format:check": "prettier --check apps packages scripts tests *.json *.ts README.md docs"
+    "format:check": "prettier --check apps packages scripts tests *.json *.ts README.md docs",
+    "email:test": "pnpm --silent --filter @huddle/server email:test",
+    "test:email": "pnpm --filter @huddle/server test:email"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
