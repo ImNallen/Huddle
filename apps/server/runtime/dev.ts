@@ -2,6 +2,8 @@ import { createServer } from 'vite'
 import { startRealtime } from '../src/lib/realtime'
 import { db } from '../src/lib/db'
 import { pruneAccess } from '../src/lib/access-maintenance'
+import { prepareSetup } from '../src/lib/admission'
+await prepareSetup()
 const realtime = await startRealtime()
 const vite = await createServer()
 await vite.listen()

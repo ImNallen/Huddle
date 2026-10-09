@@ -120,7 +120,7 @@ export function Connect({
         </div>
       )}
       <p className="access-footer">
-        Huddle is hosted by your company. Your account and workspaces belong to the server you
+        Huddle is hosted by your company. Your account, rooms and messages live on the server you
         connect to.
       </p>
     </Frame>

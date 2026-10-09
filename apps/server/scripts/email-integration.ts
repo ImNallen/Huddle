@@ -19,6 +19,7 @@ const recipient = emailRecipient(`${randomUUID()}@huddle.test`)
 const smtpHost = process.env.TEST_SMTP_HOST ?? '127.0.0.1'
 const smtpPort = process.env.TEST_SMTP_PORT ?? '1025'
 const mailpitUrl = process.env.TEST_MAILPIT_URL ?? 'http://127.0.0.1:8025'
+const senderName = 'Huddle <team> & "friends"'
 const localEnv: NodeJS.ProcessEnv = {
   ...process.env,
   NODE_ENV: 'development',
@@ -26,7 +27,7 @@ const localEnv: NodeJS.ProcessEnv = {
   SMTP_PORT: smtpPort,
   SMTP_SECURITY: 'local',
   SMTP_FROM: 'sender@huddle.test',
-  SMTP_SERVER_NAME: 'Huddle <team> & "friends"',
+  SMTP_SERVER_NAME: senderName,
 }
 delete localEnv.SMTP_USERNAME
 delete localEnv.SMTP_PASSWORD
@@ -129,6 +130,7 @@ try {
     )({
       kind: 'installation-test',
       recipient,
+      serverName: 'Huddle',
     }),
     'disabled',
   )
@@ -151,17 +153,37 @@ try {
     !rootCommand.stderr.includes('fixture-sensitive'),
     'Root command stderr must omit SMTP response secrets',
   )
-  await createEmailSender(
-    parseEmailConfig(localEnv),
-    'https://huddle.test',
-  )({
+  const send = createEmailSender(parseEmailConfig(localEnv), 'https://huddle.test')
+  await send({
     kind: 'authentication-code',
     recipient,
+    serverName: senderName,
     code: 'fixture-sensitive-code<&>',
     purpose: 'sign-in',
   })
+  await send({
+    kind: 'invitation',
+    recipient,
+    serverName: 'Harbor <ops> & co',
+    inviter: 'Ada "admin" <ada>',
+    expiresAt: '2026-10-16T09:30:00.000Z',
+  })
+  await send({ kind: 'no-account', recipient, serverName: 'Harbor <ops> & co' })
   const messages = await captured()
-  assert.equal(messages.length, 3, 'Both CLI commands and the authentication message must deliver')
+  assert.equal(messages.length, 5, 'Both CLI commands and three server messages must deliver')
+  const invitation = messages.find((message) => message.Subject.includes('invited you to'))
+  assert.ok(invitation)
+  assert.equal(invitation.Subject, 'Ada "admin" <ada> invited you to Harbor <ops> & co')
+  assert.ok(invitation.Text.includes('Open https://huddle.test/login and continue with'))
+  assert.ok(invitation.Text.includes('expires on October 16, 2026'))
+  assert.ok(invitation.HTML.includes('Ada &quot;admin&quot; &lt;ada&gt;'))
+  assert.ok(invitation.HTML.includes('Harbor &lt;ops&gt; &amp; co'))
+  assert.equal(invitation.From.Name, localEnv.SMTP_SERVER_NAME)
+  const refusal = messages.find((message) => message.Subject.endsWith('sign-in request'))
+  assert.ok(refusal)
+  assert.ok(refusal.Text.includes('there is no account for it on this server'))
+  assert.ok(refusal.Text.includes('ask an admin of Harbor <ops> & co to invite'))
+  assert.ok(!/\b\d{6}\b/.test(refusal.Text), 'The no-account email carries no code')
   const login = messages.find((message) => message.Subject.endsWith('authentication code'))
   assert.ok(login)
   assert.ok(login.Text.includes('fixture-sensitive-code<&>'))
@@ -197,6 +219,7 @@ try {
         )({
           kind: 'installation-test',
           recipient,
+          serverName: 'Huddle',
         }),
         kind,
       )

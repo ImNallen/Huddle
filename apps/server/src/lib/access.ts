@@ -15,8 +15,17 @@ import { auth } from './auth'
 import { delivery } from './auth-bridge'
 import { config } from './config'
 import { db } from './db'
-import { createEmailSender } from './email'
 import { emailRecipient } from './email-config'
+import {
+  admitEmail,
+  checkSetupCode,
+  mayReceiveCode,
+  sendEmail,
+  serverName,
+  setupHash,
+  setupRequired,
+  type Admission,
+} from './admission'
 import {
   AccessFailure,
   digest,
@@ -32,7 +41,6 @@ import {
   type Pending,
 } from './access-store'
 
-const sendEmail = createEmailSender(config.EMAIL, config.SERVER_URL)
 const Proof = z.object({
   epoch: z.number(),
   method: z.enum(['totp', 'recovery', 'passkey', 'company']),
@@ -41,10 +49,7 @@ const Proof = z.object({
   avatar: Avatar,
   recovery_pending: z.string().nullable(),
 })
-export async function requireAccess(
-  headers: Headers,
-  purpose: 'workspace' | 'account' = 'workspace',
-) {
+export async function requireAccess(headers: Headers, purpose: 'server' | 'account' = 'server') {
   const session = await auth.api.getSession({ headers })
   if (!session) throw new AccessFailure('reauth_required')
   const result = await db.query(
@@ -57,7 +62,7 @@ export async function requireAccess(
   if (proof.recovery_pending) proof.stage = 'save-recovery'
   if (config.AUTH_POLICY === 'sso-only' && proof.method !== 'company')
     throw new AccessFailure('reauth_required')
-  if (purpose === 'workspace' && proof.stage !== 'ready') throw new AccessFailure('reauth_required')
+  if (purpose === 'server' && proof.stage !== 'ready') throw new AccessFailure('reauth_required')
   return { ...session, user: PublicUser.parse({ ...session.user, avatar: proof.avatar }), proof }
 }
 export type Principal = Awaited<ReturnType<typeof requireAccess>>
@@ -105,13 +110,13 @@ async function publicUser(userId: string) {
   )
   return PublicUser.parse(result.rows[0])
 }
-const signin = (): AccessStage => ({
-  kind: 'signin',
-  methods:
-    config.AUTH_POLICY === 'sso-only'
-      ? ['company']
-      : ['email', 'passkey', ...(config.OIDC_DISCOVERY_URL ? ['company' as const] : [])],
-})
+async function entry(): Promise<AccessStage> {
+  const company = config.OIDC_DISCOVERY_URL ? (['company'] as const) : []
+  const local = config.AUTH_POLICY === 'mixed'
+  if (await setupRequired())
+    return { kind: 'setup', methods: local ? ['email', ...company] : ['company'] }
+  return { kind: 'signin', methods: local ? ['email', 'passkey', ...company] : ['company'] }
+}
 export async function viewFor(request: Request): Promise<AccessView> {
   const principal = await optionalPrincipal(request)
   if (principal?.proof.recovery_pending)
@@ -129,7 +134,7 @@ export async function viewFor(request: Request): Promise<AccessView> {
       const epoch = await db.query('SELECT epoch FROM account_security WHERE user_id=$1', [
         pending.user_id,
       ])
-      if (epoch.rows[0]?.epoch !== pending.epoch) return { stage: signin() }
+      if (epoch.rows[0]?.epoch !== pending.epoch) return { stage: await entry() }
     }
     switch (pending.pending.kind) {
       case 'email':
@@ -160,7 +165,7 @@ export async function viewFor(request: Request): Promise<AccessView> {
         break
     }
   }
-  if (!principal) return { stage: signin() }
+  if (!principal) return { stage: await entry() }
   if (principal.proof.stage === 'save-recovery') throw new AccessFailure('expired')
   if (principal.proof.stage === 'passkey-offer') return { stage: { kind: 'passkey-offer' } }
   if (principal.proof.stage === 'profile')
@@ -289,7 +294,7 @@ async function advance(
   if (command.kind === 'signout') {
     if (actor) await db.query('DELETE FROM session WHERE id=$1', [actor.session.id])
     if (oldToken) await db.query('DELETE FROM access_ceremony WHERE id_hash=$1', [digest(oldToken)])
-    return respond(request, { stage: signin() }, { clear: true })
+    return respond(request, { stage: await entry() }, { clear: true })
   }
   if (command.kind === 'reset.request') {
     localAllowed()
@@ -300,11 +305,24 @@ async function advance(
     ])
     return respond(request, await viewFor(request))
   }
-  if (command.kind === 'email.send' || command.kind === 'reset.redeem') {
+  if (
+    command.kind === 'email.send' ||
+    command.kind === 'setup.start' ||
+    command.kind === 'reset.redeem'
+  ) {
     localAllowed()
     let email: string
     let resetId: string | undefined
-    if (command.kind === 'reset.redeem') {
+    let admission: Admission = { kind: 'account' }
+    if (command.kind === 'setup.start') {
+      await checkSetupCode(command.code)
+      email = command.email.toLowerCase()
+      admission = {
+        kind: 'setup',
+        serverName: command.serverName,
+        setupHash: setupHash(command.code),
+      }
+    } else if (command.kind === 'reset.redeem') {
       const row = await db.query(
         'SELECT id,email FROM account_reset WHERE capability_hash=$1 AND expires_at>now() AND used_at IS NULL',
         [digest(`reset:${command.capability}`)],
@@ -319,6 +337,8 @@ async function advance(
         if (error instanceof AccessFailure && error.code === 'expired') return null
         throw error
       })
+      if (previous?.pending.kind === 'email' && previous.pending.email === email)
+        admission = previous.pending.admission
       if (
         previous?.pending.kind === 'email' &&
         previous.pending.email === email &&
@@ -344,6 +364,7 @@ async function advance(
         codeHash: digest(`${token}:${code}`),
         resendAt: new Date(Date.now() + 60000).toISOString(),
         resetId,
+        admission,
       },
       null,
       null,
@@ -351,12 +372,13 @@ async function advance(
       300,
     )
     try {
-      await sendEmail({
-        kind: 'authentication-code',
-        recipient: emailRecipient(email),
-        code,
-        purpose: 'sign-in',
-      })
+      const recipient = emailRecipient(email)
+      const name = await serverName()
+      await sendEmail(
+        admission.kind === 'setup' || (await mayReceiveCode(email))
+          ? { kind: 'authentication-code', recipient, serverName: name, code, purpose: 'sign-in' }
+          : { kind: 'no-account', recipient, serverName: name },
+      )
     } catch {
       await db.query('DELETE FROM access_ceremony WHERE id_hash=$1', [digest(token)])
       throw new AccessFailure('unavailable')
@@ -499,7 +521,7 @@ async function advance(
       await sql.query('DELETE FROM session WHERE id=$1', [actor.session.id])
     })
     if (command.change.kind === 'session.revoke' && command.change.id === actor.session.id)
-      return respond(request, { stage: signin() }, { clear: true })
+      return respond(request, { stage: await entry() }, { clear: true })
     const headers = new Headers(request.headers)
     if (rotated) headers.set('authorization', `Bearer ${rotated.session.token}`)
     headers.set('x-huddle-client', 'native')
@@ -532,22 +554,9 @@ async function advance(
     if (snapshot.pending.codeHash !== digest(`${oldToken}:${command.code}`))
       throw new AccessFailure('invalid')
     const emailPending = snapshot.pending
-    const ctx = await auth.$context
-    let found = await ctx.internalAdapter.findUserByEmail(snapshot.pending.email)
-    if (!found) {
-      await ctx.internalAdapter.createUser(
-        {
-          email: snapshot.pending.email,
-          name: snapshot.pending.email.split('@')[0] ?? 'Member',
-          emailVerified: true,
-        },
-        { method: 'email-otp' },
-      )
-      found = await ctx.internalAdapter.findUserByEmail(snapshot.pending.email)
-    }
-    if (!found) throw new AccessFailure('unavailable')
     await transaction(async (sql) => {
-      const account = await lockAccount(sql, found.user.id)
+      const userId = await admitEmail(sql, emailPending.email, emailPending.admission)
+      const account = await lockAccount(sql, userId)
       const current = await loadCeremony(oldToken, sql, true)
       if (
         !current ||
@@ -555,16 +564,14 @@ async function advance(
         current.pending.codeHash !== emailPending.codeHash
       )
         throw new AccessFailure('invalid')
-      const factor = await sql.query('SELECT user_id FROM local_factor WHERE user_id=$1', [
-        found.user.id,
-      ])
+      const factor = await sql.query('SELECT user_id FROM local_factor WHERE user_id=$1', [userId])
       const established = await sql.query(
         'SELECT 1 FROM access_passkey WHERE user_id=$1 UNION ALL SELECT 1 FROM account_security WHERE user_id=$1 AND company_established_at IS NOT NULL',
-        [found.user.id],
+        [userId],
       )
       if (!factor.rowCount && established.rowCount && !current.pending.resetId)
         throw new AccessFailure('reauth_required')
-      await sql.query('UPDATE "user" SET "emailVerified"=true WHERE id=$1', [found.user.id])
+      await sql.query('UPDATE "user" SET "emailVerified"=true WHERE id=$1', [userId])
       await putCeremony(
         sql,
         oldToken,
@@ -573,7 +580,7 @@ async function advance(
           : factor.rowCount
             ? { kind: 'totp' }
             : enrollment(false),
-        found.user.id,
+        userId,
         account.epoch,
       )
     })
@@ -693,10 +700,12 @@ export async function accessRequest(request: Request, trustedIp?: string) {
   const command = AccessCommand.parse(JSON.parse(body))
   if (
     command.kind === 'email.send' ||
+    command.kind === 'setup.start' ||
     command.kind === 'reset.redeem' ||
     command.kind === 'reset.request'
   )
     await limit(`send-ip:${trustedIp ?? 'unavailable'}`, 100, 3600)
+  if (command.kind === 'setup.start') await limit(`setup-ip:${trustedIp ?? 'unavailable'}`, 10, 900)
   if ('code' in command) await limit(`verify-ip:${trustedIp ?? 'unavailable'}`, 300, 900)
   return advance(request, command)
 }

@@ -1,43 +1,98 @@
 import assert from 'node:assert/strict'
-import { z } from 'zod'
-import { db } from '../src/lib/db'
-import { config } from '../src/lib/config'
+import { randomUUID } from 'node:crypto'
+import { AccessView } from '@huddle/contracts'
+import {
+  Client,
+  migratedDatabase,
+  onboard,
+  startOidcFixture,
+  startServer,
+  syntheticEmail,
+  type ServerProcess,
+} from './harness'
 
+const port = 3330
+const setupCode = `policy-${randomUUID()}`
+const database = await migratedDatabase()
+const fixture = await startOidcFixture(3392, {
+  sub: `policy-${randomUUID()}`,
+  email: syntheticEmail('policy'),
+})
+let server: ServerProcess | undefined
+async function serve(policy: 'mixed' | 'sso-only') {
+  await server?.stop()
+  server = await startServer({
+    databaseUrl: database.url,
+    port,
+    entry: 'scripts/access-test-server.ts',
+    env: {
+      AUTH_POLICY: policy,
+      SETUP_CODE: setupCode,
+      ...fixture.serverEnv,
+    },
+  })
+  return server.origin
+}
+async function stage(origin: string) {
+  return AccessView.parse(await (await fetch(`${origin}/api/access`)).json()).stage
+}
 try {
-  assert.equal(config.AUTH_POLICY, 'sso-only')
-  const proof =
-    await db.query(`SELECT s.token FROM session s JOIN session_proof p ON p.session_id=s.id JOIN account_security a ON a.user_id=p.user_id AND a.epoch=p.epoch JOIN "user" u ON u.id=p.user_id
-    WHERE p.method='totp' AND p.stage='ready' AND s."expiresAt">now() AND u.email LIKE 'access-%@huddle.test' ORDER BY s."createdAt" DESC LIMIT 1`)
-  const token = z.string().parse(proof.rows[0]?.token)
-  for (const path of ['/api/workspaces', '/api/account', '/api/watch-ticket']) {
-    const response = await fetch(`${config.SERVER_URL}${path}`, {
-      method: path.endsWith('watch-ticket') ? 'POST' : 'GET',
-      headers: { Origin: config.SERVER_URL, Authorization: `Bearer ${token}` },
-    })
-    assert.equal(response.status, 401)
-  }
+  let origin = await serve('sso-only')
+  assert.deepEqual(
+    await stage(origin),
+    { kind: 'setup', methods: ['company'] },
+    'an SSO-only server that is not set up offers company setup only',
+  )
+  const localSetup = await new Client(origin).call('/api/access', {
+    kind: 'setup.start',
+    code: setupCode,
+    serverName: 'Policy check',
+    email: 'admin@huddle.test',
+  })
+  assert.equal(localSetup.response.status, 503, 'SSO-only refuses email onboarding')
+
+  origin = await serve('mixed')
+  const admin = new Client(origin)
+  await onboard(admin, { code: setupCode, serverName: 'Policy check' })
+  const bearer = new Client(origin)
+  bearer.token = admin.sessionToken()
+  assert.equal(
+    (await bearer.call('/api/snapshot')).response.status,
+    200,
+    'the TOTP-proved admin session reads the server under the mixed policy',
+  )
+
+  origin = await serve('sso-only')
+  for (const client of [admin, bearer])
+    for (const [path, body] of [
+      ['/api/snapshot', undefined],
+      ['/api/account', undefined],
+      ['/api/watch-ticket', {}],
+    ] as const)
+      assert.equal(
+        (await client.call(path, body)).response.status,
+        401,
+        `SSO-only denies the local session ${client === bearer ? 'bearer' : 'cookie'} at ${path}`,
+      )
   for (const [path, body] of [
     ['/api/access', { kind: 'email.send', email: 'blocked@huddle.test' }],
     ['/api/access/passkey/authenticate/options', { purpose: 'signin' }],
-  ] satisfies [string, object][]) {
+  ] as const)
     assert.equal(
-      (
-        await fetch(`${config.SERVER_URL}${path}`, {
-          method: 'POST',
-          headers: { Origin: config.SERVER_URL, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-      ).status,
+      (await new Client(origin).call(path, body)).response.status,
       503,
+      `SSO-only refuses ${path}`,
     )
-  }
-  const view = z
-    .object({ stage: z.object({ kind: z.literal('signin'), methods: z.array(z.string()) }) })
-    .parse(await (await fetch(`${config.SERVER_URL}/api/access`)).json())
-  assert.deepEqual(view.stage.methods, ['company'])
+  assert.deepEqual(
+    await stage(origin),
+    { kind: 'signin', methods: ['company'] },
+    'an onboarded SSO-only server offers company sign-in only',
+  )
   process.stdout.write(
-    'PASS SSO-only denies previously proved synthetic local sessions and local authentication routes.\n',
+    'PASS SSO-only offers company-only setup and sign-in, refuses email onboarding, and denies previously proved local sessions and local authentication routes.\n',
   )
 } finally {
-  await db.end()
+  await server?.stop()
+  await fixture.stop()
+  await database.drop()
 }

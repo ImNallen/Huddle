@@ -35,7 +35,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://huddle:huddle-ci@localhost:5432/huddle_ci
       PLAYWRIGHT_CHANNEL: chrome
-      HUDDLE_UI_MAILPIT_URL: http://127.0.0.1:8025
       MAILPIT_URL: http://127.0.0.1:8025
     steps:
       - name: Checkout
@@ -57,37 +56,16 @@ jobs:
           TEST_SMTP_PORT: '1025'
           TEST_MAILPIT_URL: http://127.0.0.1:8025
       - run: pnpm test:integration
+      - run: pnpm --filter @huddle/server test:rooms-migration
       - name: Verify passwordless security
         working-directory: apps/server
         run: |
-          node --env-file=../../.env --import tsx scripts/access-test-server.ts &
-          access_server_pid=$!
-          trap 'kill "$access_server_pid" 2>/dev/null || true; wait "$access_server_pid" 2>/dev/null || true' EXIT
-          for attempt in {1..50}; do
-            curl --fail --silent http://localhost:3000/api/health && break
-            sleep 0.2
-          done
-          curl --fail --silent http://localhost:3000/api/health
           pnpm test:access
           node --env-file=../../.env --import tsx scripts/access-body-check.ts
       - name: Verify company recovery and restart boundaries
         working-directory: apps/server
         run: |
           node --env-file=../../.env --import tsx scripts/company-discovery-check.ts
-          export PORT=3180 WS_PORT=3181 SERVER_URL=http://localhost:3180
-          export OIDC_FIXTURE_PORT=3184 OIDC_FIXTURE_ISSUER=http://127.0.0.1:3184
-          export OIDC_DISCOVERY_URL="$OIDC_FIXTURE_ISSUER/.well-known/openid-configuration"
-          export OIDC_CLIENT_ID=huddle-test OIDC_CLIENT_SECRET=huddle-test-secret
-          export OIDC_FIXTURE_EMAIL="review-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@huddle.test"
-          export OIDC_FIXTURE_SUBJECT="review-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          node ../../tests/fixtures/oidc-provider.mjs &
-          oidc_fixture_pid=$!
-          trap 'kill "$oidc_fixture_pid" 2>/dev/null || true; wait "$oidc_fixture_pid" 2>/dev/null || true' EXIT
-          for attempt in {1..50}; do
-            curl --fail --silent "$OIDC_DISCOVERY_URL" && break
-            sleep 0.2
-          done
-          curl --fail --silent "$OIDC_DISCOVERY_URL"
           node --env-file=../../.env --import tsx scripts/access-review-check.ts
       - run: pnpm test:ui
 

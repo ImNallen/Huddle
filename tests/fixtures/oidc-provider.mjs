@@ -5,8 +5,8 @@ const port = Number(process.env.OIDC_FIXTURE_PORT ?? 3174)
 const base = process.env.OIDC_FIXTURE_ISSUER ?? `http://127.0.0.1:${port}`
 const clientId = process.env.OIDC_FIXTURE_CLIENT_ID ?? 'huddle-test'
 const clientSecret = process.env.OIDC_FIXTURE_CLIENT_SECRET ?? 'huddle-test-secret'
-const subject = process.env.OIDC_FIXTURE_SUBJECT ?? 'fixture-user-1'
-const email = process.env.OIDC_FIXTURE_EMAIL ?? 'oidc-fixture@huddle.test'
+let subject = process.env.OIDC_FIXTURE_SUBJECT ?? 'fixture-user-1'
+let email = process.env.OIDC_FIXTURE_EMAIL ?? 'oidc-fixture@huddle.test'
 const modes = new Set([
   'valid',
   'missing_id_token',
@@ -148,6 +148,13 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/__fixture/mode')
       return json(response, 200, { mode })
+    if (request.method === 'POST' && url.pathname === '/__fixture/identity') {
+      const params = await bodyParams(request)
+      if (!params.get('sub') || !params.get('email')) return bad(response, 'invalid_identity')
+      subject = params.get('sub')
+      email = params.get('email')
+      return json(response, 200, { sub: subject, email })
+    }
     if (url.pathname === '/authorize' && request.method === 'GET') {
       if (!validAuthorize(url.searchParams)) return bad(response, 'invalid_request')
       return html(response, formPage(url.searchParams))

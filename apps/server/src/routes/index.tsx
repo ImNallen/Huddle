@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 export const Route = createFileRoute('/')({ component: Home })
 function Home() {
   return (
-    <main className="card">
+    <main className="landing">
       <div className="brand">
         huddle<span>●</span>
       </div>
@@ -10,7 +10,7 @@ function Home() {
       <h1>A place to work together.</h1>
       <p>
         This Huddle server is ready for your desktop app. Connect the app to this server's address
-        to create a workspace or join your team.
+        to sign in. New here? Ask an admin of this server for an invite.
       </p>
       <a className="button" href="/login">
         Sign in to your account

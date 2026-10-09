@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Check, Copy, Hash, X } from 'lucide-react'
-import { z } from 'zod'
-import { Channel, Room, Workspace, type RoomId, type WorkspaceId } from '@huddle/contracts'
+import { Hash, X } from 'lucide-react'
+import { Channel, Invitation, Room, type RoomId } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 
 function Modal({
@@ -89,61 +88,12 @@ function FormDialog({
     </Modal>
   )
 }
-export function WorkspaceDialog({
-  kind,
-  client,
-  onClose,
-  onDone,
-}: {
-  kind: 'create' | 'join'
-  client: Transport
-  onClose: () => void
-  onDone: (workspace: Workspace) => void
-}) {
-  return kind === 'join' ? (
-    <FormDialog
-      title="Join your team"
-      description="Paste the one-use invitation code from a workspace owner."
-      action="Join workspace"
-      onClose={onClose}
-      submit={async (form) =>
-        onDone(
-          await client.request('/api/invitations/redeem', Workspace, {
-            code: String(form.get('code')).trim(),
-          }),
-        )
-      }
-    >
-      <label className="field">
-        Invitation code
-        <input name="code" required autoFocus autoComplete="off" />
-      </label>
-    </FormDialog>
-  ) : (
-    <FormDialog
-      title="Create a workspace"
-      description="A workspace holds your team’s rooms. Only people you invite can join."
-      action="Create workspace"
-      onClose={onClose}
-      submit={async (form) =>
-        onDone(await client.request('/api/workspaces', Workspace, { name: form.get('name') }))
-      }
-    >
-      <label className="field">
-        Workspace name
-        <input name="name" placeholder="e.g. Harbor & Co." maxLength={60} required autoFocus />
-      </label>
-    </FormDialog>
-  )
-}
 export function RoomDialog({
   client,
-  workspaceId,
   onClose,
   onDone,
 }: {
   client: Transport
-  workspaceId: WorkspaceId
   onClose: () => void
   onDone: (room: Room) => void
 }) {
@@ -154,7 +104,7 @@ export function RoomDialog({
       action="Create room"
       onClose={onClose}
       submit={async (form) =>
-        onDone(await client.request('/api/rooms', Room, { workspaceId, name: form.get('name') }))
+        onDone(await client.request('/api/rooms', Room, { name: form.get('name') }))
       }
     >
       <label className="field">
@@ -209,65 +159,53 @@ export function ChannelDialog({
 }
 export function InviteDialog({
   client,
-  workspaceId,
+  serverName,
   onClose,
 }: {
   client: Transport
-  workspaceId: WorkspaceId
+  serverName: string
   onClose: () => void
 }) {
-  const [invitation, setInvitation] = useState<string | null>(null)
-  const [error, setError] = useState('')
-  const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    const abort = new AbortController()
-    client
-      .request(
-        '/api/invitations',
-        z.object({ code: z.string(), expiresAt: z.string() }),
-        { workspaceId },
-        abort.signal,
-      )
-      .then((result) => setInvitation(result.code))
-      .catch((failure: unknown) => {
-        if (!abort.signal.aborted) setError(errorText(failure))
-      })
-    return () => abort.abort()
-  }, [client, workspaceId])
+  const [sent, setSent] = useState<Invitation | null>(null)
+  if (sent)
+    return (
+      <Modal
+        title="Invitation sent"
+        description={`${sent.email} can now join ${serverName}. The invitation expires on ${new Date(sent.expiresAt).toLocaleDateString([], { dateStyle: 'long' })}.`}
+        onClose={onClose}
+      >
+        <div className="modal-actions">
+          <button type="button" className="button" onClick={() => setSent(null)}>
+            Invite someone else
+          </button>
+          <button type="button" className="button primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </Modal>
+    )
   return (
-    <Modal
+    <FormDialog
       title="Invite coworkers"
-      description="Share this invitation with one coworker. It can be used once and expires in 24 hours."
+      description={`Huddle emails them an invitation to join ${serverName}. They sign in with this address to create their account. Invitations expire after 7 days; inviting the same address again sends a fresh one.`}
+      action="Send invitation"
       onClose={onClose}
+      submit={async (form) =>
+        setSent(await client.request('/api/invitations', Invitation, { email: form.get('email') }))
+      }
     >
-      {!invitation && !error && <p className="modal-note">Creating your invitation…</p>}
-      {invitation && (
-        <>
-          <label className="field">
-            Invitation code
-            <input readOnly value={invitation} onFocus={(event) => event.target.select()} />
-          </label>
-          <div className="modal-actions">
-            <button
-              className="button primary"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(invitation)
-                  .then(() => setCopied(true))
-                  .catch((failure: unknown) => setError(errorText(failure)))
-              }}
-            >
-              {copied ? <Check size={15} /> : <Copy size={15} />}
-              {copied ? 'Copied' : 'Copy invitation'}
-            </button>
-          </div>
-        </>
-      )}
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
-    </Modal>
+      <label className="field">
+        Work email
+        <input
+          name="email"
+          type="email"
+          placeholder="name@company.com"
+          autoComplete="off"
+          maxLength={254}
+          required
+          autoFocus
+        />
+      </label>
+    </FormDialog>
   )
 }

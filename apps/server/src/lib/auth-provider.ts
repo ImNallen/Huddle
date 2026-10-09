@@ -1,10 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { APIError } from 'better-auth/api'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { z } from 'zod'
+import { ServerName, SetupCode } from '@huddle/contracts'
+import { acceptInvitation, checkSetupCode, onboard, setupHash } from './admission'
 import { config } from './config'
+import { db } from './db'
 import {
   AccessFailure,
   digest,
+  limit,
   loadCeremony,
   lockAccount,
   opaque,
@@ -15,8 +20,29 @@ import {
 export const providerRequest = new AsyncLocalStorage<{
   subject?: string
   issuer?: string
-  firstPasskeyToken?: string | null
+  continuation?: string | null
 }>()
+async function pendingCompany(sql: Parameters<typeof loadCeremony>[1]) {
+  return loadCeremony(providerRequest.getStore()?.continuation ?? null, sql, true).catch(
+    (error) => {
+      if (error instanceof AccessFailure && error.code === 'expired') return null
+      throw error
+    },
+  )
+}
+export async function companyAdmission(user: { email: string }) {
+  const setup = await pendingCompany(db)
+  if (setup?.pending.kind === 'company-setup') return
+  const invited = await db.query(
+    'SELECT 1 FROM invitation WHERE email = $1 AND accepted_at IS NULL AND expires_at > now()',
+    [user.email.toLowerCase()],
+  )
+  if (invited.rowCount) return
+  throw new APIError('FORBIDDEN', {
+    code: 'not_invited',
+    message: 'This company account has no invitation to this server. Ask an admin to invite you.',
+  })
+}
 const Discovery = z.object({
   issuer: z.url(),
   jwks_uri: z.url(),
@@ -95,13 +121,13 @@ export async function companySession(session: { id: string; userId: string }) {
       [session.userId],
     )
     let firstPasskey = false
-    const token = providerRequest.getStore()?.firstPasskeyToken
+    const token = providerRequest.getStore()?.continuation
     if (token) {
-      const pending = await loadCeremony(token, sql, true).catch((error) => {
-        if (error instanceof AccessFailure && error.code === 'expired') return null
-        throw error
-      })
-      if (
+      const pending = await pendingCompany(sql)
+      if (pending?.pending.kind === 'company-setup') {
+        await onboard(sql, session.userId, pending.pending.serverName, pending.pending.setupHash)
+        await sql.query('DELETE FROM access_ceremony WHERE id_hash=$1', [digest(token)])
+      } else if (
         pending?.pending.kind === 'company-passkey' ||
         pending?.pending.kind === 'company-session'
       ) {
@@ -138,6 +164,8 @@ export async function companySession(session: { id: string; userId: string }) {
         await sql.query('DELETE FROM access_ceremony WHERE id_hash=$1', [digest(token)])
       }
     }
+    const user = await sql.query('SELECT email FROM "user" WHERE id=$1', [session.userId])
+    await acceptInvitation(sql, session.userId, z.string().parse(user.rows[0]?.email))
     let stage =
       config.AUTH_POLICY === 'mixed' &&
       !factors.rowCount &&
@@ -169,6 +197,14 @@ export async function companyRequest(request: Request) {
         z
           .object({
             ...common,
+            purpose: z.literal('setup'),
+            code: SetupCode,
+            serverName: ServerName,
+          })
+          .strict(),
+        z
+          .object({
+            ...common,
             purpose: z.literal('session-security'),
             change: z.discriminatedUnion('kind', [
               z
@@ -182,7 +218,20 @@ export async function companyRequest(request: Request) {
       .parse(await request.json())
     const callback = new URL(input.callbackURL, config.SERVER_URL)
     if (callback.origin !== config.SERVER_URL) throw new AccessFailure('invalid')
-    if ('purpose' in input) {
+    if ('purpose' in input && input.purpose === 'setup') {
+      await limit('company-setup', 20, 900)
+      await checkSetupCode(input.code)
+      token = opaque()
+      await putCeremony(
+        db,
+        token,
+        { kind: 'company-setup', serverName: input.serverName, setupHash: setupHash(input.code) },
+        null,
+        null,
+        null,
+        300,
+      )
+    } else if ('purpose' in input) {
       if (input.purpose === 'first-passkey' && config.AUTH_POLICY !== 'mixed')
         throw new AccessFailure('unavailable')
       const actor = await requireAccess(request.headers)
@@ -217,12 +266,15 @@ export async function companyRequest(request: Request) {
     providerInput = new Request(`${config.SERVER_URL}/api/auth/sign-in/social`, {
       method: 'POST',
       headers: request.headers,
-      body: JSON.stringify({ provider: 'company', callbackURL: callback.href }),
+      body: JSON.stringify({
+        provider: 'company',
+        callbackURL: callback.href,
+        errorCallbackURL: callback.href,
+      }),
     })
   }
-  const response = await providerRequest.run(
-    { firstPasskeyToken: await continuation(request) },
-    () => auth.handler(providerInput),
+  const response = await providerRequest.run({ continuation: await continuation(request) }, () =>
+    auth.handler(providerInput),
   )
   if (token) {
     const { delivery } = await import('./auth-bridge')

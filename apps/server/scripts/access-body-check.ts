@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
+import { migratedDatabase, startServer } from './harness'
 
-const base = process.env.SERVER_URL ?? 'http://localhost:3000'
+const database = await migratedDatabase()
+const server = await startServer({
+  databaseUrl: database.url,
+  port: Number(process.env.TEST_PORT ?? 3220),
+  entry: 'scripts/access-test-server.ts',
+}).catch(async (error: unknown) => {
+  await database.drop()
+  throw error
+})
+const base = server.origin
 async function oversized(path: string, size: number) {
   return new Promise<number>((resolve, reject) => {
     const req = request(
@@ -25,6 +35,13 @@ async function oversized(path: string, size: number) {
     req.end()
   })
 }
-assert.equal(await oversized('/api/account/photo', 5 * 1024 * 1024 + 8193), 400)
-assert.equal(await oversized('/api/access', 65537), 400)
-process.stdout.write('PASS chunked photo and JSON bodies reject at the streaming size boundary.\n')
+try {
+  assert.equal(await oversized('/api/account/photo', 5 * 1024 * 1024 + 8193), 400)
+  assert.equal(await oversized('/api/access', 65537), 400)
+  process.stdout.write(
+    'PASS chunked photo and JSON bodies reject at the streaming size boundary.\n',
+  )
+} finally {
+  await server.stop()
+  await database.drop()
+}

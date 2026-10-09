@@ -1,11 +1,11 @@
-body:has(.card) {
+body:has(.landing) {
   background: radial-gradient(ellipse at top, #203733 0, transparent 60%);
 }
-.card {
+.landing {
   width: min(460px, calc(100vw - 40px));
   margin: 60px auto;
 }
-.card .brand {
+.landing .brand {
   font-size: 32px;
   letter-spacing: -1.6px;
   font-weight: 800;
@@ -14,24 +14,24 @@ body:has(.card) {
   display: block;
   margin-bottom: 44px;
 }
-.card .brand span {
+.landing .brand span {
   font-size: 12px;
   color: #77d7bd;
   margin-left: 5px;
 }
-.card h1 {
+.landing h1 {
   font-size: 34px;
   line-height: 1.15;
   letter-spacing: -1.1px;
 }
-.card p {
+.landing p {
   color: #aeb8bf;
   line-height: 1.7;
 }
-.card a {
+.landing a {
   color: #83dcc5;
 }
-.card .button {
+.landing .button {
   display: block;
   width: 100%;
   border: 0;
@@ -45,12 +45,12 @@ body:has(.card) {
   text-decoration: none;
   margin: 14px 0;
 }
-.card .eyebrow {
+.landing .eyebrow {
   font-size: 11px;
   letter-spacing: 2px;
   color: #83dcc5;
 }
-.card footer {
+.landing footer {
   margin-top: 54px;
   font-size: 13px;
 }

@@ -7,7 +7,7 @@ import {
   type Session,
 } from '@huddle/contracts'
 import { Access, type AccessAdapter } from './Access'
-import { Chat } from './Chat'
+import { ServerView } from './ServerView'
 import { Security } from './Security'
 import { Frame, Alert, Heading } from './primitives'
 import type { Connection } from './connection'
@@ -35,6 +35,7 @@ export function Application({
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [security, setSecurity] = useState(false)
   const [reload, setReload] = useState(0)
+  const [notice, setNotice] = useState('')
   const resetCapability = useRef<string | null>(null)
   const accept = useCallback(
     async (incoming: View, signal?: AbortSignal) => {
@@ -57,9 +58,15 @@ export function Application({
     if (typeof window !== 'undefined') {
       const location = new URL(window.location.href)
       const capability = location.searchParams.get('reset')
-      if (capability) {
-        resetCapability.current = capability
-        location.searchParams.delete('reset')
+      const failure = location.searchParams.get('error')
+      if (capability) resetCapability.current = capability
+      if (failure)
+        setNotice(
+          location.searchParams.get('error_description') ??
+            'Company sign-in did not complete. Try again, or ask an admin of this server for help.',
+        )
+      if (capability || failure) {
+        for (const key of ['reset', 'error', 'error_description']) location.searchParams.delete(key)
         window.history.replaceState(null, '', location.pathname + location.search + location.hash)
       }
     }
@@ -95,16 +102,20 @@ export function Application({
     }
   }
   const adapter: AccessAdapter = {
-    act: (command, signal) => client.act(command, signal),
+    act: (command, signal) => {
+      setNotice('')
+      return client.act(command, signal)
+    },
     accept,
-    company: async (signal) => {
+    company: async (signal, setup) => {
+      setNotice('')
       if (browser) return browser()
       const target = new URLSearchParams(window.location.search).get('redirect')
       const callbackURL = returnTo ?? (target?.startsWith('/device?') ? target : '/login')
       const result = await client.request(
         '/api/auth/sign-in/oauth2',
         z.object({ url: z.url() }),
-        { providerId: 'company', callbackURL },
+        { providerId: 'company', callbackURL, ...(setup && { purpose: 'setup', ...setup }) },
         signal,
       )
       if (!signal.aborted && client.active) window.location.assign(result.url)
@@ -160,6 +171,7 @@ export function Application({
         adapter={adapter}
         view={state.view}
         info={state.info}
+        notice={notice}
         onServer={onServer}
         onSignOut={() => void signOut()}
       />
@@ -182,7 +194,7 @@ export function Application({
     )
   const session: Session = { user: state.view.stage.user }
   return (
-    <Chat
+    <ServerView
       client={client}
       session={session}
       onLogout={() => void signOut()}

@@ -22,7 +22,7 @@ try {
       .parse({ requestId, operator, reason, output })
     if (process.env.HUDDLE_IDENTITY_CONFIRMED !== 'yes')
       throw new Error(
-        'Set HUDDLE_IDENTITY_CONFIRMED=yes only after independently confirming this account owner. Workspace ownership is insufficient.',
+        'Set HUDDLE_IDENTITY_CONFIRMED=yes only after independently confirming this account owner. Being a server admin is insufficient.',
       )
     const capability = opaque()
     await transaction(async (sql) => {

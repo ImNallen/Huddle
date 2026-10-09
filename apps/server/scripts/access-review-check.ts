@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { once } from 'node:events'
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,55 +8,55 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pg from 'pg'
 import { z } from 'zod'
 import { TOTP } from 'otpauth'
-import { AccessView, type AccessCommand } from '@huddle/contracts'
+import { AccessView, Snapshot, type AccessCommand } from '@huddle/contracts'
+import {
+  emailCode,
+  migratedDatabase,
+  startOidcFixture,
+  startServer,
+  syntheticEmail,
+  type ServerProcess,
+} from './harness'
 
-const base = z.url().parse(process.env.SERVER_URL)
-const issuer = z.url().parse(process.env.OIDC_FIXTURE_ISSUER)
-const email = z.email().parse(process.env.OIDC_FIXTURE_EMAIL)
-const subject = z.string().min(1).parse(process.env.OIDC_FIXTURE_SUBJECT)
-const mail = z.url().parse(process.env.MAILPIT_URL)
-const db = new pg.Pool({ connectionString: process.env.DATABASE_URL })
-let server: ChildProcess | undefined
-let logs = ''
+const port = Number(process.env.TEST_PORT ?? 3180)
+const base = `http://localhost:${port}`
+const email = syntheticEmail('review-owner')
+const subject = `review-${randomUUID()}`
+const setupCode = `review-${randomUUID()}`
+const database = await migratedDatabase()
+const db = new pg.Pool({ connectionString: database.url })
+const scratchEnv = { ...process.env, DATABASE_URL: database.url, SERVER_URL: base }
+const fixture = await startOidcFixture(Number(process.env.OIDC_FIXTURE_PORT ?? 3184), {
+  sub: subject,
+  email,
+})
+const issuer = fixture.issuer
+let server: ServerProcess | undefined
 async function start(policy = 'mixed') {
-  logs = ''
-  server = spawn(process.execPath, ['--import', 'tsx', 'scripts/access-test-server.ts'], {
-    env: { ...process.env, AUTH_POLICY: policy },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  server = await startServer({
+    databaseUrl: database.url,
+    port,
+    entry: 'scripts/access-test-server.ts',
+    env: { AUTH_POLICY: policy, SETUP_CODE: setupCode, ...fixture.serverEnv },
   })
-  server.stdout?.on('data', (chunk: Buffer) => (logs += chunk.toString()))
-  server.stderr?.on('data', (chunk: Buffer) => (logs += chunk.toString()))
-  for (let i = 0; i < 100; i++) {
-    if (server.exitCode !== null) throw new Error(logs)
-    if (
-      await fetch(`${base}/api/health`).then(
-        (r) => r.ok,
-        () => false,
-      )
-    )
-      return
-    await delay(100)
-  }
-  throw new Error(`Server did not start: ${logs}`)
 }
 async function stop() {
-  if (!server || server.exitCode !== null) return
-  const exited = once(server, 'exit')
-  server.kill('SIGTERM')
-  await exited
+  await server?.stop()
   server = undefined
 }
 class Client {
   cookies = new Map<string, string>()
   continuation = ''
+  constructor(readonly native = true) {}
   async call(path: string, body?: unknown) {
     const response = await fetch(new URL(path, base), {
       method: body === undefined ? 'GET' : 'POST',
       headers: {
         Origin: base,
         'Content-Type': 'application/json',
-        'X-Huddle-Client': 'native',
-        'X-Huddle-Continuation': this.continuation,
+        ...(this.native
+          ? { 'X-Huddle-Client': 'native', 'X-Huddle-Continuation': this.continuation }
+          : {}),
         Cookie: [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; '),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -79,27 +78,11 @@ class Client {
     return view.stage
   }
 }
-async function emailCode(address: string) {
-  const listing = z
-    .object({
-      messages: z.array(
-        z.object({ ID: z.string(), To: z.array(z.object({ Address: z.string() })) }),
-      ),
-    })
-    .parse(await (await fetch(`${mail}/api/v1/messages`)).json())
-  const message = listing.messages.find((m) => m.To.some((to) => to.Address === address))
-  assert(message, `Missing email for ${address}`)
-  const detail = z
-    .object({ Text: z.string() })
-    .parse(await (await fetch(`${mail}/api/v1/message/${message.ID}`)).json())
-  const code = detail.Text.match(/\b\d{6}\b/)?.[0]
-  assert(code)
-  return code
-}
-async function company(client: Client) {
+async function company(client: Client, extra: Record<string, unknown> = {}) {
   const start = await client.call('/api/auth/sign-in/oauth2', {
     providerId: 'company',
     callbackURL: '/login',
+    ...extra,
   })
   assert.equal(start.status, 200)
   const authorization = new URL(z.object({ url: z.string() }).parse(await start.json()).url)
@@ -112,7 +95,9 @@ async function company(client: Client) {
   assert.equal(consent.status, 302)
   const location = consent.headers.get('location')
   assert(location)
-  assert.equal((await client.call(location)).status, 302)
+  const callback = await client.call(location)
+  assert.equal(callback.status, 302)
+  return new URL(z.string().parse(callback.headers.get('location')), base)
 }
 async function issueReset(address: string) {
   await new Client().act({ kind: 'reset.request', email: address })
@@ -136,7 +121,7 @@ async function issueReset(address: string) {
         file,
       ],
       {
-        env: { ...process.env, HUDDLE_IDENTITY_CONFIRMED: 'yes' },
+        env: { ...scratchEnv, HUDDLE_IDENTITY_CONFIRMED: 'yes' },
         stdio: 'pipe',
       },
     )
@@ -163,6 +148,89 @@ try {
     'INSERT INTO account(id,"accountId","providerId","userId","createdAt","updatedAt") VALUES($1,$2,\'company\',$3,now(),now())',
     [link, subject, id],
   )
+  await start('sso-only')
+  assert.deepEqual(await new Client().act({ kind: 'signout' }), {
+    kind: 'setup',
+    methods: ['company'],
+  })
+  const adminEmail = syntheticEmail('review-admin')
+  await fixture.identity(`admin-${randomUUID()}`, adminEmail)
+  const wrongSetup = await new Client(false).call('/api/auth/sign-in/oauth2', {
+    providerId: 'company',
+    callbackURL: '/login',
+    purpose: 'setup',
+    code: 'not-the-setup-code',
+    serverName: 'Review server',
+  })
+  assert.equal(wrongSetup.status, 400, 'company setup requires the setup code')
+  const admin = new Client(false)
+  const onboarded = await company(admin, {
+    purpose: 'setup',
+    code: setupCode,
+    serverName: 'Review server',
+  })
+  assert.equal(onboarded.pathname, '/login')
+  assert.equal(onboarded.searchParams.get('error'), null)
+  await admin.act({
+    kind: 'profile.save',
+    profile: { name: 'Review admin', avatar: { kind: 'mascot', shape: 'circle', color: 'teal' } },
+  })
+  const adminServer = Snapshot.parse(await (await admin.call('/api/snapshot')).json())
+  assert.equal(adminServer.server.role, 'admin')
+  assert.equal(adminServer.server.name, 'Review server')
+  assert.equal(
+    (
+      await new Client(false).call('/api/auth/sign-in/oauth2', {
+        providerId: 'company',
+        callbackURL: '/login',
+        purpose: 'setup',
+        code: setupCode,
+        serverName: 'Second server',
+      })
+    ).status,
+    400,
+    'company setup cannot run twice',
+  )
+  process.stdout.write(
+    'PASS an SSO-only server onboards its admin through company login with the setup code, once.\n',
+  )
+
+  const strangerEmail = syntheticEmail('review-stranger')
+  await fixture.identity(`stranger-${randomUUID()}`, strangerEmail)
+  const rejected = await company(new Client(false))
+  assert.equal(rejected.pathname, '/login')
+  assert.equal(rejected.searchParams.get('error'), 'not_invited')
+  assert.equal(
+    (await db.query('SELECT 1 FROM "user" WHERE email=$1', [strangerEmail])).rowCount,
+    0,
+    'an uninvited company identity creates no account',
+  )
+  const invitedEmail = syntheticEmail('review-invited')
+  assert.equal((await admin.call('/api/invitations', { email: invitedEmail })).status, 200)
+  await fixture.identity(`invited-${randomUUID()}`, invitedEmail)
+  const colleague = new Client(false)
+  const admitted = await company(colleague)
+  assert.equal(admitted.searchParams.get('error'), null)
+  await colleague.act({
+    kind: 'profile.save',
+    profile: { name: 'Invited colleague', avatar: { kind: 'mascot', shape: 'bean', color: 'sky' } },
+  })
+  const joined = Snapshot.parse(await (await colleague.call('/api/snapshot')).json())
+  assert.equal(joined.server.role, 'member')
+  assert.equal(
+    (
+      await db.query('SELECT 1 FROM invitation WHERE email=$1 AND accepted_at IS NOT NULL', [
+        invitedEmail,
+      ])
+    ).rowCount,
+    1,
+  )
+  process.stdout.write(
+    'PASS an uninvited company identity is rejected without an account; an invited one joins as a member.\n',
+  )
+  assert.equal((await admin.call('/api/invitations', { email })).status, 200)
+  await fixture.identity(subject, email)
+  await stop()
   await start()
   const pending = new Client()
   const sentAt = Date.now()
@@ -187,7 +255,7 @@ try {
   )
   assert.equal((await db.query('SELECT 1 FROM local_factor WHERE user_id=$1', [id])).rowCount, 0)
   assert.equal(
-    (await owner.call('/api/workspaces')).status,
+    (await owner.call('/api/snapshot')).status,
     200,
     'Company session must retain its epoch',
   )
@@ -200,7 +268,8 @@ try {
   )
 
   const locked = new Client()
-  const lockedEmail = `review-lock-${randomUUID()}@huddle.test`
+  const lockedEmail = syntheticEmail('review-lock')
+  assert.equal((await admin.call('/api/invitations', { email: lockedEmail })).status, 200)
   const lockSentAt = Date.now()
   await locked.act({ kind: 'email.send', email: lockedEmail })
   const correct = await emailCode(lockedEmail)
@@ -230,7 +299,8 @@ try {
   await delay(Math.max(0, 61000 - (Date.now() - sentAt)))
   const recovering = new Client()
   await recovering.act({ kind: 'reset.redeem', capability: reset.capability })
-  const expiredEmail = `review-expired-${randomUUID()}@huddle.test`
+  const expiredEmail = syntheticEmail('review-expired')
+  assert.equal((await admin.call('/api/invitations', { email: expiredEmail })).status, 200)
   const expiredReset = await issueReset(expiredEmail)
   const expiredClient = new Client()
   await expiredClient.act({ kind: 'reset.redeem', capability: expiredReset.capability })
@@ -240,7 +310,8 @@ try {
     .rows[0].expires_at
   const different = new Client()
   different.continuation = recovering.continuation
-  const differentEmail = `review-other-${randomUUID()}@huddle.test`
+  const differentEmail = syntheticEmail('review-other')
+  assert.equal((await admin.call('/api/invitations', { email: differentEmail })).status, 200)
   await different.act({ kind: 'email.send', email: differentEmail })
   const ordinary = await different.act({
     kind: 'email.verify',
@@ -291,7 +362,7 @@ try {
     (await db.query('SELECT 1 FROM account WHERE id=$1 AND "userId"=$2', [link, id])).rowCount,
     1,
   )
-  assert.equal((await owner.call('/api/workspaces')).status, 401)
+  assert.equal((await owner.call('/api/snapshot')).status, 401)
   process.stdout.write(
     'PASS same-email reset resend preserves authorized replacement, original expiry, single use, company link and session revocation; different email gets no reset authority.\n',
   )
@@ -311,7 +382,12 @@ try {
   process.stdout.write(
     'PASS SSO-only reset request rejected without recording an operator request.\n',
   )
+} catch (error) {
+  process.stderr.write(server?.logs() ?? '')
+  throw error
 } finally {
   await stop()
+  await fixture.stop()
   await db.end()
+  await database.drop()
 }

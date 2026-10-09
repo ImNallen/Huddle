@@ -6,7 +6,14 @@ try {
   const recipient = emailRecipient(process.argv[2])
   const { config } = await import('../src/lib/config')
   const { createEmailSender } = await import('../src/lib/email')
-  await createEmailSender(config.EMAIL, config.SERVER_URL)({ kind: 'installation-test', recipient })
+  await createEmailSender(
+    config.EMAIL,
+    config.SERVER_URL,
+  )({
+    kind: 'installation-test',
+    recipient,
+    serverName: config.EMAIL.kind === 'smtp' ? config.EMAIL.serverName : 'Huddle',
+  })
   process.stdout.write(
     'SMTP relay accepted the requested recipient. Inbox delivery is not confirmed.\n',
   )

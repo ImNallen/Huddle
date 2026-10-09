@@ -1,12 +1,15 @@
 import { expect, test } from '@playwright/test'
-import { DeviceCode, DeviceToken } from '../packages/contracts/src/index'
-import { serverURL, signup } from './passwordless'
+import { DeviceCode, DeviceToken, Session } from '../packages/contracts/src/index'
+import { expectHome, member, serverURL } from './passwordless'
+import { serverName, useScratchServer } from './server'
+
+const server = useScratchServer('api')
 
 test('cancelling a redeemed native device token before admission never saves or adopts it', async ({
   page,
   browser,
 }) => {
-  await signup(page, 'Cancellation owner', `${serverURL}/login`)
+  await member(server.admin, page, 'Cancellation owner', `${serverURL}/login`)
   console.log('PASS cancellation test browser account is ready')
   const context = await browser.newContext()
   await context.addInitScript((origin) => {
@@ -62,7 +65,9 @@ test('cancelling a redeemed native device token before admission never saves or 
     release()
     expect(await desktop.evaluate<number>('window.huddleTestWrites.length')).toBe(0)
     expect(bearerReads).toBe(1)
-    await expect(desktop.getByRole('heading', { name: 'Choose a workspace' })).toHaveCount(0)
+    await expect(
+      desktop.getByRole('heading', { name: /^Good (morning|afternoon|evening), / }),
+    ).toHaveCount(0)
   } finally {
     release()
     await context.close()
@@ -73,7 +78,7 @@ test('a failed keychain cleanup during a server switch leaves Back usable', asyn
   page,
   browser,
 }) => {
-  await signup(page, 'Server switch owner', `${serverURL}/login`)
+  await member(server.admin, page, 'Server switch owner', `${serverURL}/login`)
   const code = DeviceCode.parse(
     await (
       await page.request.post(`${serverURL}/api/auth/device/code`, {
@@ -118,14 +123,65 @@ test('a failed keychain cleanup during a server switch leaves Back usable', asyn
   try {
     const desktop = await context.newPage()
     await desktop.goto('/')
-    await expect(desktop.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+    await expectHome(desktop)
+    await desktop.getByRole('button', { name: serverName, exact: true }).click()
     await desktop.getByRole('button', { name: 'Switch server', exact: true }).click()
     await desktop.getByLabel('Server address').fill(serverURL)
     await desktop.getByRole('button', { name: 'Connect', exact: true }).click()
     await expect(desktop.getByRole('alert')).toHaveText('Fixture keychain clear failed')
     await desktop.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect(desktop.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+    await expectHome(desktop)
   } finally {
     await context.close()
   }
+})
+
+test('the browser claims a device code and requires explicit approval', async ({ page }) => {
+  const codeResponse = await page.request.post(serverURL + '/api/auth/device/code', {
+    headers: { Origin: serverURL },
+    data: { client_id: 'huddle-desktop' },
+  })
+  expect(codeResponse.ok()).toBeTruthy()
+  const rawCode: unknown = await codeResponse.json()
+  const code = DeviceCode.parse(rawCode)
+  const redirect = `/device?user_code=${encodeURIComponent(code.user_code)}`
+  await member(
+    server.admin,
+    page,
+    'Device browser owner',
+    `${serverURL}/login?redirect=${encodeURIComponent(redirect)}`,
+  )
+  await expect(page.getByText(code.user_code, { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Device code')).toHaveCount(0)
+  await expect(page.getByText('Huddle Desktop', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Approve this desktop' })).toBeDisabled()
+  await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
+  await page.getByRole('button', { name: 'Approve this desktop' }).click()
+  await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
+  await expect(page.getByText('Device browser owner', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Review account security' })).toHaveAttribute(
+    'href',
+    '/login?settings=security',
+  )
+  await page.screenshot({ path: '/tmp/devshot/connected.png' })
+  await page.goto(serverURL + '/device')
+  await page.getByLabel('Device code').fill(code.user_code)
+  await page.getByRole('button', { name: 'Check code' }).click()
+  await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
+  const response = await fetch(serverURL + '/api/auth/device/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: serverURL },
+    body: JSON.stringify({
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      device_code: code.device_code,
+      client_id: 'huddle-desktop',
+    }),
+  })
+  const tokenValue: unknown = await response.json()
+  const token = DeviceToken.parse(tokenValue)
+  const sessionResponse = await fetch(serverURL + '/api/auth/get-session', {
+    headers: { Authorization: `Bearer ${token.access_token}` },
+  })
+  const sessionValue: unknown = await sessionResponse.json()
+  expect(Session.parse(sessionValue).user.name).toBe('Device browser owner')
 })

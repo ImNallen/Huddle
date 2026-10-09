@@ -1,11 +1,22 @@
 import { expect, test } from '@playwright/test'
-import { signup, signin, nextTotp, browserLogin, sendEmail } from './passwordless'
+import {
+  browserLogin,
+  expectHome,
+  member,
+  nextTotp,
+  sendEmail,
+  signOut,
+  signin,
+} from './passwordless'
+import { useScratchServer } from './server'
+
+const server = useScratchServer('api')
 
 test('profile persists and sensitive recovery changes require a fresh factor and acknowledgement', async ({
   page,
 }) => {
-  const identity = await signup(page, 'Security profile owner', browserLogin)
-  await expect(page.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+  const identity = await member(server.admin, page, 'Security profile owner', browserLogin)
+  await expectHome(page)
   await page.getByRole('button', { name: 'Account security', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Account security', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Profile', exact: true }).click()
@@ -38,18 +49,18 @@ test('profile persists and sensitive recovery changes require a fresh factor and
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled()
   await page.getByRole('checkbox', { name: /I've saved these codes/ }).check()
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+  await expectHome(page)
 })
 
 test('returning email requires TOTP and recovery leads through replacement before chat', async ({
   page,
 }) => {
-  const identity = await signup(page, 'Recovery owner', browserLogin)
-  await expect(page.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  const identity = await member(server.admin, page, 'Recovery owner', browserLogin)
+  await expectHome(page)
+  await signOut(page)
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0)
   await signin(page, identity)
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await signOut(page)
   const code = await sendEmail(page, identity.email)
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0)
@@ -71,7 +82,7 @@ test('returning email requires TOTP and recovery leads through replacement befor
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
   const skip = page.getByRole('button', { name: 'Skip for now' })
   if (await skip.count()) await skip.click()
-  await expect(page.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+  await expectHome(page)
 })
 
 test('browser passkeys register, rename, sign in and remove with verified user presence', async ({
@@ -91,7 +102,7 @@ test('browser passkeys register, rename, sign in and remove with verified user p
     },
   })
   try {
-    const identity = await signup(page, 'Passkey owner', browserLogin)
+    const identity = await member(server.admin, page, 'Passkey owner', browserLogin)
     await page.getByRole('button', { name: 'Account security', exact: true }).click()
     await page.getByRole('button', { name: '+ Add passkey', exact: true }).click()
     await page.getByLabel('Passkey name').fill('Verified browser key')
@@ -105,7 +116,7 @@ test('browser passkeys register, rename, sign in and remove with verified user p
     await expect(page.getByText('Renamed browser key', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
     await page.getByRole('button', { name: 'Sign in with a passkey', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+    await expectHome(page)
     await page.getByRole('button', { name: 'Account security', exact: true }).click()
     await page.getByRole('button', { name: 'Remove', exact: true }).click()
     await page.getByRole('button', { name: 'Confirm with passkey', exact: true }).click()

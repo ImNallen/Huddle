@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import { Check, CircleCheck, UserPlus } from 'lucide-react'
-import type { Channel, ChannelId, HomeItem, Room, Session, Workspace } from '@huddle/contracts'
+import type { Channel, ChannelId, HomeItem, Room, Session, Server } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
-import type { Dialog, HomeState, View } from './WorkspaceView'
+import type { Dialog, HomeState, View } from './ServerView'
 import { Avatar } from './Avatar'
 import { Badge, Mentions, clock } from './Badges'
 
@@ -81,7 +81,7 @@ function greeting(hour: number) {
 export function Home({
   client,
   session,
-  workspace,
+  server,
   rooms,
   channels,
   home,
@@ -91,7 +91,7 @@ export function Home({
 }: {
   client: Transport
   session: Session
-  workspace: Workspace
+  server: Server
   rooms: Room[]
   channels: Channel[]
   home: HomeState
@@ -102,7 +102,7 @@ export function Home({
   const [filter, setFilter] = useState<Category | 'all'>('all')
   const [error, setError] = useState('')
   const now = new Date()
-  const owner = workspace.role === 'owner'
+  const admin = server.role === 'admin'
   const place = (id: ChannelId): Place | undefined => {
     const channel = channels.find((channel) => channel.id === id)
     const room = rooms.find((room) => room.id === channel?.roomId)
@@ -115,11 +115,11 @@ export function Home({
   return (
     <main className="main">
       <header className="topbar">
-        <Badge id={workspace.id} name={workspace.name} />
-        <span className="crumb">{workspace.name}</span>
+        <Badge id={server.name} name={server.name} />
+        <span className="crumb">{server.name}</span>
         <span className="crumb-separator">/</span>
         <strong>Home</strong>
-        {owner && (
+        {admin && (
           <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
             <UserPlus size={15} />
             Invite coworkers
@@ -135,7 +135,7 @@ export function Home({
             {greeting(now.getHours())}, {session.user.name.split(/\s+/)[0]}
           </h1>
           {!channels.length ? (
-            <Setup workspace={workspace} rooms={rooms} channels={channels} onDialog={onDialog} />
+            <Setup server={server} rooms={rooms} channels={channels} onDialog={onDialog} />
           ) : home.kind === 'failed' ? (
             <p className="form-error" role="alert">
               {home.message}
@@ -226,22 +226,22 @@ type Step = {
   action?: { label: string; dialog: Dialog }
 }
 function Setup({
-  workspace,
+  server,
   rooms,
   channels,
   onDialog,
 }: {
-  workspace: Workspace
+  server: Server
   rooms: Room[]
   channels: Channel[]
   onDialog: (dialog: Dialog) => void
 }) {
-  const owner = workspace.role === 'owner'
+  const admin = server.role === 'admin'
   const first = rooms[0]
   const invite: Step = {
     title: 'Invite coworkers',
-    detail: 'Send a one-use invitation to someone on your team.',
-    done: workspace.memberCount > 1,
+    detail: 'Email an invitation to someone on your team.',
+    done: server.memberCount > 1,
     action: { label: 'Invite', dialog: { kind: 'invite' } },
   }
   const steps: Step[] = [
@@ -259,15 +259,15 @@ function Setup({
       done: channels.length > 0,
       action: first && { label: 'Add channel', dialog: { kind: 'channel', roomId: first.id } },
     },
-    ...(owner ? [invite] : []),
+    ...(admin ? [invite] : []),
   ]
   return (
     <section className="card setup" aria-labelledby="setup-title">
-      <h2 id="setup-title">Set up {workspace.name}</h2>
+      <h2 id="setup-title">Set up {server.name}</h2>
       <p>
-        {owner
+        {admin
           ? 'A few steps and your team has a place to talk.'
-          : 'Your workspace owner is still setting things up. Rooms appear here as soon as they’re created.'}
+          : 'An admin is still setting things up. Rooms appear here as soon as they’re created.'}
       </p>
       <ol>
         {steps.map(({ action, ...step }) => (
@@ -277,7 +277,7 @@ function Setup({
               <strong>{step.title}</strong>
               <span>{step.detail}</span>
             </span>
-            {owner && !step.done && action && (
+            {admin && !step.done && action && (
               <button className="button" onClick={() => onDialog(action.dialog)}>
                 {action.label}
               </button>
