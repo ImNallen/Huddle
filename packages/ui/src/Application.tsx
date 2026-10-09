@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
-import { type AccessView as View, type ServerInfo, type Session } from '@huddle/contracts'
+import {
+  type AccessView as View,
+  type PublicUser,
+  type ServerInfo,
+  type Session,
+} from '@huddle/contracts'
 import { Access, type AccessAdapter } from './Access'
 import { Chat } from './Chat'
 import { Security } from './Security'
@@ -24,7 +29,7 @@ export function Application({
   onServer?: () => void
   browser?: () => Promise<void>
   browserSecurity?: () => Promise<void>
-  onReady?: () => void
+  onReady?: (user: PublicUser) => void
   returnTo?: string
 }) {
   const [state, setState] = useState<State>({ kind: 'loading' })
@@ -115,7 +120,8 @@ export function Application({
     if (target?.startsWith('/device?') && !target.startsWith('//')) window.location.assign(target)
   }, [state, browser])
   useEffect(() => {
-    if (state.kind === 'loaded' && state.view.stage.kind === 'ready') onReady?.()
+    if (state.kind === 'loaded' && state.view.stage.kind === 'ready')
+      onReady?.(state.view.stage.user)
   }, [state, onReady])
   useEffect(() => {
     if (

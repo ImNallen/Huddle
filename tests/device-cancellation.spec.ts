@@ -52,7 +52,6 @@ test('cancelling a redeemed native device token before admission never saves or 
     expect(new URL(target).origin).toBe(serverURL)
     await page.goto(target)
     console.log('PASS cancellation test browser returned to device approval')
-    await page.getByRole('button', { name: 'Check code', exact: true }).click()
     await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
     await page.getByRole('button', { name: 'Approve this desktop', exact: true }).click()
     console.log('PASS cancellation test browser explicitly approved')
@@ -84,10 +83,9 @@ test('a failed keychain cleanup during a server switch leaves Back usable', asyn
     ).json(),
   )
   await page.goto(code.verification_uri_complete ?? code.verification_uri)
-  await page.getByRole('button', { name: 'Check code', exact: true }).click()
   await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
   await page.getByRole('button', { name: 'Approve this desktop', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'You are connected' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
   const token = DeviceToken.parse(
     await (
       await page.request.post(`${serverURL}/api/auth/device/token`, {

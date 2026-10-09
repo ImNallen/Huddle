@@ -1,4 +1,5 @@
 import { isTauri, invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { Connection } from '@huddle/ui'
 import { CredentialStore } from './credentials'
@@ -42,4 +43,7 @@ export class Client extends Connection {
 export async function openBrowser(url: string) {
   if (native) await openUrl(url)
   else window.open(url, '_blank', 'noopener,noreferrer')
+}
+export async function focusWindow() {
+  if (native) await getCurrentWindow().setFocus()
 }
