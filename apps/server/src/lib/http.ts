@@ -2,9 +2,11 @@ import { z } from 'zod'
 import {
   ChannelId,
   CreateChannel,
+  CreateRoom,
   CreateWorkspace,
   Cursor,
   InvitationCode,
+  MarkRead,
   SendMessage,
   UserId,
   WorkspaceId,
@@ -115,6 +117,8 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
           userId,
           WorkspaceId.parse(url.searchParams.get('workspaceId')),
         )
+      else if (path === '/api/home')
+        result = await domain.home(userId, WorkspaceId.parse(url.searchParams.get('workspaceId')))
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
@@ -130,9 +134,14 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
         result = await domain.createWorkspace(userId, CreateWorkspace.parse(body).name)
       else if (path === '/api/watch-ticket')
         result = await domain.createWatchTicket(session.session.id)
+      else if (path === '/api/rooms')
+        result = await domain.createRoom(userId, CreateRoom.parse(body))
       else if (path === '/api/channels')
         result = await domain.createChannel(userId, CreateChannel.parse(body))
-      else if (path === '/api/messages')
+      else if (path === '/api/read') {
+        await domain.markRead(userId, MarkRead.parse(body))
+        result = {}
+      } else if (path === '/api/messages')
         result = await domain.sendMessage(
           { id: userId, name: session.user.name, avatar: session.user.avatar },
           SendMessage.parse(body),
