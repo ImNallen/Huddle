@@ -4,7 +4,9 @@ import { startRealtime } from '../src/lib/realtime'
 import { config } from '../src/lib/config'
 import { db } from '../src/lib/db'
 import { pruneAccess } from '../src/lib/access-maintenance'
+import { prepareSetup } from '../src/lib/admission'
 
+await prepareSetup()
 const realtime = await startRealtime()
 const server = serve({
   fetch: (request, env) => applicationRequest(request, env.incoming.socket.remoteAddress),

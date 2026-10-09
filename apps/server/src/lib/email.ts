@@ -11,14 +11,12 @@ export const SMTP_TIMEOUTS = {
   operation: 15_000,
 }
 
-export type EmailMessage =
-  | { kind: 'installation-test'; recipient: EmailRecipient }
-  | {
-      kind: 'authentication-code'
-      recipient: EmailRecipient
-      code: string
-      purpose: 'sign-in'
-    }
+export type EmailMessage = { recipient: EmailRecipient; serverName: string } & (
+  | { kind: 'installation-test' }
+  | { kind: 'authentication-code'; code: string; purpose: 'sign-in' }
+  | { kind: 'no-account' }
+  | { kind: 'invitation'; inviter: string; expiresAt: string }
+)
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => {
@@ -36,7 +34,8 @@ function escapeHtml(value: string) {
     }
   })
 }
-function renderEmail(message: EmailMessage, serverName: string, serverUrl: string) {
+function renderEmail(message: EmailMessage, serverUrl: string) {
+  const serverName = message.serverName
   const identity = `${serverName} (${serverUrl})`
   switch (message.kind) {
     case 'installation-test':
@@ -52,6 +51,24 @@ function renderEmail(message: EmailMessage, serverName: string, serverUrl: strin
         subject: `${serverName} authentication code`,
         text: `Your code to ${action} on ${identity} is:\n\n${message.code}\n\nThis code expires in ${expiry} minutes. If you did not request it, ignore this email.\n`,
         html: `<p>Your code to ${action} on ${escapeHtml(identity)} is:</p><p><strong>${escapeHtml(message.code)}</strong></p><p>This code expires in ${expiry} minutes. If you did not request it, ignore this email.</p>`,
+      }
+    }
+    case 'no-account':
+      return {
+        subject: `${serverName} sign-in request`,
+        text: `Someone tried to sign in to ${identity} with this email address, but there is no account for it on this server.\n\nAccounts on ${serverName} are created by invitation. If you should have access, ask an admin of ${serverName} to invite ${message.recipient}.\n\nIf you did not try to sign in, ignore this email.\n`,
+        html: `<p>Someone tried to sign in to ${escapeHtml(identity)} with this email address, but there is no account for it on this server.</p><p>Accounts on ${escapeHtml(serverName)} are created by invitation. If you should have access, ask an admin of ${escapeHtml(serverName)} to invite ${escapeHtml(message.recipient)}.</p><p>If you did not try to sign in, ignore this email.</p>`,
+      }
+    case 'invitation': {
+      const login = `${serverUrl}/login`
+      const expires = new Date(message.expiresAt).toLocaleDateString('en-US', {
+        dateStyle: 'long',
+        timeZone: 'UTC',
+      })
+      return {
+        subject: `${message.inviter} invited you to ${serverName}`,
+        text: `${message.inviter} invited you to join ${identity} on Huddle.\n\nOpen ${login} and continue with ${message.recipient} to create your account. In the Huddle desktop app, connect to ${serverUrl} first.\n\nThis invitation expires on ${expires}. If you were not expecting it, ignore this email.\n`,
+        html: `<p>${escapeHtml(message.inviter)} invited you to join ${escapeHtml(identity)} on Huddle.</p><p>Open <a href="${escapeHtml(login)}">${escapeHtml(login)}</a> and continue with ${escapeHtml(message.recipient)} to create your account. In the Huddle desktop app, connect to ${escapeHtml(serverUrl)} first.</p><p>This invitation expires on ${escapeHtml(expires)}. If you were not expecting it, ignore this email.</p>`,
       }
     }
     default: {
@@ -116,7 +133,7 @@ export function createEmailSender(email: EmailConfig, serverUrl: string) {
         transport.sendMail({
           from: { name: email.serverName, address: email.from },
           to: message.recipient,
-          ...renderEmail(message, email.serverName, serverUrl),
+          ...renderEmail(message, serverUrl),
         }),
         deadline,
       ])

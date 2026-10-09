@@ -23,7 +23,7 @@ Final independent review found the accepted issues resolved. The cancellation an
 
 ## Reproduce the checks
 
-Use disposable PostgreSQL and Mailpit services. Authentication scripts create and modify synthetic accounts, factors, sessions and reset records. Do not run them against real user data. The CI workflow shows the complete environment and service lifecycle.
+Use disposable PostgreSQL and Mailpit services. The server suites create a `huddle_scratch_*` database for their accounts, factors, sessions and reset records, and drop it afterwards. Their `DATABASE_URL` user needs the `CREATEDB` privilege. Do not run them against real user data. The CI workflow shows the complete environment and service lifecycle.
 
 ```
 pnpm install --frozen-lockfile
@@ -37,9 +37,9 @@ pnpm test:access
 pnpm test:ui
 ```
 
-`test:access` needs a running test server and Mailpit. The CI workflow starts `apps/server/scripts/access-test-server.ts` and also runs the body-limit checks. The focused `access-review-check.ts` owns its server lifecycle and tests company establishment during enrollment, reset resend and expiry, SSO-only rejection, and abuse limits across a real process restart. It requires the disposable OIDC fixture in `tests/fixtures/oidc-provider.mjs`. Run `company-discovery-check.ts` before starting that fixture because both use its default port.
+`test:access` starts its own server on port 3200 and needs Mailpit. The CI workflow also runs the body-limit checks in `access-body-check.ts`, which use port 3220. The focused `access-review-check.ts` owns its server lifecycle on port 3180 and tests company establishment during enrollment, reset resend and expiry, SSO-only rejection, invitation-gated company login, and abuse limits across a real process restart. It starts the disposable OIDC fixture in `tests/fixtures/oidc-provider.mjs` on port 3184. `company-discovery-check.ts` uses the same port, so run the two checks one after the other.
 
-For external UI services, set `HUDDLE_UI_EXTERNAL_SERVER=1`, `HUDDLE_UI_BASE_URL`, `HUDDLE_UI_SERVER_URL`, `HUDDLE_UI_BROWSER_LOGIN` and `HUDDLE_UI_MAILPIT_URL`. Use the same hostname for browser and server cookie flows. WebAuthn tests use `localhost`, since an IP address is not a valid WebAuthn relying-party ID. `PLAYWRIGHT_CHANNEL=chrome` selects installed Chrome.
+The UI suite starts its own desktop frontend and production server, so run `pnpm build` first. It reads mail from `MAILPIT_URL`. WebAuthn tests use `localhost`, since an IP address is not a valid WebAuthn relying-party ID. `PLAYWRIGHT_CHANNEL=chrome` selects installed Chrome.
 
 ## Observed behavior and limits
 

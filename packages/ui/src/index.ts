@@ -1,4 +1,3 @@
-export { Chat } from './Chat'
 export { errorText, type Transport } from './transport'
 export { Connect, readSavedServers, saveServer } from './Connect'
 export { Connection, RequestError } from './connection'

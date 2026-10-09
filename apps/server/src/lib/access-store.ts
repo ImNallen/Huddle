@@ -93,6 +93,10 @@ export const Pending = z.discriminatedUnion('kind', [
     codeHash: z.string(),
     resendAt: z.string(),
     resetId: z.string().optional(),
+    admission: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('account') }),
+      z.object({ kind: z.literal('setup'), serverName: z.string(), setupHash: z.string() }),
+    ]),
   }),
   z.object({ kind: z.literal('totp') }),
   z.object({ kind: z.literal('recovery') }),
@@ -112,6 +116,7 @@ export const Pending = z.discriminatedUnion('kind', [
     name: z.string().optional(),
   }),
   z.object({ kind: z.literal('factor-proof'), sessionId: z.string() }),
+  z.object({ kind: z.literal('company-setup'), serverName: z.string(), setupHash: z.string() }),
 ])
 export type Pending = z.infer<typeof Pending>
 export const Ceremony = z.object({

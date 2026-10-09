@@ -2,6 +2,14 @@
 
 The email test sends one message to an explicit recipient. It succeeds only after the SMTP relay accepts that recipient. Relay acceptance does not confirm inbox delivery.
 
+The running server sends three kinds of email:
+
+- An authentication code for sign-in, onboarding, and invited addresses.
+- An invitation when an admin invites an address. It names the server and the inviting admin, links to `SERVER_URL/login`, and states the expiry date.
+- A no-account email when an unknown, uninvited address requests a code. It says the server has no account for that address, asks the reader to request an invitation from an admin, and contains no code.
+
+Onboarding and invitations need working SMTP unless the server uses company login. `SMTP_SERVER_NAME` sets only the sender's display name. Subjects and bodies use the server name chosen at onboarding, or `Huddle` before onboarding.
+
 ## Capture mail during host development
 
 Run `pnpm setup:local` and start Mailpit:
@@ -69,6 +77,6 @@ Use a disposable Mailpit instance. The suite reads captured messages but does no
 TEST_SMTP_HOST=127.0.0.1 TEST_SMTP_PORT=1025 TEST_MAILPIT_URL=http://127.0.0.1:8025 pnpm test:email
 ```
 
-The suite uses actual SMTP sockets, generates temporary certificates with `openssl`, verifies trusted and untrusted STARTTLS and implicit TLS, and cleans its listeners and temporary files. It checks both message alternatives, rejection, connection failure, dropped connections, greeting and whole-operation timeouts, safe CLI diagnostics and setup preservation. Run migrations first, then use `pnpm test:integration` and `pnpm test:access` with disposable services for authentication, durable cooldown and device admission checks.
+The suite uses actual SMTP sockets, generates temporary certificates with `openssl`, verifies trusted and untrusted STARTTLS and implicit TLS, and cleans its listeners and temporary files. It checks both message alternatives, rejection, connection failure, dropped connections, greeting and whole-operation timeouts, safe CLI diagnostics and setup preservation. Use `pnpm test:integration` and `pnpm test:access` with disposable services for authentication, invitation, durable cooldown and device admission checks. Both create their own scratch databases.
 
 See [email configuration and limits](email-config.md) for the configuration fields, deadlines and authentication policy.

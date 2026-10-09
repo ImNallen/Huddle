@@ -3,13 +3,11 @@ import {
   ChannelId,
   CreateChannel,
   CreateRoom,
-  CreateWorkspace,
   Cursor,
-  InvitationCode,
+  Invite,
   MarkRead,
   SendMessage,
   UserId,
-  WorkspaceId,
 } from '@huddle/contracts'
 import { auth } from './auth'
 import { config, origins } from './config'
@@ -22,6 +20,7 @@ import { deviceRequest } from './access-device'
 import { passkeyRequest } from './access-passkey'
 import { AccessFailure } from './access-store'
 import { companyRequest } from './auth-provider'
+import { invite, serverName, setupRequired } from './admission'
 
 export async function applicationRequest(request: Request, trustedIp?: string): Promise<Response> {
   const origin = request.headers.get('origin')
@@ -96,7 +95,8 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
     if (url.pathname === '/api/info')
       return Response.json(
         {
-          name: config.EMAIL.kind === 'smtp' ? config.EMAIL.serverName : 'Huddle',
+          name: await serverName(),
+          setup: (await setupRequired()) ? 'required' : 'complete',
           policy: config.AUTH_POLICY,
           emailAvailable: config.AUTH_POLICY === 'mixed' && config.EMAIL.kind !== 'disabled',
           websocketUrl: config.WS_PUBLIC_URL,
@@ -114,14 +114,8 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
       throw new domain.DomainError(403, 'An origin is required for cookie-authenticated changes.')
     let result: unknown
     if (request.method === 'GET') {
-      if (path === '/api/workspaces') result = await domain.listWorkspaces(userId)
-      else if (path === '/api/snapshot')
-        result = await domain.snapshot(
-          userId,
-          WorkspaceId.parse(url.searchParams.get('workspaceId')),
-        )
-      else if (path === '/api/home')
-        result = await domain.home(userId, WorkspaceId.parse(url.searchParams.get('workspaceId')))
+      if (path === '/api/snapshot') result = await domain.snapshot(userId)
+      else if (path === '/api/home') result = await domain.home(userId)
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
@@ -133,10 +127,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
       const raw = await request.text()
       if (raw.length > 16000) throw new domain.DomainError(413, 'Request is too large.')
       const body: unknown = JSON.parse(raw)
-      if (path === '/api/workspaces')
-        result = await domain.createWorkspace(userId, CreateWorkspace.parse(body).name)
-      else if (path === '/api/watch-ticket')
-        result = await domain.createWatchTicket(session.session.id)
+      if (path === '/api/watch-ticket') result = await domain.createWatchTicket(session.session.id)
       else if (path === '/api/rooms')
         result = await domain.createRoom(userId, CreateRoom.parse(body))
       else if (path === '/api/channels')
@@ -150,15 +141,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
           SendMessage.parse(body),
         )
       else if (path === '/api/invitations')
-        result = await domain.createInvitation(
-          userId,
-          z.object({ workspaceId: WorkspaceId }).strict().parse(body).workspaceId,
-        )
-      else if (path === '/api/invitations/redeem')
-        result = await domain.redeemInvitation(
-          userId,
-          z.object({ code: InvitationCode }).strict().parse(body).code,
-        )
+        result = await invite({ id: userId, name: session.user.name }, Invite.parse(body).email)
       else throw new domain.DomainError(404, 'Endpoint not found.')
     } else throw new domain.DomainError(405, 'Method not allowed.')
     return Response.json(result, { headers })

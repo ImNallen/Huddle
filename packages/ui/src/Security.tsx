@@ -154,7 +154,7 @@ export function Security({
     <Frame account={inventory?.user.email} onSignOut={signOut} wide>
       <div className="access-security">
         <button className="access-link" onClick={close}>
-          ← Back to workspace
+          ← Back to chat
         </button>
         <div className="access-security-layout">
           <nav className="access-security-nav" aria-label="Account settings">

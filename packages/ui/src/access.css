@@ -488,27 +488,6 @@
   border-radius: 8px;
   padding: 20px;
 }
-.access-workspace-list button {
-  display: flex;
-  width: 100%;
-  text-align: left;
-  gap: 14px;
-  align-items: center;
-  padding: 15px;
-  border: 1px solid #242424;
-  background: #111;
-  color: #f5f5f5;
-  border-radius: 10px;
-  margin: 10px 0;
-}
-.access-workspace-list button > span {
-  flex: 1;
-}
-.access-workspace-list small {
-  display: block;
-  color: #818181;
-  margin-top: 3px;
-}
 @media (max-width: 650px) {
   .access-header {
     padding: 0 20px;
@@ -596,12 +575,6 @@
 }
 .access-security-layout {
   margin-top: 28px;
-}
-.workspace-empty {
-  background: #0a0a0a;
-}
-.workspace-empty .access-workspace-list {
-  margin: 18px 0;
 }
 
 .access-dialog::backdrop {

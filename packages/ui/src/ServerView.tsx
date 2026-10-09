@@ -5,19 +5,18 @@ import {
   type HomeItem,
   type RoomId,
   type Session,
-  type Workspace,
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
-import { useWorkspace } from './useWorkspace'
+import { useServer } from './useServer'
 import { Sidebar } from './Sidebar'
 import { Home } from './Home'
 import { Conversation } from './Conversation'
-import { ChannelDialog, InviteDialog, RoomDialog, WorkspaceDialog } from './Dialogs'
+import { ChannelDialog, InviteDialog, RoomDialog } from './Dialogs'
+import { Frame } from './primitives'
 
 export type View = { kind: 'home' } | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null }
 export type Dialog =
   | { kind: 'none' }
-  | { kind: 'workspace'; mode: 'create' | 'join' }
   | { kind: 'room' }
   | { kind: 'channel'; roomId: RoomId }
   | { kind: 'invite' }
@@ -25,21 +24,15 @@ export type HomeState =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'ready'; items: HomeItem[] }
-export function WorkspaceView({
+export function ServerView({
   client,
-  workspace: listed,
-  workspaces,
   session,
-  onWorkspace,
   onLogout,
   onSecurity,
   onServer,
 }: {
   client: Transport
-  workspace: Workspace
-  workspaces: Workspace[]
   session: Session
-  onWorkspace: (workspace: Workspace) => void
   onLogout: () => void
   onSecurity: () => void
   onServer?: () => void
@@ -48,14 +41,8 @@ export function WorkspaceView({
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const [home, setHome] = useState<HomeState>({ kind: 'loading' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const sync = useWorkspace(
-    client,
-    listed,
-    session.user.id,
-    view.kind === 'room' ? view.channelId : null,
-  )
+  const sync = useServer(client, session.user.id, view.kind === 'room' ? view.channelId : null)
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
-  const workspace = snapshot?.workspace ?? listed
   const rooms = snapshot?.rooms ?? []
   const channels = snapshot?.channels ?? []
   if (view.kind === 'room' && !view.channelId) {
@@ -72,12 +59,7 @@ export function WorkspaceView({
   async function loadHome(signal: AbortSignal) {
     try {
       await sync.settled()
-      const result = await client.request(
-        `/api/home?workspaceId=${listed.id}`,
-        HomeFeed,
-        undefined,
-        signal,
-      )
+      const result = await client.request('/api/home', HomeFeed, undefined, signal)
       if (!signal.aborted) setHome({ kind: 'ready', items: result.items })
     } catch (error) {
       if (!signal.aborted)
@@ -104,13 +86,32 @@ export function WorkspaceView({
   const room = view.kind === 'room' ? rooms.find((room) => room.id === view.roomId) : undefined
   const channel =
     view.kind === 'room' ? channels.find((channel) => channel.id === view.channelId) : undefined
+  if (!snapshot)
+    return (
+      <Frame account={session.user.email} onSignOut={onLogout} onServer={onServer}>
+        {sync.state.kind === 'failed' ? (
+          <>
+            <h1>We could not open this server.</h1>
+            <p role="alert">{sync.state.message}</p>
+            <button className="access-primary" onClick={sync.retry}>
+              Try again
+            </button>
+            <button className="access-link" onClick={onSecurity}>
+              Account security
+            </button>
+          </>
+        ) : (
+          <h1 role="status">Opening your server…</h1>
+        )}
+      </Frame>
+    )
+  const server = snapshot.server
   return (
     <div className="app">
       <Sidebar
         client={client}
         session={session}
-        workspace={workspace}
-        workspaces={workspaces}
+        server={server}
         rooms={rooms}
         channels={channels}
         unread={sync.unread}
@@ -120,27 +121,15 @@ export function WorkspaceView({
         onView={setView}
         onRoom={openRoom}
         onDialog={setDialog}
-        onWorkspace={onWorkspace}
         onSecurity={onSecurity}
         onLogout={onLogout}
         onServer={onServer}
       />
-      {sync.state.kind === 'loading' ? (
-        <main className="main center-state">
-          <p>Loading your workspace…</p>
-        </main>
-      ) : sync.state.kind === 'failed' ? (
-        <main className="main center-state">
-          <p role="alert">{sync.state.message}</p>
-          <button className="button" onClick={sync.retry}>
-            Try again
-          </button>
-        </main>
-      ) : view.kind === 'home' || !room ? (
+      {view.kind === 'home' || !room ? (
         <Home
           client={client}
           session={session}
-          workspace={workspace}
+          server={server}
           rooms={rooms}
           channels={channels}
           home={home}
@@ -153,7 +142,7 @@ export function WorkspaceView({
           key={room.id}
           client={client}
           session={session}
-          workspace={workspace}
+          server={server}
           room={room}
           channel={channel}
           sync={sync}
@@ -164,18 +153,9 @@ export function WorkspaceView({
           onDialog={setDialog}
         />
       )}
-      {dialog.kind === 'workspace' && (
-        <WorkspaceDialog
-          kind={dialog.mode}
-          client={client}
-          onClose={() => setDialog({ kind: 'none' })}
-          onDone={onWorkspace}
-        />
-      )}
       {dialog.kind === 'room' && (
         <RoomDialog
           client={client}
-          workspaceId={workspace.id}
           onClose={() => setDialog({ kind: 'none' })}
           onDone={(room) => {
             sync.include({ kind: 'room.created', room })
@@ -199,7 +179,7 @@ export function WorkspaceView({
       {dialog.kind === 'invite' && (
         <InviteDialog
           client={client}
-          workspaceId={workspace.id}
+          serverName={server.name}
           onClose={() => setDialog({ kind: 'none' })}
         />
       )}

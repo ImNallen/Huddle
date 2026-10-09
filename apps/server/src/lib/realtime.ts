@@ -29,9 +29,7 @@ export async function startRealtime() {
   server.on('connection', (socket, request) => {
     const headers = new Headers()
     if (request.headers.cookie) headers.set('cookie', request.headers.cookie)
-    let watch:
-      | { workspaceId: ReturnType<typeof WatchFrame.parse>['workspaceId']; after: string }
-      | undefined
+    let watch: { after: string } | undefined
     let frameReceived = false
     let busy = false
     let closed = false
@@ -45,7 +43,7 @@ export async function startRealtime() {
           socket.close(1008, 'Session expired.')
           return
         }
-        const events = await replay(UserId.parse(session.user.id), watch.workspaceId, watch.after)
+        const events = await replay(UserId.parse(session.user.id), watch.after)
         if (socket.bufferedAmount > 512 * 1024) {
           socket.close(1013, 'Reconnect to catch up.')
           return
@@ -56,7 +54,7 @@ export async function startRealtime() {
           if (last) watch.after = last.cursor
         }
       } catch {
-        socket.close(1008, 'Workspace or session unavailable.')
+        socket.close(1008, 'Server or session unavailable.')
       } finally {
         busy = false
       }
@@ -72,7 +70,7 @@ export async function startRealtime() {
         if (frame.ticket)
           headers.set('authorization', `Bearer ${await consumeWatchTicket(frame.ticket)}`)
         if (frame.token) headers.set('authorization', `Bearer ${frame.token}`)
-        watch = { workspaceId: frame.workspaceId, after: frame.after }
+        watch = { after: frame.after }
         clearTimeout(deadline)
         void pump()
       } catch {

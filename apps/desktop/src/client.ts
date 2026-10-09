@@ -20,7 +20,7 @@ export class Client extends Connection {
     const proxy =
       !native &&
       ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
-      this.origin === 'http://localhost:3000'
+      this.origin === (import.meta.env.VITE_HUDDLE_DEV_SERVER ?? 'http://localhost:3000')
     return proxy ? path : super.endpoint(path)
   }
   override async restore() {

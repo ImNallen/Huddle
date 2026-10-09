@@ -107,7 +107,7 @@ export class Connection implements Transport {
     if (!this.active || signal?.aborted) return
     if (view.continuation) this.continuation = view.continuation
     if (view.bearerToken) this.token = view.bearerToken
-    if (view.stage.kind === 'signin') {
+    if (view.stage.kind === 'signin' || view.stage.kind === 'setup') {
       this.continuation = undefined
       this.token = null
     }

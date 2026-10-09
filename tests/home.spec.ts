@@ -1,5 +1,17 @@
-import { expect, test } from '@playwright/test'
-import { signup } from './passwordless'
+import { expect, test, type Page } from '@playwright/test'
+import { join, onboard, syntheticEmail } from './passwordless'
+import { useScratchServer } from './server'
+
+useScratchServer('ui')
+async function inviteCoworker(page: Page) {
+  const email = syntheticEmail()
+  await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
+  await page.getByLabel('Work email').fill(email)
+  await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click()
+  await expect(page.getByRole('heading', { name: 'Invitation sent' })).toBeVisible()
+  await page.getByRole('button', { name: 'Done', exact: true }).click()
+  return email
+}
 
 test('home gathers mentions and unread channels, and reading clears them', async ({
   browser,
@@ -8,11 +20,8 @@ test('home gathers mentions and unread channels, and reading clears them', async
   const colleague = await browser.newContext()
   const second = await colleague.newPage()
   try {
-    await signup(page, 'Avery Owner')
+    await onboard(page, 'Avery Owner', 'Harbor home')
     await page.clock.setFixedTime(new Date('2026-10-09T09:30:00'))
-    await page.getByRole('button', { name: 'Create a workspace', exact: true }).click()
-    await page.getByLabel('Workspace name').fill('Harbor home')
-    await page.getByRole('dialog').getByRole('button', { name: 'Create workspace' }).click()
     await expect(page.getByText('Friday, October 9', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Good morning, Avery' })).toBeVisible()
     await page
@@ -27,14 +36,9 @@ test('home gathers mentions and unread channels, and reading clears them', async
     await expect(page.getByRole('heading', { name: 'Welcome to #code-review' })).toBeVisible()
     await page.getByRole('button', { name: 'Home', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'You’re all caught up' })).toBeVisible()
-    await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
-    const code = await page.getByLabel('Invitation code').inputValue()
-    await page.getByRole('button', { name: 'Close dialog' }).click()
+    const invited = await inviteCoworker(page)
 
-    await signup(second, 'Jonas Colleague')
-    await second.getByRole('button', { name: 'Join with an invitation' }).click()
-    await second.getByLabel('Invitation code').fill(code)
-    await second.getByRole('dialog').getByRole('button', { name: 'Join workspace' }).click()
+    await join(second, invited, 'Jonas Colleague')
     await second.getByRole('button', { name: 'Development', exact: true }).click()
     const composer = second.getByRole('textbox', { name: 'Message #code-review' })
     await composer.fill('@Avery please review')

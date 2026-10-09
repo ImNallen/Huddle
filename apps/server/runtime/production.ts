@@ -7,6 +7,7 @@ import { config } from '../src/lib/config'
 import { db } from '../src/lib/db'
 import { applicationRequest } from '../src/lib/http'
 import { pruneAccess } from '../src/lib/access-maintenance'
+import { prepareSetup } from '../src/lib/admission'
 
 const serverPath = new URL('../dist/server/server.js', import.meta.url).href
 const entry: unknown = await import(serverPath)
@@ -27,6 +28,7 @@ const contentTypes: Record<string, string> = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 }
+await prepareSetup()
 const realtime = await startRealtime()
 const server = serve({
   port: config.PORT,

@@ -1,47 +1,17 @@
 import { expect, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { TOTP, Secret } from 'otpauth'
-import { z } from 'zod'
+import { AccessError } from '../packages/contracts/src/index'
+import { emailCode, invite, mailIds, type Client } from '../apps/server/scripts/harness'
+import { serverName, serverURL, setupCode } from './server'
 
-export const serverURL = process.env.HUDDLE_UI_SERVER_URL ?? 'http://localhost:3000'
-export const browserLogin = process.env.HUDDLE_UI_BROWSER_LOGIN ?? `${serverURL}/login`
-const mailpitURL = process.env.HUDDLE_UI_MAILPIT_URL ?? 'http://127.0.0.1:8025'
-const MailList = z.object({
-  messages: z.array(z.object({ ID: z.string(), To: z.array(z.object({ Address: z.string() })) })),
-})
-const Mail = z.object({ Text: z.string() })
+export { browserLogin, serverURL } from './server'
 export type Identity = {
   email: string
   secret: string
   recovery: string[]
   name: string
   enrolledCode: string
-}
-export async function emailCode(page: Page, email: string, previous: Set<string> = new Set()) {
-  let code: string | undefined
-  await expect
-    .poll(
-      async () => {
-        const response = await page.request.get(mailpitURL + '/api/v1/messages')
-        const list = MailList.parse(await response.json())
-        const message = list.messages.find(
-          (item) =>
-            !previous.has(item.ID) && item.To.some((recipient) => recipient.Address === email),
-        )
-        if (!message) return false
-        const detail = await page.request.get(`${mailpitURL}/api/v1/message/${message.ID}`)
-        const body = Mail.parse(await detail.json())
-        code = body.Text.match(/\b\d{6}\b/)?.[0]
-        return Boolean(code)
-      },
-      {
-        timeout: 15000,
-        message: 'SMTP delivered a verification code to the requested synthetic recipient',
-      },
-    )
-    .toBe(true)
-  if (!code) throw new Error('The verification email had no six-digit code.')
-  return code
 }
 export function totp(secret: string) {
   return new TOTP({
@@ -56,14 +26,51 @@ export async function nextTotp(secret: string) {
   await new Promise((resolve) => setTimeout(resolve, delay))
   return totp(secret)
 }
-export async function signup(page: Page, name: string, path = '/') {
-  const email = `${randomUUID()}@huddle.test`
+export const syntheticEmail = () => `${randomUUID()}@huddle.test`
+async function open(page: Page, path: string) {
   await page.addInitScript((origin) => localStorage.setItem('huddle.server', origin), serverURL)
   await page.goto(path)
+}
+export async function onboard(
+  page: Page,
+  name: string,
+  serverName: string,
+  path = '/',
+): Promise<Identity> {
+  const email = syntheticEmail()
+  await open(page, path)
+  await expect(page.getByRole('heading', { name: 'Set up this server' })).toBeVisible()
+  const previous = await mailIds(email)
+  await page.getByLabel('Setup code').fill(setupCode)
+  await page.getByLabel('Server name').fill(serverName)
+  await page.getByLabel('Admin email').fill(email)
+  await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
+  return verifyAndEnroll(page, email, name, previous)
+}
+export async function join(page: Page, email: string, name: string, path = '/') {
+  await open(page, path)
+  const previous = await mailIds(email)
   await page.getByLabel('Work email').fill(email)
   await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
+  return verifyAndEnroll(page, email, name, previous)
+}
+export async function member(admin: Client, page: Page, name: string, path = '/') {
+  const email = syntheticEmail()
+  await invite(admin, email)
+  return join(page, email, name, path)
+}
+export async function signOut(page: Page) {
+  await page.getByRole('button', { name: serverName, exact: true }).click()
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+}
+export async function expectHome(page: Page) {
+  await expect(
+    page.getByRole('heading', { name: /^Good (morning|afternoon|evening), / }),
+  ).toBeVisible()
+}
+async function verifyAndEnroll(page: Page, email: string, name: string, previous: Set<string>) {
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
-  await page.getByLabel('Code', { exact: true }).fill(await emailCode(page, email))
+  await page.getByLabel('Code', { exact: true }).fill(await emailCode(email, previous))
   await page.getByRole('button', { name: 'Verify', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Set up your authenticator' })).toBeVisible()
   await expect(
@@ -88,14 +95,7 @@ export async function signup(page: Page, name: string, path = '/') {
   return { name, email, secret, recovery, enrolledCode } satisfies Identity
 }
 export async function sendEmail(page: Page, email: string) {
-  const list = MailList.parse(
-    await (await page.request.get(mailpitURL + '/api/v1/messages')).json(),
-  )
-  const previous = new Set(
-    list.messages
-      .filter((item) => item.To.some((recipient) => recipient.Address === email))
-      .map((item) => item.ID),
-  )
+  const previous = await mailIds(email)
   await page.getByLabel('Work email').fill(email)
   for (let attempt = 0; attempt < 2; attempt++) {
     const response = page.waitForResponse(
@@ -103,10 +103,8 @@ export async function sendEmail(page: Page, email: string) {
     )
     await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
     const result = await response
-    if (result.ok()) return emailCode(page, email, previous)
-    const error = z
-      .object({ error: z.string(), retryAt: z.string().optional() })
-      .parse(await result.json())
+    if (result.ok()) return emailCode(email, previous)
+    const error = AccessError.parse(await result.json())
     if (error.error !== 'rate_limited' || !error.retryAt)
       throw new Error('The email challenge could not be sent.')
     await page.waitForTimeout(Math.max(0, Date.parse(error.retryAt) - Date.now()) + 100)
@@ -120,5 +118,5 @@ export async function signin(page: Page, identity: Identity) {
   await expect(page.getByRole('heading', { name: 'Enter your authenticator code' })).toBeVisible()
   await page.getByLabel('Authenticator code').fill(await nextTotp(identity.secret))
   await page.getByRole('button', { name: 'Verify', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible()
+  await expectHome(page)
 }

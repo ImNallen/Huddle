@@ -16,25 +16,18 @@ export const Avatar = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('photo'), uploadId: z.uuid() }).strict(),
 ])
 
-export const WorkspaceId = z.uuid().brand<'WorkspaceId'>()
 export const RoomId = z.uuid().brand<'RoomId'>()
 export const ChannelId = z.uuid().brand<'ChannelId'>()
 export const UserId = z.string().min(1).brand<'UserId'>()
 export const Cursor = z.string().regex(/^(0|[1-9][0-9]{0,18})$/)
-export const Workspace = z.object({
-  id: WorkspaceId,
+export const Server = z.object({
   name: z.string(),
-  role: z.enum(['owner', 'member']),
+  role: z.enum(['admin', 'member']),
   memberCount: z.number().int().nonnegative(),
   channelCount: z.number().int().nonnegative(),
 })
-export const Room = z.object({ id: RoomId, workspaceId: WorkspaceId, name: z.string() })
-export const Channel = z.object({
-  id: ChannelId,
-  workspaceId: WorkspaceId,
-  roomId: RoomId,
-  name: z.string(),
-})
+export const Room = z.object({ id: RoomId, name: z.string() })
+export const Channel = z.object({ id: ChannelId, roomId: RoomId, name: z.string() })
 export const Message = z.object({
   id: z.uuid(),
   channelId: ChannelId,
@@ -46,7 +39,7 @@ export const Message = z.object({
   cursor: Cursor,
   createdAt: z.string(),
 })
-export const WorkspaceEvent = z.discriminatedUnion('kind', [
+export const ServerEvent = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('room.created'), cursor: Cursor, room: Room }),
   z.object({ kind: z.literal('channel.created'), cursor: Cursor, channel: Channel }),
   z.object({ kind: z.literal('message.created'), cursor: Cursor, message: Message }),
@@ -54,16 +47,15 @@ export const WorkspaceEvent = z.discriminatedUnion('kind', [
 export const WatchFrame = z
   .object({
     kind: z.literal('watch'),
-    workspaceId: WorkspaceId,
     after: Cursor,
     token: z.string().min(1).max(4096).optional(),
     ticket: z.string().length(43).optional(),
   })
   .strict()
-export const EventPage = z.object({ kind: z.literal('events'), events: z.array(WorkspaceEvent) })
+export const EventPage = z.object({ kind: z.literal('events'), events: z.array(ServerEvent) })
 export const Unread = z.object({ channelId: ChannelId, count: z.number().int().positive() })
 export const Snapshot = z.object({
-  workspace: Workspace,
+  server: Server,
   rooms: z.array(Room),
   channels: z.array(Channel),
   unread: z.array(Unread),
@@ -81,14 +73,12 @@ export const HomeItem = z.discriminatedUnion('kind', [
 export const Home = z.object({ items: z.array(HomeItem) })
 export const MarkRead = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('channel'), channelId: ChannelId, cursor: Cursor }).strict(),
-  z.object({ kind: z.literal('workspace'), workspaceId: WorkspaceId, cursor: Cursor }).strict(),
+  z.object({ kind: z.literal('all'), cursor: Cursor }).strict(),
 ])
 export const SendMessage = z
   .object({ channelId: ChannelId, retryId: z.uuid(), body: z.string().trim().min(1).max(8000) })
   .strict()
-export const CreateRoom = z
-  .object({ workspaceId: WorkspaceId, name: z.string().trim().min(1).max(40) })
-  .strict()
+export const CreateRoom = z.object({ name: z.string().trim().min(1).max(40) }).strict()
 export const CreateChannel = z
   .object({
     roomId: RoomId,
@@ -99,13 +89,21 @@ export const CreateChannel = z
       .regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
   })
   .strict()
-export const CreateWorkspace = z.object({ name: z.string().trim().min(1).max(60) }).strict()
-export const InvitationCode = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
+export const Invite = z.object({ email: z.email().max(254) }).strict()
+export const Invitation = z.object({ email: z.email(), expiresAt: z.iso.datetime() })
+export const ServerName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^[^\x00-\x1f\x7f]+$/)
+export const SetupCode = z.string().trim().min(1).max(64)
 export const Session = z.object({
   user: z.object({ id: UserId, name: z.string(), email: z.email(), avatar: Avatar }),
 })
 export const ServerInfo = z.object({
   name: z.string(),
+  setup: z.enum(['required', 'complete']),
   emailAvailable: z.boolean(),
   websocketUrl: z.url(),
   oidc: z.boolean(),
@@ -120,7 +118,8 @@ export const DeviceCode = z.object({
   interval: z.number(),
 })
 export const DeviceToken = z.object({ access_token: z.string() })
-export type Workspace = z.infer<typeof Workspace>
+export type Server = z.infer<typeof Server>
+export type Invitation = z.infer<typeof Invitation>
 export type Room = z.infer<typeof Room>
 export type Channel = z.infer<typeof Channel>
 export type Unread = z.infer<typeof Unread>
@@ -128,10 +127,9 @@ export type HomeItem = z.infer<typeof HomeItem>
 export type Home = z.infer<typeof Home>
 export type MarkRead = z.infer<typeof MarkRead>
 export type Message = z.infer<typeof Message>
-export type WorkspaceEvent = z.infer<typeof WorkspaceEvent>
+export type ServerEvent = z.infer<typeof ServerEvent>
 export type Snapshot = z.infer<typeof Snapshot>
 export type Session = z.infer<typeof Session>
-export type WorkspaceId = z.infer<typeof WorkspaceId>
 export type RoomId = z.infer<typeof RoomId>
 export type ChannelId = z.infer<typeof ChannelId>
 export type UserId = z.infer<typeof UserId>
@@ -149,6 +147,7 @@ export function serverOrigin(input: string): string {
 export const Profile = z.object({ name: z.string().trim().min(1).max(80), avatar: Avatar }).strict()
 export const PublicUser = Session.shape.user.extend({ avatar: Avatar })
 export const AccessMethod = z.enum(['email', 'passkey', 'company'])
+export const SetupMethod = AccessMethod.exclude(['passkey'])
 export const RecoveryBatch = z.object({
   kind: z.literal('save-recovery'),
   batch: z.uuid(),
@@ -156,6 +155,7 @@ export const RecoveryBatch = z.object({
 })
 export const AccessStage = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('signin'), methods: z.array(AccessMethod) }),
+  z.object({ kind: z.literal('setup'), methods: z.array(SetupMethod) }),
   z.object({
     kind: z.literal('email'),
     email: z.email(),
@@ -196,6 +196,14 @@ export const SecurityChange = z.discriminatedUnion('kind', [
 ])
 export const AccessCommand = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('email.send'), email: z.email().max(254) }).strict(),
+  z
+    .object({
+      kind: z.literal('setup.start'),
+      code: SetupCode,
+      serverName: ServerName,
+      email: z.email().max(254),
+    })
+    .strict(),
   z.object({ kind: z.literal('email.verify'), code: z.string().regex(/^\d{6}$/) }).strict(),
   z.object({ kind: z.literal('totp.verify'), code: z.string().regex(/^\d{6}$/) }).strict(),
   z.object({ kind: z.literal('recovery.verify'), code: z.string().min(1).max(128) }).strict(),

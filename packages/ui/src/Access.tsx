@@ -18,7 +18,7 @@ import { addPasskey, signInPasskey } from './passkeys'
 export interface AccessAdapter {
   act(command: AccessCommand, signal?: AbortSignal): Promise<AccessView>
   accept(view: AccessView, signal?: AbortSignal): Promise<void>
-  company(signal: AbortSignal): Promise<void>
+  company(signal: AbortSignal, setup?: { code: string; serverName: string }): Promise<void>
   browser?(): Promise<void>
   browserSecurity?(): Promise<void>
   upload(file: File): Promise<string>
@@ -29,6 +29,7 @@ export function Access({
   adapter,
   view,
   info,
+  notice = '',
   onServer,
   onSignOut,
 }: {
@@ -36,6 +37,7 @@ export function Access({
   adapter: AccessAdapter
   view: AccessView
   info: z.infer<typeof ServerInfo>
+  notice?: string
   onServer?: () => void
   onSignOut?: () => void
 }) {
@@ -88,8 +90,27 @@ export function Access({
     server: { name: info.name, origin: client.origin },
     account,
     onServer,
-    onSignOut: stage.kind === 'signin' || stage.kind === 'email' ? undefined : onSignOut,
+    onSignOut:
+      stage.kind === 'signin' || stage.kind === 'setup' || stage.kind === 'email'
+        ? undefined
+        : onSignOut,
   }
+  const serverCard = (
+    <div className="access-card access-row access-signin-server">
+      <i className="access-server-tile">{serverInitials(info.name)}</i>
+      <div style={{ flex: 1 }}>
+        {info.name}
+        <p>
+          <code>{new URL(client.origin).host}</code>
+        </p>
+      </div>
+      {onServer && (
+        <button className="access-link" onClick={onServer}>
+          Change server
+        </button>
+      )}
+    </div>
+  )
   if (resetForm)
     return (
       <Frame {...frame}>
@@ -131,23 +152,103 @@ export function Access({
       </Frame>
     )
   switch (stage.kind) {
+    case 'setup': {
+      const email = stage.methods.includes('email')
+      const company = stage.methods.includes('company') && !adapter.browser
+      return (
+        <Frame {...frame}>
+          {serverCard}
+          <Heading
+            title="Set up this server"
+            description="This Huddle server is not set up yet. Name it and create the first admin account. Everyone else joins by invitation."
+          />
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              const form = new FormData(event.currentTarget)
+              const code = z.string().parse(form.get('code')).trim()
+              const serverName = z.string().parse(form.get('serverName')).trim()
+              const submitter = (event.nativeEvent as SubmitEvent).submitter
+              if (submitter?.getAttribute('value') !== 'company')
+                return void act({
+                  kind: 'setup.start',
+                  code,
+                  serverName,
+                  email: z.string().parse(form.get('email')),
+                })
+              if (!code || !serverName) return setError('Enter the setup code and a server name.')
+              void run((signal) => adapter.company(signal, { code, serverName }))
+            }}
+          >
+            <label className="access-label">
+              Setup code
+              <input
+                name="code"
+                required
+                maxLength={64}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="XXXX-XXXX-XXXX-XXXX"
+              />
+            </label>
+            <label className="access-label">
+              Server name
+              <input name="serverName" required maxLength={60} placeholder="e.g. Harbor & Co." />
+            </label>
+            {email && (
+              <>
+                <label className="access-label">
+                  Admin email
+                  <input
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="you@company.com"
+                  />
+                </label>
+                <Primary busy={working} disabled={!info.emailAvailable}>
+                  Continue with email
+                </Primary>
+                {!info.emailAvailable && (
+                  <p className="access-note">
+                    Email is not configured on this server. Configure SMTP to set it up.
+                  </p>
+                )}
+              </>
+            )}
+            {email && company && <div className="access-divider">or</div>}
+            {company && (
+              <button
+                className="access-secondary"
+                name="method"
+                value="company"
+                formNoValidate
+                disabled={working}
+              >
+                <ShieldCheck size={15} />
+                Continue with company login
+              </button>
+            )}
+          </form>
+          {!email && !company && (
+            <p className="access-note">
+              This server uses company login. Open <code>{client.origin}/login</code> in a browser
+              to finish setup.
+            </p>
+          )}
+          <Alert message={error || notice} />
+          <p className="access-footer">
+            The setup code is in the server log. It works once and changes each time the server
+            restarts.
+          </p>
+        </Frame>
+      )
+    }
     case 'signin':
       return (
         <Frame {...frame}>
-          <div className="access-card access-row access-signin-server">
-            <i className="access-server-tile">{serverInitials(info.name)}</i>
-            <div style={{ flex: 1 }}>
-              {info.name}
-              <p>
-                <code>{new URL(client.origin).host}</code>
-              </p>
-            </div>
-            {onServer && (
-              <button className="access-link" onClick={onServer}>
-                Change server
-              </button>
-            )}
-          </div>
+          {serverCard}
           <Heading
             title={`Sign in to ${info.name}`}
             description="Your account lives on this server."
@@ -219,10 +320,8 @@ export function Access({
               Sign in in your browser
             </button>
           )}
-          <Alert message={error} />
-          {stage.methods.includes('email') && (
-            <p className="access-footer">First time? Continue with email to create your account.</p>
-          )}
+          <Alert message={error || notice} />
+          <p className="access-footer">Need access? Ask an admin of this server for an invite.</p>
           {stage.methods.includes('email') && (
             <button className="access-link" onClick={() => setResetForm(true)}>
               Recover your account
@@ -415,7 +514,7 @@ export function Access({
             <h2>Lost your authenticator, passkeys and recovery codes?</h2>
             <p>
               A server recovery operator must confirm your identity before resetting your account.
-              Workspace owners cannot reset accounts.
+              Server admins cannot reset accounts.
             </p>
             <button className="access-link" onClick={() => setResetForm(true)}>
               Request a reset

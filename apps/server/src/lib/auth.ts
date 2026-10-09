@@ -3,7 +3,7 @@ import { bearer, genericOAuth } from 'better-auth/plugins'
 import { config, origins } from './config'
 import { db } from './db'
 import { bridgePlugin } from './auth-bridge'
-import { companySession, companyUser } from './auth-provider'
+import { companyAdmission, companySession, companyUser } from './auth-provider'
 
 export const auth = betterAuth({
   appName: 'Huddle',
@@ -13,7 +13,10 @@ export const auth = betterAuth({
   trustedOrigins: [...origins],
   emailAndPassword: { enabled: false },
   account: { accountLinking: { enabled: false } },
-  databaseHooks: { session: { create: { after: companySession } } },
+  databaseHooks: {
+    user: { create: { before: companyAdmission } },
+    session: { create: { after: companySession } },
+  },
   session: { cookieCache: { enabled: false } },
   plugins: [
     bearer(),

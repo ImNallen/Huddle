@@ -27,6 +27,7 @@ const Environment = z
         'http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost',
       ),
     AUTH_POLICY: z.enum(['mixed', 'sso-only']).default('mixed'),
+    SETUP_CODE: z.string().trim().min(8).max(64).optional(),
     OIDC_DISCOVERY_URL: z.url().optional(),
     OIDC_CLIENT_ID: z.string().min(1).optional(),
     OIDC_CLIENT_SECRET: z.string().min(1).optional(),

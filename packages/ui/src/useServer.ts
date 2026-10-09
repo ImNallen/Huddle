@@ -5,7 +5,6 @@ import {
   Message,
   Snapshot,
   type ChannelId,
-  type Workspace,
   type Channel,
   type Room,
   type UserId,
@@ -13,7 +12,7 @@ import {
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 
-type WorkspaceState =
+type SyncState =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'ready'; snapshot: Snapshot }
@@ -49,14 +48,9 @@ function apply(snapshot: Snapshot, event: Created) {
 function isVisible() {
   return typeof document === 'undefined' || document.visibilityState === 'visible'
 }
-export function useWorkspace(
-  client: Transport,
-  workspace: Workspace,
-  userId: UserId,
-  open: ChannelId | null,
-) {
-  const storageKey = `huddle.pending:${client.origin}:${userId}:${workspace.id}`
-  const [state, setState] = useState<WorkspaceState>({ kind: 'loading' })
+export function useServer(client: Transport, userId: UserId, open: ChannelId | null) {
+  const storageKey = `huddle.outbox:${client.origin}:${userId}`
+  const [state, setState] = useState<SyncState>({ kind: 'loading' })
   const [messages, setMessages] = useState<Message[]>([])
   const [unread, setUnread] = useState<Unread>(new Map())
   const [changes, setChanges] = useState(0)
@@ -138,12 +132,7 @@ export function useWorkspace(
     async function start() {
       try {
         const [snapshot, info] = await Promise.all([
-          client.request(
-            `/api/snapshot?workspaceId=${workspace.id}`,
-            Snapshot,
-            undefined,
-            abort.signal,
-          ),
+          client.request('/api/snapshot', Snapshot, undefined, abort.signal),
           client.info(),
         ])
         if (stopped) return
@@ -169,14 +158,7 @@ export function useWorkspace(
           if (stopped) return
           socket = new WebSocket(info.websocketUrl)
           socket.onopen = () =>
-            socket?.send(
-              JSON.stringify({
-                kind: 'watch',
-                workspaceId: workspace.id,
-                after: cursor.current,
-                ticket,
-              }),
-            )
+            socket?.send(JSON.stringify({ kind: 'watch', after: cursor.current, ticket }))
           socket.onmessage = (event) => {
             try {
               const page = EventPage.parse(JSON.parse(String(event.data)))
@@ -240,7 +222,7 @@ export function useWorkspace(
       clearTimeout(reconnect)
       socket?.close()
     }
-  }, [client, workspace.id, attempt])
+  }, [client, attempt])
   useEffect(() => {
     if (!open) {
       setHistoryState('ready')
@@ -335,11 +317,7 @@ export function useWorkspace(
   }
   async function markAllRead() {
     const request = reads.current.then(() =>
-      client.request('/api/read', z.unknown(), {
-        kind: 'workspace',
-        workspaceId: workspace.id,
-        cursor: cursor.current,
-      }),
+      client.request('/api/read', z.unknown(), { kind: 'all', cursor: cursor.current }),
     )
     reads.current = request.catch(() => undefined)
     await request

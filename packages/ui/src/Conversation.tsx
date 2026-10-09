@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowUp, Hash, Plus } from 'lucide-react'
-import type { Channel, Room, Session, Workspace } from '@huddle/contracts'
+import type { Channel, Room, Session, Server } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
-import type { useWorkspace } from './useWorkspace'
-import type { Dialog } from './WorkspaceView'
+import type { useServer } from './useServer'
+import type { Dialog } from './ServerView'
 import { Avatar } from './Avatar'
 import { Badge, Mentions, clock } from './Badges'
 
@@ -48,7 +48,7 @@ function day(createdAt: string) {
 export function Conversation({
   client,
   session,
-  workspace,
+  server,
   room,
   channel,
   sync,
@@ -58,10 +58,10 @@ export function Conversation({
 }: {
   client: Transport
   session: Session
-  workspace: Workspace
+  server: Server
   room: Room
   channel: Channel | undefined
-  sync: ReturnType<typeof useWorkspace>
+  sync: ReturnType<typeof useServer>
   draft: string
   onDraft: (value: string) => void
   onDialog: (dialog: Dialog) => void
@@ -109,11 +109,11 @@ export function Conversation({
           </span>
           <h2>{room.name} has no channels yet</h2>
           <p>
-            {workspace.role === 'owner'
+            {server.role === 'admin'
               ? 'Channels hold the conversation inside a room. Start with one.'
-              : 'Your workspace owner can create the first channel.'}
+              : 'An admin can create the first channel.'}
           </p>
-          {workspace.role === 'owner' && (
+          {server.role === 'admin' && (
             <button
               className="button primary"
               onClick={() => onDialog({ kind: 'channel', roomId: room.id })}

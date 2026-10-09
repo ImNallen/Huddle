@@ -4,18 +4,17 @@ import {
   ChevronDown,
   Hash,
   House,
-  LogIn,
   LogOut,
   Plus,
-  Server,
+  Server as ServerIcon,
   Settings,
   Shield,
   UserPlus,
 } from 'lucide-react'
-import type { Channel, Room, RoomId, Session, Workspace } from '@huddle/contracts'
+import type { Channel, Room, RoomId, Session, Server } from '@huddle/contracts'
 import type { Transport } from './transport'
-import type { Unread } from './useWorkspace'
-import type { Dialog, View } from './WorkspaceView'
+import type { Unread } from './useServer'
+import type { Dialog, View } from './ServerView'
 import { Avatar } from './Avatar'
 import { Badge } from './Badges'
 
@@ -49,8 +48,7 @@ function Count({ value }: { value: number }) {
 export function Sidebar({
   client,
   session,
-  workspace,
-  workspaces,
+  server,
   rooms,
   channels,
   unread,
@@ -60,15 +58,13 @@ export function Sidebar({
   onView,
   onRoom,
   onDialog,
-  onWorkspace,
   onSecurity,
   onLogout,
   onServer,
 }: {
   client: Transport
   session: Session
-  workspace: Workspace
-  workspaces: Workspace[]
+  server: Server
   rooms: Room[]
   channels: Channel[]
   unread: Unread
@@ -78,12 +74,11 @@ export function Sidebar({
   onView: (view: View) => void
   onRoom: (roomId: RoomId) => void
   onDialog: (dialog: Dialog) => void
-  onWorkspace: (workspace: Workspace) => void
   onSecurity: () => void
   onLogout: () => void
   onServer?: () => void
 }) {
-  const owner = workspace.role === 'owner'
+  const admin = server.role === 'admin'
   const room = view.kind === 'room' ? rooms.find((room) => room.id === view.roomId) : undefined
   const roomUnread = (roomId: RoomId) =>
     channels
@@ -101,8 +96,7 @@ export function Sidebar({
               <span className="sidebar-title">
                 <strong>{room.name}</strong>
                 <small>
-                  Room · {workspace.memberCount}{' '}
-                  {workspace.memberCount === 1 ? 'member' : 'members'}
+                  Room · {server.memberCount} {server.memberCount === 1 ? 'member' : 'members'}
                 </small>
               </span>
             </>
@@ -139,13 +133,13 @@ export function Sidebar({
         </Menu>
       ) : (
         <Menu
-          id="workspace-menu"
-          label={workspace.name}
+          id="server-menu"
+          label={server.name}
           trigger={
             <>
-              <Badge id={workspace.id} name={workspace.name} size={22} />
+              <Badge id={server.name} name={server.name} size={22} />
               <span className="sidebar-title">
-                <strong>{workspace.name}</strong>
+                <strong>{server.name}</strong>
               </span>
             </>
           }
@@ -157,24 +151,7 @@ export function Sidebar({
             }
             return (
               <>
-                <p className="menu-label">Workspaces</p>
-                {workspaces.map((item) => (
-                  <button key={item.id} onClick={act(() => onWorkspace(item))}>
-                    <Badge id={item.id} name={item.name} size={20} />
-                    <span>{item.name}</span>
-                    {item.id === workspace.id && <Check size={14} className="menu-check" />}
-                  </button>
-                ))}
-                <button onClick={act(() => onDialog({ kind: 'workspace', mode: 'create' }))}>
-                  <Plus size={15} />
-                  <span>Create a workspace</span>
-                </button>
-                <button onClick={act(() => onDialog({ kind: 'workspace', mode: 'join' }))}>
-                  <LogIn size={15} />
-                  <span>Join with an invitation</span>
-                </button>
-                <hr />
-                {owner && (
+                {admin && (
                   <button onClick={act(() => onDialog({ kind: 'invite' }))}>
                     <UserPlus size={15} />
                     <span>Invite coworkers</span>
@@ -186,7 +163,7 @@ export function Sidebar({
                 </button>
                 {onServer && (
                   <button onClick={act(onServer)}>
-                    <Server size={15} />
+                    <ServerIcon size={15} />
                     <span>Switch server</span>
                   </button>
                 )}
@@ -211,7 +188,7 @@ export function Sidebar({
         </button>
         <div className="section-label">
           <span>{room ? 'Channels' : 'Rooms'}</span>
-          {owner && (
+          {admin && (
             <button
               className="icon-button"
               aria-label={room ? 'Create channel' : 'Create room'}
