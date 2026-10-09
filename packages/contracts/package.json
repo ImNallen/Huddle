@@ -1,0 +1,13 @@
+{
+  "name": "@huddle/contracts",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  }
+}

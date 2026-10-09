@@ -4,7 +4,11 @@ dist/
 .tanstack/
 target/
 .env
-.env.local
 .audit/
 *.log
 .DS_Store
+.env.*
+!.env.example
+test-results/
+playwright-report/
+apps/desktop/src-tauri/gen/

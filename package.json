@@ -1,0 +1,25 @@
+{
+  "name": "huddle",
+  "private": true,
+  "packageManager": "pnpm@11.23.0",
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @huddle/server --filter @huddle/desktop dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate": "pnpm --filter @huddle/server db:migrate",
+    "test:integration": "pnpm --filter @huddle/server test:integration",
+    "desktop": "pnpm --filter @huddle/desktop tauri dev",
+    "setup:local": "node scripts/setup.mjs",
+    "test:ui": "playwright test",
+    "format:check": "prettier --check apps packages scripts tests *.json *.ts README.md docs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "24.10.1",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  }
+}
