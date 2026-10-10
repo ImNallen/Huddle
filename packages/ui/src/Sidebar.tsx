@@ -10,13 +10,16 @@ import {
   Settings,
   Shield,
   UserPlus,
+  Users,
 } from 'lucide-react'
-import type { Channel, Room, RoomId, Session, Server } from '@huddle/contracts'
+import type { Channel, Member, Room, RoomId, Session, Server } from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { Unread } from './useServer'
 import type { Dialog, View } from './ServerView'
+import { roleLabels, type Resource } from './Members'
 import { Avatar } from './Avatar'
 import { Badge } from './Badges'
+import { Logo } from './primitives'
 
 function Menu({
   id,
@@ -51,6 +54,7 @@ export function Sidebar({
   server,
   rooms,
   channels,
+  members,
   unread,
   homeCount,
   view,
@@ -67,6 +71,7 @@ export function Sidebar({
   server: Server
   rooms: Room[]
   channels: Channel[]
+  members: Resource<Member[]>
   unread: Unread
   homeCount: number
   view: View
@@ -84,6 +89,8 @@ export function Sidebar({
     channels
       .filter((channel) => channel.roomId === roomId)
       .reduce((total, channel) => total + (unread.get(channel.id) ?? 0), 0)
+  const coworkers =
+    members.kind === 'ready' ? members.value.filter((member) => member.id !== session.user.id) : []
   return (
     <aside className="sidebar">
       {room ? (
@@ -137,7 +144,12 @@ export function Sidebar({
           label={server.name}
           trigger={
             <>
-              <Badge id={server.name} name={server.name} size={22} />
+              <span className="brand">
+                <Logo size={18} />
+                huddle
+              </span>
+              <span className="brand-separator">/</span>
+              <Badge id={server.name} name={server.name} size={18} />
               <span className="sidebar-title">
                 <strong>{server.name}</strong>
               </span>
@@ -186,6 +198,16 @@ export function Sidebar({
           <span>Home</span>
           <Count value={homeCount} />
         </button>
+        {admin && (
+          <button
+            className="nav-row"
+            aria-current={view.kind === 'members' ? 'page' : undefined}
+            onClick={() => onView({ kind: 'members' })}
+          >
+            <Users size={16} />
+            <span>Members</span>
+          </button>
+        )}
         <div className="section-label">
           <span>{room ? 'Channels' : 'Rooms'}</span>
           {admin && (
@@ -243,6 +265,29 @@ export function Sidebar({
           <p className="sidebar-note">No channels yet.</p>
         )}
         {!room && !rooms.length && <p className="sidebar-note">No rooms yet.</p>}
+        <div className="section-label">
+          <span>Coworkers</span>
+        </div>
+        {members.kind === 'failed' ? (
+          <p className="sidebar-note">Could not load coworkers.</p>
+        ) : members.kind === 'ready' && !coworkers.length ? (
+          <p className="sidebar-note">Only you so far.</p>
+        ) : (
+          <ul className="coworkers" aria-label="Coworkers">
+            {coworkers.map((member) => (
+              <li key={member.id}>
+                <Avatar
+                  avatar={member.avatar}
+                  name={member.name}
+                  photo={client.photo?.bind(client)}
+                  size={18}
+                />
+                <span className="coworker-name">{member.name}</span>
+                {member.role === 'admin' && <small>{roleLabels.admin}</small>}
+              </li>
+            ))}
+          </ul>
+        )}
       </nav>
       <footer className="account">
         <span className="account-avatar">
@@ -256,7 +301,10 @@ export function Sidebar({
         </span>
         <span className="account-name">
           <strong>{session.user.name}</strong>
-          <span role="status">{connection}</span>
+          <span>{connection === 'Connected' ? roleLabels[server.role] : connection}</span>
+          <span className="sr-only" role="status">
+            {connection}
+          </span>
         </span>
         <button
           className="icon-button"

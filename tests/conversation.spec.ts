@@ -27,7 +27,7 @@ test('an invited colleague joins the server, sends, reconnects, and signs out', 
     await page.getByRole('button', { name: 'Home', exact: true }).click()
     const invited = syntheticEmail()
     await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
-    await page.getByLabel('Work email').fill(invited)
+    await page.getByLabel('Email address').fill(invited)
     await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click()
     await page.getByRole('button', { name: 'Done', exact: true }).click()
     await page.getByRole('button', { name: 'Design', exact: true }).click()

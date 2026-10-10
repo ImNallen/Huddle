@@ -1,18 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import { DeviceCode, DeviceToken } from '@huddle/contracts'
-import { Application, BrowserWait, Connect, Connection, saveServer } from '@huddle/ui'
+import {
+  Application,
+  BrowserWait,
+  Connect,
+  Connection,
+  NetworkError,
+  readSavedServers,
+  saveServer,
+} from '@huddle/ui'
 import { Client, RequestError, errorText, focusWindow, openBrowser } from './client'
 
 type Device =
   | { kind: 'idle' }
   | { kind: 'starting' }
-  | { kind: 'waiting'; code: z.infer<typeof DeviceCode>; expiresAt: number; name: string }
-  | { kind: 'failed'; message: string }
+  | {
+      kind: 'waiting'
+      code: string
+      grant: z.infer<typeof DeviceCode>
+      expiresAt: number
+      name: string
+    }
+  | { kind: 'expired'; code: string; name: string }
+  | { kind: 'failed'; code?: string; name?: string; lostContact: boolean; message: string }
+function interrupted(failure: unknown, code?: string, name?: string): Device {
+  if (failure instanceof RequestError && failure.oauth === 'expired_token' && code && name)
+    return { kind: 'expired', code, name }
+  return {
+    kind: 'failed',
+    code,
+    name,
+    lostContact: failure instanceof NetworkError,
+    message:
+      failure instanceof RequestError && failure.oauth === 'access_denied'
+        ? 'This sign-in was denied in your browser. Start again if you meant to sign in.'
+        : errorText(failure),
+  }
+}
 export function App() {
   const [client, setClient] = useState(
     () => new Client(localStorage.getItem('huddle.server') ?? 'http://localhost:3000'),
   )
+  const saved = readSavedServers().find((server) => server.origin === client.origin)
   const [editingServer, setEditingServer] = useState(() => !localStorage.getItem('huddle.server'))
   const [device, setDevice] = useState<Device>({ kind: 'idle' })
   const [reload, setReload] = useState(0)
@@ -24,6 +54,10 @@ export function App() {
     },
     [client],
   )
+  useEffect(() => {
+    const entry = readSavedServers().find((server) => server.origin === client.origin)
+    if (entry) saveServer(entry)
+  }, [client])
   async function changeServer(origin: string) {
     const next = new Client(origin)
     try {
@@ -66,7 +100,7 @@ export function App() {
           client_id: 'huddle-desktop',
         })
       } catch (failure) {
-        setDevice({ kind: 'failed', message: errorText(failure) })
+        setDevice(interrupted(failure))
         return
       }
     }
@@ -102,14 +136,14 @@ export function App() {
       deviceCode.current = code.device_code
       setDevice({
         kind: 'waiting',
-        code,
+        code: code.user_code,
+        grant: code,
         expiresAt: Date.now() + code.expires_in * 1000,
         name: info.name,
       })
       await openBrowser(code.verification_uri_complete ?? code.verification_uri)
     } catch (failure) {
-      if (!abort.signal.aborted && client.active)
-        setDevice({ kind: 'failed', message: errorText(failure) })
+      if (!abort.signal.aborted && client.active) setDevice(interrupted(failure))
     }
   }, [client])
   useEffect(() => {
@@ -117,11 +151,11 @@ export function App() {
     const abort = deviceLifetime.current
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    let interval = device.code.interval * 1000
+    let interval = device.grant.interval * 1000
     async function poll() {
       if (stopped || abort.signal.aborted || !client.active || device.kind !== 'waiting') return
       if (Date.now() >= device.expiresAt) {
-        setDevice({ kind: 'failed', message: 'This code expired. Start again to get a new code.' })
+        setDevice({ kind: 'expired', code: device.code, name: device.name })
         return
       }
       try {
@@ -130,7 +164,7 @@ export function App() {
           DeviceToken,
           {
             client_id: 'huddle-desktop',
-            device_code: device.code.device_code,
+            device_code: device.grant.device_code,
             grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
           },
           abort.signal,
@@ -160,11 +194,11 @@ export function App() {
         if (stopped || abort.signal.aborted || !client.active) return
         if (
           failure instanceof RequestError &&
-          ['authorization_pending', 'slow_down'].includes(failure.message)
+          (failure.oauth === 'authorization_pending' || failure.oauth === 'slow_down')
         ) {
-          if (failure.message === 'slow_down') interval += 5000
+          if (failure.oauth === 'slow_down') interval += 5000
           timer = setTimeout(() => void poll(), interval)
-        } else setDevice({ kind: 'failed', message: errorText(failure) })
+        } else setDevice(interrupted(failure, device.code, device.name))
       }
     }
     timer = setTimeout(() => void poll(), interval)
@@ -176,54 +210,36 @@ export function App() {
   if (editingServer)
     return (
       <Connect
-        initialOrigin={client.origin}
+        initialOrigin={localStorage.getItem('huddle.server') ? client.origin : ''}
         connect={changeServer}
         close={localStorage.getItem('huddle.server') ? () => setEditingServer(false) : undefined}
       />
     )
-  if (device.kind === 'waiting')
+  const server = { name: saved?.name ?? new URL(client.origin).host, origin: client.origin }
+  if (device.kind !== 'idle')
     return (
       <BrowserWait
-        server={{ name: device.name, origin: client.origin }}
-        code={device.code.user_code}
-        expiresAt={device.expiresAt}
-        error=""
-        open={() =>
+        server={{ ...server, name: ('name' in device && device.name) || server.name }}
+        state={device}
+        open={() => {
+          if (device.kind !== 'waiting') return
           void openBrowser(
-            device.code.verification_uri_complete ?? device.code.verification_uri,
-          ).catch((failure) => setDevice({ kind: 'failed', message: errorText(failure) }))
-        }
+            device.grant.verification_uri_complete ?? device.grant.verification_uri,
+          ).catch((failure) => setDevice(interrupted(failure, device.code, device.name)))
+        }}
+        restart={() => void browser()}
         cancel={() => void cancel()}
+        onServer={() => setEditingServer(true)}
       />
-    )
-  if (device.kind === 'starting' || device.kind === 'failed')
-    return (
-      <div className="access-shell">
-        <main className="access-main">
-          <h1>
-            {device.kind === 'starting' ? 'Opening your browser…' : 'Browser sign-in stopped'}
-          </h1>
-          {device.kind === 'failed' && (
-            <p className="access-error" role="alert">
-              {device.message}
-            </p>
-          )}
-          <button className="access-primary" onClick={() => void browser()}>
-            Try browser sign-in again
-          </button>
-          <button className="access-secondary" onClick={() => void cancel()}>
-            Cancel
-          </button>
-        </main>
-      </div>
     )
   return (
     <Application
       key={`${client.origin}:${reload}`}
       client={client}
+      serverName={saved?.name}
       onServer={() => setEditingServer(true)}
       browser={browser}
-      browserSecurity={() => openBrowser(client.origin + '/login?settings=security')}
+      openBrowser={openBrowser}
     />
   )
 }

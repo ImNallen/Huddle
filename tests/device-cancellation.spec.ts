@@ -51,6 +51,7 @@ test('cancelling a redeemed native device token before admission never saves or 
     await desktop.getByRole('button', { name: 'Sign in in your browser', exact: true }).click()
     await expect(desktop.getByRole('heading', { name: 'Sign in in your browser' })).toBeVisible()
     console.log('PASS cancellation test desktop waits for approval')
+    await expect.poll(() => desktop.evaluate<string>('window.huddleTestBrowser')).toMatch(/^http/)
     const target = await desktop.evaluate<string>('window.huddleTestBrowser')
     expect(new URL(target).origin).toBe(serverURL)
     await page.goto(target)
@@ -65,9 +66,7 @@ test('cancelling a redeemed native device token before admission never saves or 
     release()
     expect(await desktop.evaluate<number>('window.huddleTestWrites.length')).toBe(0)
     expect(bearerReads).toBe(1)
-    await expect(
-      desktop.getByRole('heading', { name: /^Good (morning|afternoon|evening), / }),
-    ).toHaveCount(0)
+    await expect(desktop.getByRole('button', { name: 'Account security' })).toHaveCount(0)
   } finally {
     release()
     await context.close()
@@ -151,8 +150,11 @@ test('the browser claims a device code and requires explicit approval', async ({
     'Device browser owner',
     `${serverURL}/login?redirect=${encodeURIComponent(redirect)}`,
   )
-  await expect(page.getByText(code.user_code, { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Device code')).toHaveCount(0)
+  await expect(
+    page.getByText(`${code.user_code.slice(0, 4)}–${code.user_code.slice(4)}`, { exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText(/^Today, \d{1,2}:\d{2}/)).toBeVisible()
+  await expect(page.getByLabel('Desktop code')).toHaveCount(0)
   await expect(page.getByText('Huddle Desktop', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Approve this desktop' })).toBeDisabled()
   await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
@@ -163,9 +165,11 @@ test('the browser claims a device code and requires explicit approval', async ({
     'href',
     '/login?settings=security',
   )
-  await page.screenshot({ path: '/tmp/devshot/connected.png' })
   await page.goto(serverURL + '/device')
-  await page.getByLabel('Device code').fill(code.user_code)
+  await page.getByLabel('Desktop code').fill(code.user_code.toLowerCase())
+  await expect(page.getByLabel('Desktop code')).toHaveValue(
+    `${code.user_code.slice(0, 4)}-${code.user_code.slice(4)}`,
+  )
   await page.getByRole('button', { name: 'Check code' }).click()
   await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
   const response = await fetch(serverURL + '/api/auth/device/token', {

@@ -199,6 +199,7 @@ export function Security({
                   busy={busy}
                   upload={(file) => client.upload(file)}
                   photo={(id, signal) => client.photo(id, signal)}
+                  submitLabel="Save profile"
                 />
                 <Alert message={error} />
               </>

@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { Connection, DeviceApproval, Frame } from '@huddle/ui'
+import { Connecting, Connection, DeviceApproval } from '@huddle/ui'
 export const Route = createFileRoute('/device')({ component: Device })
 function Device() {
   const [request, setRequest] = useState<{ client: Connection; code: string } | null>(null)
@@ -12,8 +12,6 @@ function Device() {
   return request ? (
     <DeviceApproval client={request.client} initialCode={request.code} />
   ) : (
-    <Frame>
-      <p role="status">Connecting to your server…</p>
-    </Frame>
+    <Connecting />
   )
 }

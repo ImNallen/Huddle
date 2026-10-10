@@ -1,23 +1,43 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { z } from 'zod'
-import { Check, Monitor, ShieldCheck, X } from 'lucide-react'
-import { Application } from './Application'
-import { Avatar } from './Avatar'
-import { Frame, Heading, Alert, Primary } from './primitives'
-import type { Connection } from './connection'
-import { errorText } from './transport'
+import { Check, Monitor, X } from 'lucide-react'
 import { ServerInfo, type PublicUser } from '@huddle/contracts'
+import { Application, Connecting } from './Application'
+import { Avatar } from './Avatar'
+import { Frame, Heading, Alert, Primary, hostOf } from './primitives'
+import { RequestError, type Connection } from './connection'
+import { errorText } from './transport'
 
 const Claim = z.object({
   user_code: z.string(),
   status: z.enum(['pending', 'approved', 'denied']),
   client_id: z.literal('huddle-desktop'),
+  requested_at: z.iso.datetime(),
 })
 type State =
   | { kind: 'entry' }
   | { kind: 'checking' }
   | { kind: 'claimed'; claim: z.infer<typeof Claim> }
   | { kind: 'done'; approved: boolean }
+const alphabet = /[^ABCDEFGHJKLMNPQRSTUVWXYZ2-9]/g
+const normalize = (value: string) => value.toUpperCase().replace(alphabet, '').slice(0, 8)
+const display = (value: string) =>
+  value.length > 4 ? `${value.slice(0, 4)}-${value.slice(4)}` : value
+function describe(failure: unknown) {
+  if (failure instanceof RequestError && (failure.code === 'expired' || failure.code === 'invalid'))
+    return {
+      lead: "That code isn't valid or has expired.",
+      message: 'Check the code on your desktop, or start again there to get a new one.',
+    }
+  return { lead: errorText(failure) }
+}
+function requested(at: string) {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return date.toDateString() === new Date().toDateString()
+    ? `Today, ${time}`
+    : `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
+}
 export function DeviceApproval({
   client,
   initialCode,
@@ -26,19 +46,19 @@ export function DeviceApproval({
   initialCode: string
 }) {
   const [user, setUser] = useState<PublicUser | null>(null)
-  const [code, setCode] = useState(initialCode)
+  const [code, setCode] = useState(() => normalize(initialCode))
   const [info, setInfo] = useState<z.infer<typeof ServerInfo> | null>(null)
   const [state, setState] = useState<State>(initialCode ? { kind: 'checking' } : { kind: 'entry' })
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [busy, setBusy] = useState<'check' | 'approve' | 'deny' | null>(null)
+  const [failure, setFailure] = useState<unknown>(null)
   const [matched, setMatched] = useState(false)
   useEffect(() => {
     const abort = new AbortController()
     void client
       .info()
       .then(setInfo)
-      .catch((failure) => {
-        if (!abort.signal.aborted) setError(errorText(failure))
+      .catch((error: unknown) => {
+        if (!abort.signal.aborted) setFailure(error)
       })
     return () => abort.abort()
   }, [client])
@@ -48,11 +68,11 @@ export function DeviceApproval({
   )
   const lookup = useCallback(
     async (userCode: string) => {
-      setBusy(true)
-      setError('')
+      setBusy('check')
+      setFailure(null)
       try {
         const claim = await client.request(
-          `/api/auth/device?user_code=${encodeURIComponent(userCode.trim())}`,
+          `/api/auth/device?user_code=${encodeURIComponent(normalize(userCode))}`,
           Claim,
         )
         setState(
@@ -61,11 +81,11 @@ export function DeviceApproval({
             : { kind: 'done', approved: claim.status === 'approved' },
         )
         setMatched(false)
-      } catch (failure) {
+      } catch (error) {
         setState({ kind: 'entry' })
-        setError(errorText(failure))
+        setFailure(error)
       } finally {
-        setBusy(false)
+        setBusy(null)
       }
     },
     [client],
@@ -79,15 +99,23 @@ export function DeviceApproval({
   }
   async function decide(decision: 'approve' | 'deny') {
     if (state.kind !== 'claimed' || (decision === 'approve' && !matched)) return
-    setBusy(true)
-    setError('')
+    setBusy(decision)
+    setFailure(null)
     try {
       await client.act({ kind: 'device.decide', userCode: state.claim.user_code, decision })
       setState({ kind: 'done', approved: decision === 'approve' })
-    } catch (failure) {
-      setError(errorText(failure))
+    } catch (error) {
+      setFailure(error)
     } finally {
-      setBusy(false)
+      setBusy(null)
+    }
+  }
+  async function signOut() {
+    try {
+      await client.signOut()
+    } finally {
+      setUser(null)
+      setState(initialCode ? { kind: 'checking' } : { kind: 'entry' })
     }
   }
   if (!user)
@@ -98,49 +126,81 @@ export function DeviceApproval({
         returnTo={`/device?user_code=${encodeURIComponent(initialCode)}`}
       />
     )
+  const host = hostOf(client.origin)
+  const server = info ? { name: info.name, origin: client.origin } : undefined
+  const problem = failure ? describe(failure) : null
+  if (state.kind === 'checking') return <Connecting server={server} title="Checking your code…" />
   return (
-    <Frame server={info ? { name: info.name, origin: client.origin } : undefined}>
-      {state.kind === 'checking' ? (
-        <p role="status">Checking your code…</p>
-      ) : state.kind === 'entry' ? (
+    <Frame
+      server={server}
+      account={user.email}
+      onSignOut={() => void signOut()}
+      wide={state.kind === 'claimed'}
+    >
+      {state.kind === 'entry' ? (
         <>
           <Heading
-            title="Connect your desktop"
-            icon={<Monitor size={20} />}
+            title="Authorize a desktop"
+            icon={<Monitor size={16} />}
             description="Enter the code shown in your Huddle desktop."
           />
           <form onSubmit={check}>
             <label className="access-label">
-              Device code
+              Desktop code
               <input
+                className="access-device-input"
                 name="code"
                 required
                 autoComplete="off"
-                maxLength={32}
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
+                autoCapitalize="characters"
+                spellCheck={false}
+                placeholder="XXXX-XXXX"
+                value={display(code)}
+                onChange={(event) => setCode(normalize(event.target.value))}
+                aria-invalid={problem ? true : undefined}
+                autoFocus
               />
             </label>
-            <Primary busy={busy}>Check code</Primary>
+            <p className="access-hint">Letters and numbers. Dashes are added for you.</p>
+            {problem && <Alert lead={problem.lead} message={problem.message} />}
+            <Primary busy={busy === 'check'} disabled={busy !== null || code.length < 8}>
+              Check code
+            </Primary>
           </form>
+          <hr className="access-rule" />
+          <p className="access-note">Only enter a code from a desktop you're using right now.</p>
         </>
       ) : state.kind === 'claimed' ? (
-        <div className="access-card">
+        <div className="access-panel">
           <Heading
             title="Sign in to Huddle Desktop?"
-            icon={<ShieldCheck size={20} />}
-            description={`Huddle Desktop is asking to sign in to ${info?.name ?? 'this server'} with your account.`}
+            description="A desktop is asking to use your account."
           />
-          <div className="access-row">
-            <span>App</span>
-            <strong>Huddle Desktop</strong>
+          <dl className="access-details">
+            <div>
+              <dt>App</dt>
+              <dd>
+                <Monitor size={13} />
+                Huddle Desktop
+              </dd>
+            </div>
+            <div>
+              <dt>Server</dt>
+              <dd>
+                <code>{host}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Requested</dt>
+              <dd>{requested(state.claim.requested_at)}</dd>
+            </div>
+          </dl>
+          <p className="access-wait-label">Code</p>
+          <div className="access-wait-code">
+            <span>{state.claim.user_code.slice(0, 4)}</span>
+            <i aria-hidden="true">–</i>
+            <span>{state.claim.user_code.slice(4)}</span>
           </div>
-          <div className="access-row">
-            <span>Server</span>
-            <code>{new URL(client.origin).host}</code>
-          </div>
-          <p className="access-note">Does this match the code on your desktop?</p>
-          <div className="access-wait-code">{state.claim.user_code}</div>
           <label className="access-checkbox">
             <input
               type="checkbox"
@@ -149,59 +209,82 @@ export function DeviceApproval({
             />
             <span>I checked that this code matches my desktop.</span>
           </label>
-          <p className="access-note">
-            Only approve if you started this sign-in yourself and the code matches. Never approve a
-            code someone else sent you.
-          </p>
-          <Primary busy={busy} disabled={!matched} onClick={() => void decide('approve')}>
-            Approve this desktop
-          </Primary>
-          <button
-            className="access-secondary access-danger"
-            disabled={busy}
-            onClick={() => void decide('deny')}
-          >
-            Deny
-          </button>
+          <Alert
+            tone="warning"
+            lead="Never approve a code someone else sent you."
+            message="Anyone with an approved desktop can read and send messages as you."
+          />
+          {problem && <Alert lead={problem.lead} message={problem.message} />}
+          <div className="access-actions-row">
+            <button
+              type="button"
+              className="access-secondary access-danger"
+              disabled={busy !== null}
+              onClick={() => void decide('deny')}
+            >
+              Deny
+            </button>
+            <Primary
+              type="button"
+              busy={busy === 'approve'}
+              disabled={busy !== null || !matched}
+              onClick={() => void decide('approve')}
+            >
+              Approve this desktop
+            </Primary>
+          </div>
         </div>
       ) : (
-        <div className="access-outcome">
-          <div className={`access-outcome-symbol ${state.approved ? '' : 'access-outcome-denied'}`}>
-            {state.approved ? <Check size={22} /> : <X size={22} />}
-          </div>
-          <h1>{state.approved ? 'You’re connected' : 'Request denied'}</h1>
-          <p className="access-description">
-            {state.approved
-              ? `Huddle Desktop is now signed in to ${info?.name ?? 'this server'}. You can close this tab.`
-              : 'This desktop cannot use your account.'}
-          </p>
-          {state.approved && (
-            <div className="access-outcome-account">
+        <div className="access-center">
+          <Heading
+            title={state.approved ? 'You’re connected' : 'Request denied'}
+            icon={state.approved ? <Check size={20} /> : <X size={20} />}
+            iconTone={state.approved ? 'success' : 'danger'}
+            description={
+              state.approved
+                ? 'Huddle Desktop is signed in. You can close this tab and go back to the app.'
+                : 'This desktop cannot use your account.'
+            }
+          />
+          {state.approved ? (
+            <div className="access-person">
               <Avatar avatar={user.avatar} name={user.name} photo={photo} size={32} />
               <div>
-                <strong>{user.name}</strong>
+                <p>
+                  <strong>{user.name}</strong>
+                  <em>
+                    <Monitor size={11} />
+                    Huddle Desktop
+                  </em>
+                </p>
                 <span>
-                  {user.email} · {new URL(client.origin).host}
+                  {user.email} · <code>{host}</code>
                 </span>
               </div>
-              <span className="access-outcome-device">
-                <Monitor size={14} />
-                Huddle Desktop
-              </span>
+            </div>
+          ) : (
+            <div className="access-card">
+              <p>
+                If you meant to sign in, start again from Huddle Desktop to get a new code. If you
+                didn’t, there’s nothing else to do.
+              </p>
             </div>
           )}
-          <a className="access-link" href="/login">
-            Use Huddle in this browser instead
+          <a className="access-secondary" href="/login">
+            {state.approved
+              ? 'Use Huddle in this browser instead'
+              : `Go to ${info?.name ?? 'Huddle'}`}
           </a>
-          <footer>
-            Didn’t sign in just now?{' '}
+          <hr className="access-rule" />
+          <p className="access-note">
+            {state.approved ? 'Didn’t sign in just now?' : 'Seeing requests you didn’t make?'}{' '}
             <a className="access-link" href="/login?settings=security">
               Review account security
             </a>
-          </footer>
+          </p>
         </div>
       )}
-      <Alert message={error} />
+      {state.kind === 'done' && problem && <Alert lead={problem.lead} message={problem.message} />}
     </Frame>
   )
 }

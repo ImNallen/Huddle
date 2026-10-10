@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react'
 import { Check, CircleCheck, UserPlus } from 'lucide-react'
-import type { Channel, ChannelId, HomeItem, Room, Session, Server } from '@huddle/contracts'
+import type { Channel, ChannelId, HomeItem, Member, Room, Session, Server } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import type { Dialog, HomeState, View } from './ServerView'
 import { Avatar } from './Avatar'
-import { Badge, Mentions, clock } from './Badges'
+import { Badge, Mentions, clock, sentence } from './Badges'
 
 const categories = { mentions: 'Mentions', messages: 'Messages' } as const
 type Category = keyof typeof categories
@@ -84,6 +84,7 @@ export function Home({
   server,
   rooms,
   channels,
+  members,
   home,
   onView,
   onDialog,
@@ -94,6 +95,7 @@ export function Home({
   server: Server
   rooms: Room[]
   channels: Channel[]
+  members: Member[] | null
   home: HomeState
   onView: (view: View) => void
   onDialog: (dialog: Dialog) => void
@@ -103,6 +105,14 @@ export function Home({
   const [error, setError] = useState('')
   const now = new Date()
   const admin = server.role === 'admin'
+  const firstName = session.user.name.split(/\s+/)[0]
+  const steps = admin
+    ? adminSteps(rooms, channels, members?.length ?? server.memberCount)
+    : memberSteps(
+        rooms,
+        channels,
+        members?.find((member) => member.id === session.user.id)?.invitedBy ?? null,
+      )
   const place = (id: ChannelId): Place | undefined => {
     const channel = channels.find((channel) => channel.id === id)
     const room = rooms.find((room) => room.id === channel?.roomId)
@@ -112,12 +122,32 @@ export function Home({
     project(item.kind, item, place, client),
   )
   const visible = rows.filter((row) => filter === 'all' || row.category === filter)
+  if (steps.some((step) => !step.done))
+    return (
+      <main className="main">
+        <header className="topbar">
+          <strong>Home</strong>
+          {admin && (
+            <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
+              <UserPlus size={15} />
+              Invite
+            </button>
+          )}
+        </header>
+        <div className="scroll">
+          <div className="home setup-home">
+            <p className="home-date">Welcome, {firstName}</p>
+            <h1 className="home-greeting">
+              {admin ? 'Your server is ready' : `You’re in ${sentence(server.name)}`}
+            </h1>
+            <Setup server={server} steps={steps} admin={admin} onDialog={onDialog} />
+          </div>
+        </div>
+      </main>
+    )
   return (
     <main className="main">
       <header className="topbar">
-        <Badge id={server.name} name={server.name} />
-        <span className="crumb">{server.name}</span>
-        <span className="crumb-separator">/</span>
         <strong>Home</strong>
         {admin && (
           <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
@@ -132,11 +162,9 @@ export function Home({
             {now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
           <h1 className="home-greeting">
-            {greeting(now.getHours())}, {session.user.name.split(/\s+/)[0]}
+            {greeting(now.getHours())}, {firstName}
           </h1>
-          {!channels.length ? (
-            <Setup server={server} rooms={rooms} channels={channels} onDialog={onDialog} />
-          ) : home.kind === 'failed' ? (
+          {home.kind === 'failed' ? (
             <p className="form-error" role="alert">
               {home.message}
             </p>
@@ -223,68 +251,131 @@ type Step = {
   title: string
   detail: string
   done: boolean
-  action?: { label: string; dialog: Dialog }
+  action: { label: string; dialog: Dialog | null } | null
 }
-function Setup({
-  server,
-  rooms,
-  channels,
-  onDialog,
-}: {
-  server: Server
-  rooms: Room[]
-  channels: Channel[]
-  onDialog: (dialog: Dialog) => void
-}) {
-  const admin = server.role === 'admin'
-  const first = rooms[0]
-  const invite: Step = {
-    title: 'Invite coworkers',
-    detail: 'Email an invitation to someone on your team.',
-    done: server.memberCount > 1,
-    action: { label: 'Invite', dialog: { kind: 'invite' } },
-  }
-  const steps: Step[] = [
+const channelPurpose = 'Channels are where a room’s conversations happen.'
+function placed(rooms: Room[], channels: Channel[]) {
+  const channel = channels[0]
+  const room = rooms.find((room) => room.id === channel?.roomId)
+  return channel && room ? `#${channel.name} in ${room.name}` : null
+}
+function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): Step[] {
+  const room = rooms[0]
+  const channel = placed(rooms, channels)
+  const coworkers = memberCount - 1
+  return [
     {
       title: 'Create your first room',
-      detail: 'Rooms gather the people and channels for one area of work.',
-      done: rooms.length > 0,
+      detail: room?.name ?? 'A room holds the channels for one team or area of work.',
+      done: Boolean(room),
       action: { label: 'Create room', dialog: { kind: 'room' } },
     },
     {
       title: 'Add a channel',
-      detail: first
-        ? `Give ${first.name} a place to talk, like #general.`
-        : 'Channels hold the conversation inside a room.',
-      done: channels.length > 0,
-      action: first && { label: 'Add channel', dialog: { kind: 'channel', roomId: first.id } },
+      detail: channel ?? (room ? channelPurpose : `${channelPurpose} Create a room first.`),
+      done: Boolean(channel),
+      action: { label: 'Add channel', dialog: room ? { kind: 'channel', roomId: room.id } : null },
     },
-    ...(admin ? [invite] : []),
+    {
+      title: 'Invite coworkers',
+      detail: coworkers
+        ? `${coworkers} ${coworkers === 1 ? 'coworker has' : 'coworkers have'} joined.`
+        : 'Huddle emails them an invitation that lasts 7 days.',
+      done: coworkers > 0,
+      action: { label: 'Invite coworkers', dialog: { kind: 'invite' } },
+    },
   ]
+}
+function memberSteps(rooms: Room[], channels: Channel[], invitedBy: string | null): Step[] {
+  const room = rooms[0]
+  const channel = placed(rooms, channels)
+  return [
+    {
+      title: 'Invite coworkers',
+      detail: `You joined from ${invitedBy ? `${invitedBy}’s` : 'an'} invitation.`,
+      done: true,
+      action: null,
+    },
+    {
+      title: 'Create the first room',
+      detail: room?.name ?? 'A room holds the channels for one team or area of work.',
+      done: Boolean(room),
+      action: null,
+    },
+    {
+      title: 'Add a channel',
+      detail: channel ?? channelPurpose,
+      done: Boolean(channel),
+      action: null,
+    },
+  ]
+}
+function Setup({
+  server,
+  steps,
+  admin,
+  onDialog,
+}: {
+  server: Server
+  steps: Step[]
+  admin: boolean
+  onDialog: (dialog: Dialog) => void
+}) {
+  const done = steps.filter((step) => step.done).length
+  const next = steps.findIndex((step) => !step.done)
   return (
-    <section className="card setup" aria-labelledby="setup-title">
-      <h2 id="setup-title">Set up {server.name}</h2>
-      <p>
-        {admin
-          ? 'A few steps and your team has a place to talk.'
-          : 'An admin is still setting things up. Rooms appear here as soon as they’re created.'}
-      </p>
-      <ol>
-        {steps.map(({ action, ...step }) => (
-          <li key={step.title} className={step.done ? 'done' : ''}>
-            <span className="step-mark">{step.done && <Check size={13} />}</span>
-            <span className="step-text">
-              <strong>{step.title}</strong>
-              <span>{step.detail}</span>
-            </span>
-            {admin && !step.done && action && (
-              <button className="button" onClick={() => onDialog(action.dialog)}>
-                {action.label}
-              </button>
-            )}
-          </li>
-        ))}
-      </ol>
-    </section>
+    <>
+      <section className="card setup" aria-labelledby="setup-title">
+        <div className="setup-head">
+          <h2 id="setup-title">Set up {server.name}</h2>
+          <span className="setup-count">
+            {done} of {steps.length} done
+          </span>
+          <p>
+            {admin
+              ? 'A few steps and your team has a place to talk.'
+              : 'An admin is still setting things up. Rooms appear here as soon as they’re created.'}
+          </p>
+          <span className="setup-progress" aria-hidden="true">
+            {steps.map((step, index) => (
+              <i key={step.title} className={index < done ? 'filled' : ''} />
+            ))}
+          </span>
+        </div>
+        <ol>
+          {steps.map((step, index) => (
+            <li key={step.title}>
+              <span
+                className={`step-mark ${step.done ? 'done' : !admin ? 'waiting' : index === next ? 'next' : ''}`}
+              >
+                {step.done ? <Check size={13} /> : admin ? index + 1 : null}
+              </span>
+              <span className="step-text">
+                <strong>{step.title}</strong>
+                <span>{step.detail}</span>
+              </span>
+              {step.done ? (
+                <span className="step-state done">Done</span>
+              ) : step.action ? (
+                <button
+                  className={`button ${index === next ? 'primary' : ''}`}
+                  disabled={!step.action.dialog}
+                  onClick={() => step.action?.dialog && onDialog(step.action.dialog)}
+                >
+                  {step.action.label}
+                </button>
+              ) : (
+                <span className="step-state">Waiting on an admin</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </section>
+      {admin && (
+        <p className="setup-note">
+          You can come back to this list from Home until every step is done. Only admins see it.
+        </p>
+      )}
+    </>
   )
 }

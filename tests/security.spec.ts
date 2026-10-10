@@ -5,8 +5,10 @@ import {
   member,
   nextTotp,
   sendEmail,
+  setupKey,
   signOut,
   signin,
+  totp,
 } from './passwordless'
 import { useScratchServer } from './server'
 
@@ -28,12 +30,12 @@ test('profile persists and sensitive recovery changes require a fresh factor and
     'aria-pressed',
     'true',
   )
-  await page.getByLabel('Display name').fill('Updated profile owner')
-  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByLabel('Name', { exact: true }).fill('Updated profile owner')
+  await page.getByRole('button', { name: 'Save profile', exact: true }).click()
   await page.reload()
   await page.getByRole('button', { name: 'Account security', exact: true }).click()
   await page.getByRole('button', { name: 'Profile', exact: true }).click()
-  await expect(page.getByLabel('Display name')).toHaveValue('Updated profile owner')
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Updated profile owner')
   await page.getByRole('button', { name: 'Account security', exact: true }).click()
   await page.getByRole('button', { name: 'Regenerate codes', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
@@ -64,19 +66,27 @@ test('returning email requires TOTP and recovery leads through replacement befor
   const code = await sendEmail(page, identity.email)
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0)
-  await page.getByLabel('Code', { exact: true }).fill(code)
+  await page.getByLabel('Verification code').fill(code)
   await page.getByRole('button', { name: 'Verify', exact: true }).click()
   await page.getByRole('button', { name: 'Use a recovery code', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Recover your account' })).toBeVisible()
+  await page.getByRole('button', { name: 'Back to authenticator code', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Enter your authenticator code' })).toBeVisible()
+  await page.getByRole('button', { name: 'Use a recovery code', exact: true }).click()
+  await page.getByLabel('Recovery code').fill('not-a-saved-code')
+  await page.getByRole('button', { name: 'Recover account', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveText(
+    "That code isn't valid or was already used. Check for typos, or try another code from your list.",
+  )
   const recovery = identity.recovery[0]
   if (!recovery) throw new Error('No recovery code was issued during onboarding.')
   await page.getByLabel('Recovery code').fill(recovery)
   await page.getByRole('button', { name: 'Recover account', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Replace your authenticator' })).toBeVisible()
-  const replacement = (await page.locator('.access-secret').textContent())?.trim()
-  if (!replacement) throw new Error('No replacement authenticator key was displayed.')
-  const { totp } = await import('./passwordless')
+  await expect(page.getByRole('button', { name: 'Account security', exact: true })).toHaveCount(0)
+  const replacement = await setupKey(page)
   await page.getByLabel('6-digit code').fill(totp(replacement))
-  await page.getByRole('button', { name: 'Confirm and continue' }).click()
+  await page.getByRole('button', { name: 'Confirm and replace' }).click()
   await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toBeVisible()
   await page.getByRole('checkbox', { name: /I've saved these codes/ }).check()
   await page.getByRole('button', { name: 'Continue', exact: true }).click()

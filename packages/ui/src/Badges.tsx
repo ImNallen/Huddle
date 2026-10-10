@@ -36,6 +36,9 @@ export function Mentions({ text }: { text: string }) {
     ),
   )
 }
+export function sentence(text: string) {
+  return `${text.replace(/\.+$/, '')}.`
+}
 export function clock(createdAt: string) {
   return new Date(createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
