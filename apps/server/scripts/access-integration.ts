@@ -39,6 +39,10 @@ const server = await startServer({
 })
 const base = server.origin
 const scratchEnv = { ...process.env, DATABASE_URL: database.url, SERVER_URL: base }
+async function nextStep(authenticator: TOTP) {
+  await new Promise((resolve) => setTimeout(resolve, 30000 - (Date.now() % 30000) + 50))
+  return authenticator.generate()
+}
 try {
   async function enrollAccount(client: Client, email: string, begin: AccessCommand) {
     const sentAt = Date.now()
@@ -48,6 +52,7 @@ try {
     assert.equal(view.stage.kind, 'enroll')
     assert.equal((await client.call('/api/snapshot')).response.status, 401)
     if (view.stage.kind !== 'enroll') throw new Error('Enrollment missing')
+    const inviter = view.stage.inviter
     const oldGeneration = view.stage.generation
     view = await client.act({ kind: 'enrollment.refresh' })
     if (view.stage.kind !== 'enroll') throw new Error('Enrollment missing')
@@ -77,7 +82,7 @@ try {
     const inventory = AccountSecurity.parse((await client.call('/api/account')).value)
     assert.equal(inventory.recoveryRemaining, 10)
     assert.equal(inventory.user.avatar.kind, 'mascot')
-    return { email, authenticator, codes, enrolledCode, sentAt }
+    return { email, authenticator, codes, enrolledCode, sentAt, inviter }
   }
   const browser = new Client(base)
   const adminEmail = syntheticEmail('access')
@@ -92,8 +97,20 @@ try {
   const native = new Client(base, true)
   const nativeEmail = syntheticEmail('access')
   await invite(browser, nativeEmail)
-  await enrollAccount(native, nativeEmail, { kind: 'email.send', email: nativeEmail })
+  const nativeAccount = await enrollAccount(native, nativeEmail, {
+    kind: 'email.send',
+    email: nativeEmail,
+  })
   assert(native.token.length > 0)
+  assert.equal(account.inviter, null)
+  assert.deepEqual(
+    nativeAccount.inviter && {
+      name: nativeAccount.inviter.name,
+      email: nativeAccount.inviter.email,
+      role: nativeAccount.inviter.role,
+    },
+    { name: 'Synthetic member', email: adminEmail, role: 'admin' },
+  )
   const seat = Snapshot.parse((await browser.call('/api/snapshot')).value).server
   assert.equal(seat.role, 'admin')
   assert.equal(seat.memberCount, 2)
@@ -457,6 +474,39 @@ try {
   )
   process.stdout.write(
     'PASS operator-confirmed capability, fresh email and enrollment, local passkey revocation, old-session rejection and reset single use.\n',
+  )
+
+  await new Promise((resolve) =>
+    setTimeout(resolve, Math.max(0, 61000 - (Date.now() - nativeAccount.sentAt))),
+  )
+  const returning = new Client(base, true)
+  const returningSeen = await mailIds(nativeEmail)
+  await returning.act({ kind: 'email.send', email: nativeEmail })
+  let returningView = await returning.act({
+    kind: 'email.verify',
+    code: await emailCode(nativeEmail, returningSeen),
+  })
+  assert.equal(returningView.stage.kind, 'totp')
+  returningView = await returning.act({ kind: 'recovery.choose' })
+  assert.equal(returningView.stage.kind, 'recovery')
+  returningView = await returning.act({ kind: 'totp.choose' })
+  assert.equal(returningView.stage.kind, 'totp')
+  returningView = await returning.act({
+    kind: 'totp.verify',
+    code: await nextStep(nativeAccount.authenticator),
+  })
+  assert.equal(returningView.stage.kind, 'ready')
+  const replacement = await returning.act({
+    kind: 'security.commit',
+    change: { kind: 'authenticator.replace' },
+    proof: { kind: 'totp', code: await nextStep(nativeAccount.authenticator) },
+  })
+  assert(replacement.stage.kind === 'enroll' && replacement.stage.replacing)
+  assert.equal(replacement.stage.inviter, null)
+  assert.equal((await returning.act({ kind: 'totp.choose' })).stage.kind, 'ready')
+  assert.equal(AccessView.parse((await returning.call('/api/access')).value).stage.kind, 'ready')
+  process.stdout.write(
+    'PASS invited enrollment names its inviter, setup enrollment has none, recovery returns to the authenticator code and an Account security replacement can be abandoned.\n',
   )
 
   if (process.env.ACCESS_TEST_STATE)

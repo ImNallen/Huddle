@@ -110,7 +110,7 @@ async function setup(origin: string) {
     'email',
   )
   const notice = await nextMail(strangerEmail, seen)
-  assert.match(notice.text, /no account for it on this server/)
+  assert.match(notice.text, /there is no account for it/)
   assert.doesNotMatch(notice.text, /\b\d{6}\b/, 'the no-account email carries no code')
   blocked(
     await stranger.call('/api/access', { kind: 'email.verify', code: '000000' }),

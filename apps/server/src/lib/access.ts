@@ -8,6 +8,7 @@ import {
   RecoveryBatch,
   type AccessStage,
   Avatar,
+  Inviter,
   PublicUser,
   type FactorInput,
 } from '@huddle/contracts'
@@ -110,6 +111,15 @@ async function publicUser(userId: string) {
   )
   return PublicUser.parse(result.rows[0])
 }
+async function inviter(userId: string) {
+  const result = await db.query(
+    `SELECT u.name,u.email,a.avatar,m.role FROM invitation i JOIN "user" u ON u.id=i.invited_by
+    JOIN account_security a ON a.user_id=u.id JOIN member m ON m.user_id=u.id
+    WHERE i.accepted_by=$1 ORDER BY i.accepted_at DESC LIMIT 1`,
+    [userId],
+  )
+  return result.rows[0] ? Inviter.parse(result.rows[0]) : null
+}
 async function entry(): Promise<AccessStage> {
   const company = config.OIDC_DISCOVERY_URL ? (['company'] as const) : []
   const local = config.AUTH_POLICY === 'mixed'
@@ -153,7 +163,9 @@ export async function viewFor(request: Request): Promise<AccessView> {
             secret: pending.pending.secret,
             generation: pending.pending.generation,
             replacing: pending.pending.replacing,
-            uri: totp(pending.pending.secret).toString(),
+            uri: totp(pending.pending.secret, await serverName()).toString(),
+            inviter:
+              pending.user_id && !pending.pending.replacing ? await inviter(pending.user_id) : null,
           },
         }
       case 'totp':
@@ -177,10 +189,10 @@ export async function viewFor(request: Request): Promise<AccessView> {
     }
   return { stage: { kind: 'ready', user: principal.user } }
 }
-export const totp = (secret: string) =>
+export const totp = (secret: string, label = 'Huddle account') =>
   new TOTP({
     issuer: 'Huddle',
-    label: 'Huddle account',
+    label,
     algorithm: 'SHA1',
     digits: 6,
     period: 30,
@@ -598,6 +610,12 @@ async function advance(
     const pending = current.pending
     if (command.kind === 'recovery.choose' && pending.kind === 'totp')
       await putCeremony(sql, oldToken, { kind: 'recovery' }, userId, account.epoch)
+    else if (command.kind === 'totp.choose' && pending.kind === 'recovery')
+      await putCeremony(sql, oldToken, { kind: 'totp' }, userId, account.epoch)
+    // A session-bound enrollment is a replacement started from Account security; choosing the
+    // current authenticator abandons it.
+    else if (command.kind === 'totp.choose' && pending.kind === 'enroll' && current.session_id)
+      await sql.query('DELETE FROM access_ceremony WHERE id_hash=$1', [current.id_hash])
     else if (command.kind === 'recovery.verify' && pending.kind === 'recovery') {
       const codeHash = digest(`recovery:${command.code.trim()}`)
       const code = await sql.query(

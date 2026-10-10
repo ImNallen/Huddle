@@ -38,7 +38,8 @@ export async function deviceRequest(request: Request, trustedIp?: string) {
       [code, actor.session.id],
     )
     const result = await db.query(
-      "SELECT user_code,status FROM access_device WHERE user_code=$1 AND expires_at>now() AND status<>'consumed'",
+      `SELECT user_code,status,expires_at - interval '10 minutes' AS requested_at FROM access_device
+      WHERE user_code=$1 AND expires_at>now() AND status<>'consumed'`,
       [code],
     )
     if (!result.rows[0]) throw new AccessFailure('expired')

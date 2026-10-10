@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto'
 import { generateId } from 'better-auth'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
-import { Invitation, type UserId } from '@huddle/contracts'
+import { Invitation, PendingInvitations, type UserId } from '@huddle/contracts'
 import { config } from './config'
 import { db } from './db'
 import { createEmailSender } from './email'
@@ -137,4 +137,27 @@ export async function invite(user: { id: UserId; name: string }, address: string
     )
   }
   return invitation
+}
+export async function pendingInvitations(userId: UserId) {
+  return transaction(async (sql) => {
+    await requireMember(sql, userId, 'admin')
+    const result = await sql.query(
+      `SELECT i.email, to_char(i.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "expiresAt", u.name AS "invitedBy"
+      FROM invitation i JOIN "user" u ON u.id = i.invited_by
+      WHERE i.accepted_at IS NULL ORDER BY i.expires_at, i.email`,
+    )
+    return PendingInvitations.parse({ invitations: result.rows })
+  }, true)
+}
+export async function revokeInvitation(userId: UserId, address: string) {
+  const email = address.toLowerCase()
+  await transaction(async (sql) => {
+    await requireMember(sql, userId, 'admin')
+    const revoked = await sql.query(
+      'DELETE FROM invitation WHERE email = $1 AND accepted_at IS NULL RETURNING email',
+      [email],
+    )
+    if (!revoked.rowCount)
+      throw new DomainError(404, `There is no pending invitation for ${email}.`)
+  })
 }

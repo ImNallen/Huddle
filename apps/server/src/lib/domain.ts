@@ -5,6 +5,7 @@ import {
   Avatar,
   Channel,
   Home,
+  Members,
   Message,
   Room,
   Unread,
@@ -263,6 +264,21 @@ export async function home(userId: UserId) {
         })),
       ],
     })
+  }, true)
+}
+export async function members(userId: UserId) {
+  return transaction(async (sql) => {
+    await requireMember(sql, userId)
+    const rows = await sql.query<Record<string, unknown>>(
+      `SELECT u.id, u.name, u.email, a.avatar, m.role,
+        to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "joinedAt",
+        (SELECT inviter.name FROM invitation i JOIN "user" inviter ON inviter.id = i.invited_by
+          WHERE i.accepted_by = u.id ORDER BY i.accepted_at DESC LIMIT 1) AS "invitedBy"
+      FROM member m JOIN "user" u ON u.id = m.user_id
+      LEFT JOIN account_security a ON a.user_id = u.id
+      ORDER BY m.role = 'admin' DESC, m.created_at, u.id`,
+    )
+    return Members.parse({ members: rows.rows })
   }, true)
 }
 async function findChannel(sql: PoolClient, channelId: ChannelId) {
