@@ -20,7 +20,13 @@ import { deviceRequest } from './access-device'
 import { passkeyRequest } from './access-passkey'
 import { AccessFailure } from './access-store'
 import { companyRequest } from './auth-provider'
-import { invite, serverName, setupRequired } from './admission'
+import {
+  invite,
+  pendingInvitations,
+  revokeInvitation,
+  serverName,
+  setupRequired,
+} from './admission'
 
 export async function applicationRequest(request: Request, trustedIp?: string): Promise<Response> {
   const origin = request.headers.get('origin')
@@ -116,6 +122,8 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
     if (request.method === 'GET') {
       if (path === '/api/snapshot') result = await domain.snapshot(userId)
       else if (path === '/api/home') result = await domain.home(userId)
+      else if (path === '/api/members') result = await domain.members(userId)
+      else if (path === '/api/invitations') result = await pendingInvitations(userId)
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
@@ -142,7 +150,10 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
         )
       else if (path === '/api/invitations')
         result = await invite({ id: userId, name: session.user.name }, Invite.parse(body).email)
-      else throw new domain.DomainError(404, 'Endpoint not found.')
+      else if (path === '/api/invitations/revoke') {
+        await revokeInvitation(userId, Invite.parse(body).email)
+        result = {}
+      } else throw new domain.DomainError(404, 'Endpoint not found.')
     } else throw new domain.DomainError(405, 'Method not allowed.')
     return Response.json(result, { headers })
   } catch (error) {

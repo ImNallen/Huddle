@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Hash, X } from 'lucide-react'
+import { Check, CircleAlert, Hash, Mail, Plus, TriangleAlert, X } from 'lucide-react'
 import { Channel, Invitation, Room, type RoomId } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
+import { RequestError } from './connection'
+import { sentence } from './Badges'
 
 function Modal({
   title,
   description,
+  icon,
   onClose,
   children,
 }: {
   title: string
-  description: string
+  description: ReactNode
+  icon?: ReactNode
   onClose: () => void
   children: ReactNode
 }) {
@@ -33,6 +37,7 @@ function Modal({
       <button className="icon-button modal-close" aria-label="Close dialog" onClick={onClose}>
         <X size={16} />
       </button>
+      {icon}
       <h2 id="modal-title">{title}</h2>
       <p className="modal-description">{description}</p>
       {children}
@@ -157,26 +162,76 @@ export function ChannelDialog({
     </FormDialog>
   )
 }
+type Problem = { kind: 'member' | 'unsent' | 'failed'; message: string }
+type InviteState =
+  | { kind: 'editing'; problem: Problem | null }
+  | { kind: 'sending' }
+  | { kind: 'sent'; invitation: Invitation }
+function problemOf(error: unknown): Problem {
+  const status = error instanceof RequestError ? error.status : 0
+  const kind = status === 409 ? 'member' : status === 503 ? 'unsent' : 'failed'
+  return { kind, message: errorText(error) }
+}
 export function InviteDialog({
   client,
   serverName,
   onClose,
+  onInvited,
 }: {
   client: Transport
   serverName: string
   onClose: () => void
+  onInvited: () => void
 }) {
-  const [sent, setSent] = useState<Invitation | null>(null)
-  if (sent)
+  const [state, setState] = useState<InviteState>({ kind: 'editing', problem: null })
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const email = new FormData(event.currentTarget).get('email')
+    setState({ kind: 'sending' })
+    try {
+      const invitation = await client.request('/api/invitations', Invitation, { email })
+      setState({ kind: 'sent', invitation })
+      onInvited()
+    } catch (failure) {
+      const problem = problemOf(failure)
+      setState({ kind: 'editing', problem })
+      if (problem.kind === 'unsent') onInvited()
+    }
+  }
+  if (state.kind === 'sent') {
+    const { email, expiresAt } = state.invitation
+    const days = Math.round((Date.parse(expiresAt) - Date.now()) / 86400000)
     return (
       <Modal
         title="Invitation sent"
-        description={`${sent.email} can now join ${serverName}. The invitation expires on ${new Date(sent.expiresAt).toLocaleDateString([], { dateStyle: 'long' })}.`}
+        icon={
+          <span className="modal-icon">
+            <Check size={16} />
+          </span>
+        }
+        description={
+          <>
+            <strong>{email}</strong> can now join {sentence(serverName)} The invitation expires on{' '}
+            {new Date(expiresAt).toLocaleDateString([], { dateStyle: 'medium' })}.
+          </>
+        }
         onClose={onClose}
       >
+        <p className="invite-sent">
+          <Mail size={14} />
+          <span>{email}</span>
+          <small>
+            Pending · {days} {days === 1 ? 'day' : 'days'}
+          </small>
+        </p>
         <div className="modal-actions">
-          <button type="button" className="button" onClick={() => setSent(null)}>
-            Invite someone else
+          <button
+            type="button"
+            className="button"
+            onClick={() => setState({ kind: 'editing', problem: null })}
+          >
+            <Plus size={14} />
+            Invite another
           </button>
           <button type="button" className="button primary" onClick={onClose}>
             Done
@@ -184,28 +239,57 @@ export function InviteDialog({
         </div>
       </Modal>
     )
+  }
+  const problem = state.kind === 'editing' ? state.problem : null
   return (
-    <FormDialog
+    <Modal
       title="Invite coworkers"
-      description={`Huddle emails them an invitation to join ${serverName}. They sign in with this address to create their account. Invitations expire after 7 days; inviting the same address again sends a fresh one.`}
-      action="Send invitation"
+      description={`Huddle emails them an invitation to join ${sentence(serverName)} They sign in with this address to create their account. Invitations expire after 7 days; inviting the same address again sends a fresh one.`}
       onClose={onClose}
-      submit={async (form) =>
-        setSent(await client.request('/api/invitations', Invitation, { email: form.get('email') }))
-      }
     >
-      <label className="field">
-        Work email
-        <input
-          name="email"
-          type="email"
-          placeholder="name@company.com"
-          autoComplete="off"
-          maxLength={254}
-          required
-          autoFocus
-        />
-      </label>
-    </FormDialog>
+      <form
+        onSubmit={onSubmit}
+        onInput={() => {
+          if (problem) setState({ kind: 'editing', problem: null })
+        }}
+      >
+        <label className="field">
+          Email address
+          <input
+            name="email"
+            type="email"
+            placeholder="name@company.com"
+            autoComplete="off"
+            maxLength={254}
+            required
+            autoFocus
+            aria-invalid={problem?.kind === 'member' || undefined}
+            aria-describedby={problem ? 'invite-problem' : undefined}
+          />
+        </label>
+        {problem && (
+          <p
+            id="invite-problem"
+            className={`notice ${problem.kind === 'unsent' ? 'warning' : 'error'}`}
+            role="alert"
+          >
+            {problem.kind === 'unsent' ? <TriangleAlert size={15} /> : <CircleAlert size={15} />}
+            {problem.message}
+          </p>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="button primary" disabled={state.kind === 'sending'}>
+            {state.kind === 'sending'
+              ? 'Please wait…'
+              : problem?.kind === 'unsent'
+                ? 'Try sending again'
+                : 'Send invitation'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }

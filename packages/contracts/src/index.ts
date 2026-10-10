@@ -20,9 +20,10 @@ export const RoomId = z.uuid().brand<'RoomId'>()
 export const ChannelId = z.uuid().brand<'ChannelId'>()
 export const UserId = z.string().min(1).brand<'UserId'>()
 export const Cursor = z.string().regex(/^(0|[1-9][0-9]{0,18})$/)
+export const MemberRole = z.enum(['admin', 'member'])
 export const Server = z.object({
   name: z.string(),
-  role: z.enum(['admin', 'member']),
+  role: MemberRole,
   memberCount: z.number().int().nonnegative(),
   channelCount: z.number().int().nonnegative(),
 })
@@ -91,6 +92,18 @@ export const CreateChannel = z
   .strict()
 export const Invite = z.object({ email: z.email().max(254) }).strict()
 export const Invitation = z.object({ email: z.email(), expiresAt: z.iso.datetime() })
+export const PendingInvitation = Invitation.extend({ invitedBy: z.string() })
+export const PendingInvitations = z.object({ invitations: z.array(PendingInvitation) })
+export const Member = z.object({
+  id: UserId,
+  name: z.string(),
+  email: z.email(),
+  avatar: Avatar.nullable(),
+  role: MemberRole,
+  joinedAt: z.iso.datetime(),
+  invitedBy: z.string().nullable(),
+})
+export const Members = z.object({ members: z.array(Member) })
 export const ServerName = z
   .string()
   .trim()
@@ -120,6 +133,9 @@ export const DeviceCode = z.object({
 export const DeviceToken = z.object({ access_token: z.string() })
 export type Server = z.infer<typeof Server>
 export type Invitation = z.infer<typeof Invitation>
+export type PendingInvitation = z.infer<typeof PendingInvitation>
+export type Member = z.infer<typeof Member>
+export type MemberRole = z.infer<typeof MemberRole>
 export type Room = z.infer<typeof Room>
 export type Channel = z.infer<typeof Channel>
 export type Unread = z.infer<typeof Unread>
@@ -134,6 +150,15 @@ export type RoomId = z.infer<typeof RoomId>
 export type ChannelId = z.infer<typeof ChannelId>
 export type UserId = z.infer<typeof UserId>
 
+export function serverInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter((word) => /^[\p{L}\p{N}]/u.test(word))
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
+}
 export function serverOrigin(input: string): string {
   const url = new URL(input)
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/')
@@ -146,6 +171,9 @@ export function serverOrigin(input: string): string {
 
 export const Profile = z.object({ name: z.string().trim().min(1).max(80), avatar: Avatar }).strict()
 export const PublicUser = Session.shape.user.extend({ avatar: Avatar })
+export const Inviter = PublicUser.pick({ name: true, email: true, avatar: true }).extend({
+  role: MemberRole,
+})
 export const AccessMethod = z.enum(['email', 'passkey', 'company'])
 export const SetupMethod = AccessMethod.exclude(['passkey'])
 export const RecoveryBatch = z.object({
@@ -168,6 +196,7 @@ export const AccessStage = z.discriminatedUnion('kind', [
     uri: z.string(),
     generation: z.uuid(),
     replacing: z.boolean(),
+    inviter: Inviter.nullable(),
   }),
   z.object({ kind: z.literal('totp'), user: Session.shape.user }),
   z.object({ kind: z.literal('recovery'), user: Session.shape.user }),
@@ -216,6 +245,7 @@ export const AccessCommand = z.discriminatedUnion('kind', [
     })
     .strict(),
   z.object({ kind: z.literal('recovery.choose') }).strict(),
+  z.object({ kind: z.literal('totp.choose') }).strict(),
   z.object({ kind: z.literal('recovery.ack'), batch: z.uuid() }).strict(),
   z.object({ kind: z.literal('passkey.skip') }).strict(),
   z.object({ kind: z.literal('profile.save'), profile: Profile }).strict(),
@@ -273,6 +303,7 @@ export const PasskeyProof = z.object({ proof: z.string() })
 export type Avatar = z.infer<typeof Avatar>
 export type Profile = z.infer<typeof Profile>
 export type PublicUser = z.infer<typeof PublicUser>
+export type Inviter = z.infer<typeof Inviter>
 export type AccessStage = z.infer<typeof AccessStage>
 export type AccessCommand = z.infer<typeof AccessCommand>
 export type AccessView = z.infer<typeof AccessView>

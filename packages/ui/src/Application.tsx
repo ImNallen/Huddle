@@ -9,30 +9,36 @@ import {
 import { Access, type AccessAdapter } from './Access'
 import { ServerView } from './ServerView'
 import { Security } from './Security'
-import { Frame, Alert, Heading } from './primitives'
-import type { Connection } from './connection'
+import { WifiOff } from 'lucide-react'
+import { Frame, Alert, Heading, Spinner, hostOf } from './primitives'
+import { NetworkError, type Connection } from './connection'
 import { errorText } from './transport'
 
 type State =
   | { kind: 'loading' }
-  | { kind: 'failed'; message: string }
+  | { kind: 'failed'; error: unknown }
   | { kind: 'loaded'; view: View; info: z.infer<typeof ServerInfo> }
 export function Application({
   client,
+  serverName,
   onServer,
   browser,
-  browserSecurity,
+  openBrowser,
   onReady,
   returnTo,
 }: {
   client: Connection
+  serverName?: string
   onServer?: () => void
   browser?: () => Promise<void>
-  browserSecurity?: () => Promise<void>
+  openBrowser?: (url: string) => Promise<void>
   onReady?: (user: PublicUser) => void
   returnTo?: string
 }) {
   const [state, setState] = useState<State>({ kind: 'loading' })
+  const [email, setEmail] = useState<string>()
+  const browserSecurity =
+    openBrowser && (() => openBrowser(`${client.origin}/login?settings=security`))
   const [security, setSecurity] = useState(false)
   const [reload, setReload] = useState(0)
   const [notice, setNotice] = useState('')
@@ -83,9 +89,8 @@ export function Application({
         if (!abort.signal.aborted && client.active) setState({ kind: 'loaded', view: next, info })
         if (!abort.signal.aborted) resetCapability.current = null
       }
-    })().catch((failure) => {
-      if (!abort.signal.aborted && client.active)
-        setState({ kind: 'failed', message: errorText(failure) })
+    })().catch((error: unknown) => {
+      if (!abort.signal.aborted && client.active) setState({ kind: 'failed', error })
     })
     return () => abort.abort()
   }, [client, reload])
@@ -97,8 +102,8 @@ export function Application({
       setSecurity(false)
       const [view, info] = await Promise.all([client.resume(), client.info()])
       if (client.active) setState({ kind: 'loaded', view, info })
-    } catch (failure) {
-      if (client.active) setState({ kind: 'failed', message: errorText(failure) })
+    } catch (error) {
+      if (client.active) setState({ kind: 'failed', error })
     }
   }
   const adapter: AccessAdapter = {
@@ -121,7 +126,7 @@ export function Application({
       if (!signal.aborted && client.active) window.location.assign(result.url)
     },
     browser,
-    browserSecurity,
+    openBrowser,
     upload: (file) => client.upload(file),
     photo: (id, signal) => client.photo(id, signal),
   }
@@ -134,6 +139,21 @@ export function Application({
     if (state.kind === 'loaded' && state.view.stage.kind === 'ready')
       onReady?.(state.view.stage.user)
   }, [state, onReady])
+  const stage = state.kind === 'loaded' ? state.view.stage : null
+  useEffect(() => {
+    if (!stage) return
+    const known = stage.kind === 'email' ? stage.email : 'user' in stage ? stage.user.email : null
+    if (known) return setEmail(known)
+    if (stage.kind === 'signin' || stage.kind === 'setup') return setEmail(undefined)
+    const abort = new AbortController()
+    void client
+      .session(abort.signal)
+      .then((session) => {
+        if (session && !abort.signal.aborted) setEmail(session.user.email)
+      })
+      .catch(() => undefined)
+    return () => abort.abort()
+  }, [stage, client])
   useEffect(() => {
     if (
       !browser &&
@@ -142,17 +162,25 @@ export function Application({
     )
       setSecurity(true)
   }, [browser])
+  const hint = serverName ? { name: serverName, origin: client.origin } : undefined
   if (state.kind === 'loading')
-    return (
-      <Frame onServer={onServer}>
-        <p role="status">Connecting to your server…</p>
-      </Frame>
-    )
+    return <Connecting origin={client.origin} server={hint} onServer={onServer} />
   if (state.kind === 'failed')
     return (
-      <Frame onServer={onServer}>
-        <Heading title="Could not connect" />
-        <Alert message={state.message} />
+      <Frame server={hint} onServer={onServer}>
+        <Heading
+          title="Could not connect"
+          icon={<WifiOff size={16} />}
+          description="Huddle couldn't reach your server."
+        />
+        {state.error instanceof NetworkError ? (
+          <Alert
+            lead={`${state.error.host} didn't respond.`}
+            message="Check your connection or VPN, then try again."
+          />
+        ) : (
+          <Alert message={errorText(state.error)} />
+        )}
         <button className="access-primary" onClick={() => setReload((value) => value + 1)}>
           Try again
         </button>
@@ -171,17 +199,14 @@ export function Application({
         adapter={adapter}
         view={state.view}
         info={state.info}
+        account={email}
         notice={notice}
         onServer={onServer}
         onSignOut={() => void signOut()}
+        fromSecurity={security}
       />
     )
-  if (onReady)
-    return (
-      <Frame>
-        <p role="status">Returning to your request…</p>
-      </Frame>
-    )
+  if (onReady) return <Connecting origin={client.origin} title="Returning to your request…" />
   if (security)
     return (
       <Security
@@ -201,5 +226,32 @@ export function Application({
       onServer={onServer}
       onSecurity={() => setSecurity(true)}
     />
+  )
+}
+export function Connecting({
+  origin,
+  server,
+  onServer,
+  title = 'Connecting…',
+}: {
+  origin?: string
+  server?: { name: string; origin: string }
+  onServer?: () => void
+  title?: string
+}) {
+  return (
+    <Frame server={server} onServer={onServer}>
+      <div className="access-connecting" role="status">
+        <div className="access-symbol">
+          <Spinner size={16} />
+        </div>
+        <h1>{title}</h1>
+        {origin && (
+          <p>
+            Signing you in to <code>{hostOf(origin)}</code>
+          </p>
+        )}
+      </div>
+    </Frame>
   )
 }

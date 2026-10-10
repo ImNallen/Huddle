@@ -1,23 +1,33 @@
 import { z } from 'zod'
 import {
   AccessCommand,
+  AccessError,
   AccessView,
   PhotoUpload,
   ServerInfo,
   Session,
   serverOrigin,
   type AccessCommand as Command,
+  type AccessError as AccessErrorBody,
   type AccessView as View,
 } from '@huddle/contracts'
 import type { Transport } from './transport'
 
+export type AccessErrorCode = AccessErrorBody['error']
 export class RequestError extends Error {
   constructor(
     public status: number,
     message: string,
     public retryAt?: string,
+    public code?: AccessErrorCode,
+    public oauth?: string,
   ) {
     super(message)
+  }
+}
+export class NetworkError extends Error {
+  constructor(readonly host: string) {
+    super(`Huddle couldn't reach ${host}.`)
   }
 }
 export class Connection implements Transport {
@@ -66,8 +76,16 @@ export class Connection implements Transport {
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: this.signal(signal),
       cache: 'no-store',
+    }).catch((failure: unknown) => {
+      if (failure instanceof TypeError) throw new NetworkError(new URL(this.origin).host)
+      throw failure
     })
-    const value: unknown = await response.json()
+    const value: unknown = await response.json().catch(() => {
+      throw new RequestError(
+        response.status,
+        'The server sent a response Huddle does not understand.',
+      )
+    })
     if (!response.ok) {
       const error = z
         .object({
@@ -77,12 +95,15 @@ export class Connection implements Transport {
           retryAt: z.string().optional(),
         })
         .safeParse(value)
+      const code = AccessError.shape.error.safeParse(error.data?.error)
       throw new RequestError(
         response.status,
         error.success
           ? (error.data.message ?? error.data.error_description ?? errorMessage(error.data.error))
           : 'The request failed.',
         error.success ? error.data.retryAt : undefined,
+        code.success ? code.data : undefined,
+        error.success && !code.success ? error.data.error : undefined,
       )
     }
     return schema.parse(value)

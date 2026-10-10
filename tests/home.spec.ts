@@ -6,7 +6,7 @@ useScratchServer('ui')
 async function inviteCoworker(page: Page) {
   const email = syntheticEmail()
   await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
-  await page.getByLabel('Work email').fill(email)
+  await page.getByLabel('Email address').fill(email)
   await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click()
   await expect(page.getByRole('heading', { name: 'Invitation sent' })).toBeVisible()
   await page.getByRole('button', { name: 'Done', exact: true }).click()
@@ -22,12 +22,19 @@ test('home gathers mentions and unread channels, and reading clears them', async
   try {
     await onboard(page, 'Avery Owner', 'Harbor home')
     await page.clock.setFixedTime(new Date('2026-10-09T09:30:00'))
-    await expect(page.getByText('Friday, October 9', { exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Good morning, Avery' })).toBeVisible()
-    await page
-      .getByRole('region', { name: 'Set up Harbor home' })
-      .getByRole('button', { name: 'Create room' })
-      .click()
+    await expect(page.getByText('Welcome, Avery', { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Your server is ready', level: 1 }),
+    ).toBeVisible()
+    const setup = page.getByRole('region', { name: 'Set up Harbor home' })
+    await expect(setup).toContainText('0 of 3 done')
+    await expect(setup.getByRole('button', { name: 'Add channel' })).toBeDisabled()
+    await expect(setup.getByRole('listitem').nth(1)).toContainText(
+      'Channels are where a room’s conversations happen. Create a room first.',
+    )
+    await expect(setup.getByRole('button', { name: 'Create room' })).toHaveClass(/primary/)
+    await expect(page.getByText('Only you so far.', { exact: true })).toBeVisible()
+    await setup.getByRole('button', { name: 'Create room' }).click()
     await page.getByLabel('Room name').fill('Development')
     await page.getByRole('dialog').getByRole('button', { name: 'Create room' }).click()
     await page.getByRole('button', { name: 'Create a channel', exact: true }).click()
@@ -35,7 +42,13 @@ test('home gathers mentions and unread channels, and reading clears them', async
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(page.getByRole('heading', { name: 'Welcome to #code-review' })).toBeVisible()
     await page.getByRole('button', { name: 'Home', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'You’re all caught up' })).toBeVisible()
+    await expect(setup).toContainText('2 of 3 done')
+    await expect(setup.getByRole('listitem')).toHaveText([
+      /^Create your first roomDevelopmentDone$/,
+      /^Add a channel#code-review in DevelopmentDone$/,
+      /^3Invite coworkersHuddle emails them an invitation that lasts 7 days\.Invite coworkers$/,
+    ])
+    await expect(setup.getByRole('button', { name: 'Invite coworkers' })).toHaveClass(/primary/)
     const invited = await inviteCoworker(page)
 
     await join(second, invited, 'Jonas Colleague')
@@ -46,6 +59,10 @@ test('home gathers mentions and unread channels, and reading clears them', async
     await composer.fill('PR 482 is ready for a second review')
     await second.getByRole('button', { name: 'Send message' }).click()
     await expect(second.getByText('PR 482 is ready for a second review')).toBeVisible()
+
+    await expect(setup).toHaveCount(0)
+    await expect(page.getByText('Friday, October 9', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Good morning, Avery' })).toBeVisible()
 
     await expect(page.getByRole('tab', { name: 'All 2' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Mentions 1' })).toBeVisible()

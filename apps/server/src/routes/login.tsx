@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { Application, Connection, Frame } from '@huddle/ui'
+import { Application, Connecting, Connection } from '@huddle/ui'
 export const Route = createFileRoute('/login')({ component: Login })
 function Login() {
   const [client, setClient] = useState<Connection | null>(null)
@@ -9,11 +9,5 @@ function Login() {
     setClient(connection)
     return () => connection.disconnect()
   }, [])
-  return client ? (
-    <Application client={client} />
-  ) : (
-    <Frame>
-      <p role="status">Connecting to your server…</p>
-    </Frame>
-  )
+  return client ? <Application client={client} /> : <Connecting />
 }

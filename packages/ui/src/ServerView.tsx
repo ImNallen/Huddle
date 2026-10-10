@@ -12,9 +12,13 @@ import { Sidebar } from './Sidebar'
 import { Home } from './Home'
 import { Conversation } from './Conversation'
 import { ChannelDialog, InviteDialog, RoomDialog } from './Dialogs'
+import { MembersPage, useMembers } from './Members'
 import { Frame } from './primitives'
 
-export type View = { kind: 'home' } | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null }
+export type View =
+  | { kind: 'home' }
+  | { kind: 'members' }
+  | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null }
 export type Dialog =
   | { kind: 'none' }
   | { kind: 'room' }
@@ -41,7 +45,11 @@ export function ServerView({
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const [home, setHome] = useState<HomeState>({ kind: 'loading' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [revision, setRevision] = useState(0)
+  const changed = () => setRevision((value) => value + 1)
+
   const sync = useServer(client, session.user.id, view.kind === 'room' ? view.channelId : null)
+  const members = useMembers(client, `${revision}:${view.kind}:${sync.changes}`)
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
   const rooms = snapshot?.rooms ?? []
   const channels = snapshot?.channels ?? []
@@ -106,6 +114,7 @@ export function ServerView({
       </Frame>
     )
   const server = snapshot.server
+  const roster = members.kind === 'ready' ? members.value : null
   return (
     <div className="app">
       <Sidebar
@@ -114,6 +123,7 @@ export function ServerView({
         server={server}
         rooms={rooms}
         channels={channels}
+        members={members}
         unread={sync.unread}
         homeCount={home.kind === 'ready' ? home.items.length : 0}
         view={view}
@@ -125,13 +135,24 @@ export function ServerView({
         onLogout={onLogout}
         onServer={onServer}
       />
-      {view.kind === 'home' || !room ? (
+      {view.kind === 'members' && server.role === 'admin' ? (
+        <MembersPage
+          client={client}
+          session={session}
+          server={server}
+          members={members}
+          revision={revision}
+          onInvite={() => setDialog({ kind: 'invite' })}
+          onChange={changed}
+        />
+      ) : view.kind !== 'room' || !room ? (
         <Home
           client={client}
           session={session}
           server={server}
           rooms={rooms}
           channels={channels}
+          members={roster}
           home={home}
           onView={setView}
           onDialog={setDialog}
@@ -181,6 +202,7 @@ export function ServerView({
           client={client}
           serverName={server.name}
           onClose={() => setDialog({ kind: 'none' })}
+          onInvited={changed}
         />
       )}
     </div>
