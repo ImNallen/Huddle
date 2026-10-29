@@ -7,6 +7,7 @@ import { readFile, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
+import pg from 'pg'
 import { TOTP } from 'otpauth'
 import {
   AccessView,
@@ -19,7 +20,6 @@ import {
 import {
   Client,
   emailCode,
-  invite,
   mailIds,
   migratedDatabase,
   startServer,
@@ -96,7 +96,14 @@ try {
   assert.equal(browser.token, '')
   const native = new Client(base, true)
   const nativeEmail = syntheticEmail('access')
-  await invite(browser, nativeEmail)
+  const adminAccount = AccountSecurity.parse((await browser.call('/api/account')).value)
+  const fixture = new pg.Client({ connectionString: database.url })
+  await fixture.connect()
+  await fixture.query(
+    `INSERT INTO invitation(email, invited_by, expires_at) VALUES ($1, $2, now() + interval '7 days')`,
+    [nativeEmail, adminAccount.user.id],
+  )
+  await fixture.end()
   const nativeAccount = await enrollAccount(native, nativeEmail, {
     kind: 'email.send',
     email: nativeEmail,

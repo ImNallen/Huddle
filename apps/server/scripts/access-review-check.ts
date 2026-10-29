@@ -130,6 +130,15 @@ async function issueReset(address: string) {
     await unlink(file).catch(() => undefined)
   }
 }
+async function allow(address: string) {
+  const adminRow = await db.query(`SELECT user_id FROM member WHERE role = 'admin'`)
+  const invitedBy = z.string().parse(adminRow.rows[0]?.user_id)
+  await db.query(
+    `INSERT INTO invitation(email, invited_by, expires_at) VALUES ($1, $2, now() + interval '7 days')
+     ON CONFLICT (email) DO UPDATE SET invited_by = excluded.invited_by, expires_at = excluded.expires_at, accepted_by = NULL, accepted_at = NULL`,
+    [address.toLowerCase(), invitedBy],
+  )
+}
 function enrollmentCommand(stage: Extract<AccessView['stage'], { kind: 'enroll' }>): AccessCommand {
   return {
     kind: 'enrollment.verify',
@@ -206,7 +215,7 @@ try {
     'an uninvited company identity creates no account',
   )
   const invitedEmail = syntheticEmail('review-invited')
-  assert.equal((await admin.call('/api/invitations', { email: invitedEmail })).status, 200)
+  await allow(invitedEmail)
   await fixture.identity(`invited-${randomUUID()}`, invitedEmail)
   const colleague = new Client(false)
   const admitted = await company(colleague)
@@ -228,7 +237,7 @@ try {
   process.stdout.write(
     'PASS an uninvited company identity is rejected without an account; an invited one joins as a member.\n',
   )
-  assert.equal((await admin.call('/api/invitations', { email })).status, 200)
+  await allow(email)
   await fixture.identity(subject, email)
   await stop()
   await start()
@@ -269,7 +278,7 @@ try {
 
   const locked = new Client()
   const lockedEmail = syntheticEmail('review-lock')
-  assert.equal((await admin.call('/api/invitations', { email: lockedEmail })).status, 200)
+  await allow(lockedEmail)
   const lockSentAt = Date.now()
   await locked.act({ kind: 'email.send', email: lockedEmail })
   const correct = await emailCode(lockedEmail)
@@ -300,7 +309,7 @@ try {
   const recovering = new Client()
   await recovering.act({ kind: 'reset.redeem', capability: reset.capability })
   const expiredEmail = syntheticEmail('review-expired')
-  assert.equal((await admin.call('/api/invitations', { email: expiredEmail })).status, 200)
+  await allow(expiredEmail)
   const expiredReset = await issueReset(expiredEmail)
   const expiredClient = new Client()
   await expiredClient.act({ kind: 'reset.redeem', capability: expiredReset.capability })
@@ -311,7 +320,7 @@ try {
   const different = new Client()
   different.continuation = recovering.continuation
   const differentEmail = syntheticEmail('review-other')
-  assert.equal((await admin.call('/api/invitations', { email: differentEmail })).status, 200)
+  await allow(differentEmail)
   await different.act({ kind: 'email.send', email: differentEmail })
   const ordinary = await different.act({
     kind: 'email.verify',

@@ -880,6 +880,23 @@ input:focus {
 .members-table .joined {
   width: 150px;
 }
+.members-reset {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.members-reset input {
+  width: 148px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+}
 .button.small {
   height: 26px;
   padding: 0 9px;

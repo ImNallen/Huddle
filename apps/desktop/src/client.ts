@@ -8,7 +8,10 @@ export { RequestError, errorText } from '@huddle/ui'
 export const native = isTauri()
 export class Client extends Connection {
   private readonly credentials: CredentialStore
-  constructor(origin: string) {
+  constructor(
+    origin: string,
+    private readonly transportOrigin?: string,
+  ) {
     super(origin, native)
     this.credentials = new CredentialStore(this.origin, {
       load: (origin) => invoke<string | null>('load_token', { origin }),
@@ -17,11 +20,19 @@ export class Client extends Connection {
     })
   }
   override endpoint(path: string) {
+    if (this.transportOrigin) return `${this.transportOrigin.replace(/\/$/, '')}${path}`
     const proxy =
       !native &&
       ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
       this.origin === (import.meta.env.VITE_HUDDLE_DEV_SERVER ?? 'http://localhost:3000')
     return proxy ? path : super.endpoint(path)
+  }
+  override async info() {
+    const info = await super.info()
+    if (!this.transportOrigin) return info
+    const local = new URL(this.transportOrigin)
+    local.protocol = 'ws:'
+    return { ...info, websocketUrl: local.origin }
   }
   override async restore() {
     if (native && !this.token) {
@@ -39,6 +50,10 @@ export class Client extends Connection {
     await super.forget()
     if (native) await this.credentials.forget()
   }
+}
+export async function openInvite(host: string, port: number, pin: string) {
+  if (!native) throw new Error('Paste that invite in the Huddle app.')
+  return invoke<string>('open_invite', { host, port, pin })
 }
 export async function openBrowser(url: string) {
   if (native) await openUrl(url)

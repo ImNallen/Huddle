@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { join, onboard, syntheticEmail } from './passwordless'
+import { inviteCode, join, onboard } from './passwordless'
 import { useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -11,7 +11,7 @@ test('an invited colleague joins the server, sends, reconnects, and signs out', 
   const colleague = await browser.newContext()
   const second = await colleague.newPage()
   try {
-    await onboard(page, 'UI owner', 'UI studio')
+    await onboard(page, 'uiowner', 'UI studio')
     await expect(page.getByRole('heading', { name: 'Set up UI studio' })).toBeVisible()
     await page
       .getByRole('region', { name: 'Set up UI studio' })
@@ -25,14 +25,12 @@ test('an invited colleague joins the server, sends, reconnects, and signs out', 
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(page.getByRole('heading', { name: 'Welcome to #general' })).toBeVisible()
     await page.getByRole('button', { name: 'Home', exact: true }).click()
-    const invited = syntheticEmail()
-    await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
-    await page.getByLabel('Email address').fill(invited)
-    await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click()
+    await page.getByRole('button', { name: 'Share invite', exact: true }).first().click()
+    const code = await inviteCode(page)
     await page.getByRole('button', { name: 'Done', exact: true }).click()
     await page.getByRole('button', { name: 'Design', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Welcome to #general' })).toBeVisible()
-    await join(second, invited, 'UI colleague')
+    await join(second, 'colleague', code)
     await second.getByRole('button', { name: 'Design', exact: true }).click()
     await expect(second.getByRole('heading', { name: 'Welcome to #general' })).toBeVisible()
     await expect(second.getByRole('status')).toHaveText('Connected')

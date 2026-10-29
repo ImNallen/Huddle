@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "shortDescription": "Team conversations on your own server",
+    "shortDescription": "A private server for your friends",
     "category": "Productivity",
     "icon": [
       "icons/32x32.png",

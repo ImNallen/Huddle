@@ -4,8 +4,8 @@ import {
   CreateChannel,
   CreateRoom,
   Cursor,
-  Invite,
   MarkRead,
+  Password,
   SendMessage,
   UserId,
 } from '@huddle/contracts'
@@ -20,13 +20,8 @@ import { deviceRequest } from './access-device'
 import { passkeyRequest } from './access-passkey'
 import { AccessFailure } from './access-store'
 import { companyRequest } from './auth-provider'
-import {
-  invite,
-  pendingInvitations,
-  revokeInvitation,
-  serverName,
-  setupRequired,
-} from './admission'
+import { serverName, setupRequired } from './admission'
+import { friendInvites, resetMemberPassword } from './friends'
 
 export async function applicationRequest(request: Request, trustedIp?: string): Promise<Response> {
   const origin = request.headers.get('origin')
@@ -123,7 +118,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
       if (path === '/api/snapshot') result = await domain.snapshot(userId)
       else if (path === '/api/home') result = await domain.home(userId)
       else if (path === '/api/members') result = await domain.members(userId)
-      else if (path === '/api/invitations') result = await pendingInvitations(userId)
+      else if (path === '/api/friend-invite') result = await friendInvites(userId)
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
@@ -148,10 +143,9 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
           { id: userId, name: session.user.name, avatar: session.user.avatar },
           SendMessage.parse(body),
         )
-      else if (path === '/api/invitations')
-        result = await invite({ id: userId, name: session.user.name }, Invite.parse(body).email)
-      else if (path === '/api/invitations/revoke') {
-        await revokeInvitation(userId, Invite.parse(body).email)
+      else if (path === '/api/members/password') {
+        const input = z.object({ userId: UserId, password: Password }).strict().parse(body)
+        await resetMemberPassword(userId, input.userId, input.password)
         result = {}
       } else throw new domain.DomainError(404, 'Endpoint not found.')
     } else throw new domain.DomainError(405, 'Method not allowed.')

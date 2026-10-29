@@ -73,7 +73,7 @@ export async function accountRequest(request: Request) {
   }
   if (path !== '/api/account' || request.method !== 'GET' || actor.proof.stage !== 'ready')
     throw new AccessFailure('reauth_required')
-  const [factor, recovery, passkeys, sessions] = await Promise.all([
+  const [factor, recovery, passkeys, sessions, login] = await Promise.all([
     db.query('SELECT enrolled_at FROM local_factor WHERE user_id=$1', [actor.user.id]),
     db.query(
       'SELECT count(*)::integer total,count(*) FILTER(WHERE used_at IS NULL)::integer remaining,min(created_at) created FROM recovery_code WHERE user_id=$1',
@@ -87,6 +87,7 @@ export async function accountRequest(request: Request) {
       'SELECT s.id,s."createdAt",s."expiresAt",s."userAgent",p.method FROM session s JOIN session_proof p ON p.session_id=s.id WHERE p.user_id=$1 AND p.epoch=$2 AND s."expiresAt">now()',
       [actor.user.id, actor.proof.epoch],
     ),
+    db.query('SELECT 1 FROM login WHERE user_id=$1', [actor.user.id]),
   ])
   const date = (value: unknown) => z.date().parse(value).toISOString()
   return Response.json(
@@ -97,6 +98,7 @@ export async function accountRequest(request: Request) {
       recoveryCreatedAt: recovery.rows[0].created ? date(recovery.rows[0].created) : null,
       recoveryTotal: recovery.rows[0].total,
       recoveryRemaining: recovery.rows[0].remaining,
+      hasPassword: Boolean(login.rowCount),
       passkeys: passkeys.rows.map((row) => ({
         id: row.id,
         name: row.name,

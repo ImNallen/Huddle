@@ -130,7 +130,7 @@ export function Home({
           {admin && (
             <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
               <UserPlus size={15} />
-              Invite
+              Share invite
             </button>
           )}
         </header>
@@ -152,7 +152,7 @@ export function Home({
         {admin && (
           <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
             <UserPlus size={15} />
-            Invite coworkers
+            Share invite
           </button>
         )}
       </header>
@@ -266,7 +266,7 @@ function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): St
   return [
     {
       title: 'Create your first room',
-      detail: room?.name ?? 'A room holds the channels for one team or area of work.',
+      detail: room?.name ?? 'A room holds the channels for one group.',
       done: Boolean(room),
       action: { label: 'Create room', dialog: { kind: 'room' } },
     },
@@ -277,12 +277,12 @@ function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): St
       action: { label: 'Add channel', dialog: room ? { kind: 'channel', roomId: room.id } : null },
     },
     {
-      title: 'Invite coworkers',
+      title: 'Share Huddle',
       detail: coworkers
-        ? `${coworkers} ${coworkers === 1 ? 'coworker has' : 'coworkers have'} joined.`
-        : 'Huddle emails them an invitation that lasts 7 days.',
+        ? `${coworkers} ${coworkers === 1 ? 'friend has' : 'friends have'} joined.`
+        : 'Copy an invite. A friend pastes it into Huddle and creates a username.',
       done: coworkers > 0,
-      action: { label: 'Invite coworkers', dialog: { kind: 'invite' } },
+      action: { label: 'Share invite', dialog: { kind: 'invite' } },
     },
   ]
 }
@@ -291,14 +291,14 @@ function memberSteps(rooms: Room[], channels: Channel[], invitedBy: string | nul
   const channel = placed(rooms, channels)
   return [
     {
-      title: 'Invite coworkers',
-      detail: `You joined from ${invitedBy ? `${invitedBy}’s` : 'an'} invitation.`,
+      title: 'You joined this server',
+      detail: `You joined from ${invitedBy ? `${invitedBy}’s` : 'an'} invite.`,
       done: true,
       action: null,
     },
     {
       title: 'Create the first room',
-      detail: room?.name ?? 'A room holds the channels for one team or area of work.',
+      detail: room?.name ?? 'A room holds the channels for one group.',
       done: Boolean(room),
       action: null,
     },
@@ -333,7 +333,7 @@ function Setup({
           </span>
           <p>
             {admin
-              ? 'A few steps and your team has a place to talk.'
+              ? 'A few steps and your friends have a place to talk.'
               : 'An admin is still setting things up. Rooms appear here as soon as they’re created.'}
           </p>
           <span className="setup-progress" aria-hidden="true">

@@ -92,9 +92,7 @@ export async function addPasskey(
 async function ceremony<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
   if (signal.aborted) throw new DOMException('Cancelled', 'AbortError')
   if (!browserSupportsWebAuthn())
-    throw new Error(
-      'Passkeys are not supported in this browser. Use email or company sign-in, or try a supported browser.',
-    )
+    throw new Error('Passkeys are not supported in this browser. Try a supported browser.')
   const cancel = () => WebAuthnAbortService.cancelCeremony()
   signal.addEventListener('abort', cancel, { once: true })
   try {

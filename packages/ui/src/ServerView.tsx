@@ -13,7 +13,7 @@ import { Home } from './Home'
 import { Conversation } from './Conversation'
 import { ChannelDialog, InviteDialog, RoomDialog } from './Dialogs'
 import { MembersPage, useMembers } from './Members'
-import { Frame } from './primitives'
+import { Frame, visibleAccount } from './primitives'
 
 export type View =
   | { kind: 'home' }
@@ -96,7 +96,7 @@ export function ServerView({
     view.kind === 'room' ? channels.find((channel) => channel.id === view.channelId) : undefined
   if (!snapshot)
     return (
-      <Frame account={session.user.email} onSignOut={onLogout} onServer={onServer}>
+      <Frame account={visibleAccount(session.user.email)} onSignOut={onLogout} onServer={onServer}>
         {sync.state.kind === 'failed' ? (
           <>
             <h1>We could not open this server.</h1>

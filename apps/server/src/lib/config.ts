@@ -19,6 +19,7 @@ const Environment = z
       .optional(),
     SERVER_URL: z.string().default('http://localhost:3000').transform(serverOrigin),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    BIND_HOST: z.string().trim().min(1).default('127.0.0.1'),
     WS_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
     WS_PUBLIC_URL: z.url().default('ws://localhost:3001'),
     TRUSTED_ORIGINS: z
@@ -28,6 +29,7 @@ const Environment = z
       ),
     AUTH_POLICY: z.enum(['mixed', 'sso-only']).default('mixed'),
     SETUP_CODE: z.string().trim().min(8).max(64).optional(),
+    FRIEND_PORT: z.coerce.number().int().min(1).max(65535).optional(),
     OIDC_DISCOVERY_URL: z.url().optional(),
     OIDC_CLIENT_ID: z.string().min(1).optional(),
     OIDC_CLIENT_SECRET: z.string().min(1).optional(),
@@ -47,8 +49,18 @@ const Environment = z
       })
     if (env.SERVER_URL.startsWith('https:') && !env.WS_PUBLIC_URL.startsWith('wss:'))
       ctx.addIssue({ code: 'custom', message: 'HTTPS installations require WSS.' })
+    const friend = env.FRIEND_PORT ?? (env.PORT + 1000 <= 65535 ? env.PORT + 1000 : env.PORT + 1)
+    if (friend === env.PORT || friend === env.WS_PORT)
+      ctx.addIssue({ code: 'custom', message: 'FRIEND_PORT must differ from PORT and WS_PORT.' })
   })
-export const config = { ...Environment.parse(process.env), EMAIL: parseEmailConfig(process.env) }
+const environment = Environment.parse(process.env)
+export const config = {
+  ...environment,
+  FRIEND_PORT:
+    environment.FRIEND_PORT ??
+    (environment.PORT + 1000 <= 65535 ? environment.PORT + 1000 : environment.PORT + 1),
+  EMAIL: parseEmailConfig(process.env),
+}
 export const origins = new Set([
   config.SERVER_URL,
   ...config.TRUSTED_ORIGINS.split(',').filter(Boolean),

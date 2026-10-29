@@ -9,7 +9,7 @@ test('cancelling a redeemed native device token before admission never saves or 
   page,
   browser,
 }) => {
-  await member(server.admin, page, 'Cancellation owner', `${serverURL}/login`)
+  await member(server.admin, page, 'cancelowner', `${serverURL}/login`)
   console.log('PASS cancellation test browser account is ready')
   const context = await browser.newContext()
   await context.addInitScript((origin) => {
@@ -62,7 +62,7 @@ test('cancelling a redeemed native device token before admission never saves or 
     await expect.poll(() => bearerReads, { timeout: 15000 }).toBe(1)
     console.log('PASS cancellation test candidate admission request is paused')
     await desktop.getByRole('button', { name: 'Cancel sign-in', exact: true }).click()
-    await expect(desktop.getByLabel('Work email')).toBeVisible()
+    await expect(desktop.getByLabel('Username')).toBeVisible()
     release()
     expect(await desktop.evaluate<number>('window.huddleTestWrites.length')).toBe(0)
     expect(bearerReads).toBe(1)
@@ -77,7 +77,7 @@ test('a failed keychain cleanup during a server switch leaves Back usable', asyn
   page,
   browser,
 }) => {
-  await member(server.admin, page, 'Server switch owner', `${serverURL}/login`)
+  await member(server.admin, page, 'switchowner', `${serverURL}/login`)
   const code = DeviceCode.parse(
     await (
       await page.request.post(`${serverURL}/api/auth/device/code`, {
@@ -147,9 +147,10 @@ test('the browser claims a device code and requires explicit approval', async ({
   await member(
     server.admin,
     page,
-    'Device browser owner',
+    'deviceowner',
     `${serverURL}/login?redirect=${encodeURIComponent(redirect)}`,
   )
+  await expect(page.getByText('@member.huddle.invalid')).toHaveCount(0)
   await expect(
     page.getByText(`${code.user_code.slice(0, 4)}–${code.user_code.slice(4)}`, { exact: true }),
   ).toBeVisible()
@@ -160,7 +161,7 @@ test('the browser claims a device code and requires explicit approval', async ({
   await page.getByRole('checkbox', { name: /I checked that this code/ }).check()
   await page.getByRole('button', { name: 'Approve this desktop' }).click()
   await expect(page.getByRole('heading', { name: 'You’re connected' })).toBeVisible()
-  await expect(page.getByText('Device browser owner', { exact: true })).toBeVisible()
+  await expect(page.getByText('deviceowner', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review account security' })).toHaveAttribute(
     'href',
     '/login?settings=security',
@@ -187,5 +188,5 @@ test('the browser claims a device code and requires explicit approval', async ({
     headers: { Authorization: `Bearer ${token.access_token}` },
   })
   const sessionValue: unknown = await sessionResponse.json()
-  expect(Session.parse(sessionValue).user.name).toBe('Device browser owner')
+  expect(Session.parse(sessionValue).user.name).toBe('deviceowner')
 })

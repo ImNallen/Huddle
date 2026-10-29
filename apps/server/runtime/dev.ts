@@ -1,10 +1,13 @@
 import { createServer } from 'vite'
 import { startRealtime } from '../src/lib/realtime'
+import { openFriendPortal } from '../src/lib/portal'
 import { db } from '../src/lib/db'
 import { pruneAccess } from '../src/lib/access-maintenance'
 import { prepareSetup } from '../src/lib/admission'
 await prepareSetup()
-const realtime = await startRealtime()
+const portal = await openFriendPortal()
+const realtime = await startRealtime(portal.server)
+await portal.listen()
 const vite = await createServer()
 await vite.listen()
 vite.printUrls()
@@ -14,8 +17,8 @@ const maintenance = setInterval(() => {
 maintenance.unref()
 async function stop() {
   clearInterval(maintenance)
-  realtime.clients.forEach((socket) => socket.terminate())
   realtime.close()
+  portal.close()
   await vite.close()
   await db.end()
   process.exit()
