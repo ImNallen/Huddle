@@ -19,6 +19,7 @@ const Environment = z
       .optional(),
     SERVER_URL: z.string().default('http://localhost:3000').transform(serverOrigin),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    BIND_HOST: z.string().trim().min(1).default('127.0.0.1'),
     WS_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
     WS_PUBLIC_URL: z.url().default('ws://localhost:3001'),
     TRUSTED_ORIGINS: z

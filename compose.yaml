@@ -29,9 +29,12 @@ services:
       NODE_ENV: production
       PORT: 3000
       WS_PORT: 3001
+      FRIEND_PORT: 4000
+      BIND_HOST: 0.0.0.0
     ports:
       - '127.0.0.1:3000:3000'
       - '127.0.0.1:3001:3001'
+      - '4000:4000'
     depends_on:
       db:
         condition: service_healthy

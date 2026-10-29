@@ -12,10 +12,8 @@ import {
   DeviceToken,
   EventPage,
   Home,
-  Invitation,
   Members,
   Message,
-  PendingInvitations,
   Room,
   ServerInfo,
   Session,
@@ -24,15 +22,15 @@ import {
   type ServerEvent,
 } from '@huddle/contracts'
 import { mentionedUsers } from '../src/lib/domain'
+import { renewDelay } from '../src/lib/reach'
 import {
   Client,
-  invite,
-  invited,
-  join,
+  friendCode,
+  joinFriend,
   mailIds,
   migratedDatabase,
   nextMail,
-  onboard,
+  setupFriend,
   startServer,
   syntheticEmail,
 } from './harness'
@@ -42,7 +40,7 @@ const database = await migratedDatabase()
 const server = await startServer({
   databaseUrl: database.url,
   port: Number(process.env.TEST_PORT ?? 3100),
-  env: { SETUP_CODE: setupCode },
+  env: { SETUP_CODE: setupCode, HUDDLE_INVITE_LOOPBACK: '1' },
 }).catch(async (error: unknown) => {
   await database.drop()
   throw error
@@ -75,8 +73,8 @@ async function call<T>(path: string, schema: z.ZodType<T>, token?: string, body?
   assert.equal(response.status, 200, `${path}: ${JSON.stringify(data)}`)
   return schema.parse(data)
 }
-function account(client: Client, identity: Awaited<ReturnType<typeof join>>) {
-  return { token: client.sessionToken(), cookie: client.cookie(), user: identity.user }
+function account(client: Client, user: Awaited<ReturnType<typeof setupFriend>>) {
+  return { token: client.sessionToken(), cookie: client.cookie(), user }
 }
 
 function watch(token: string, after: string, ticket?: string) {
@@ -141,6 +139,10 @@ try {
   assert.deepEqual(mentions('@åsa, @jxr', 'ana'), ['dy'])
   assert.deepEqual(mentions('@Åsab @j.r.', 'ana'), ['jr'])
   pass('mentions match a full or first name after @, escape names, and never include the author')
+  assert.equal(renewDelay(3600), 1800)
+  assert.equal(renewDelay(10), 5)
+  assert.equal(renewDelay(1), 1)
+  pass('a NAT mapping renews halfway through the lifetime the router granted')
   assert.equal((await request('/api/snapshot')).response.status, 401)
   assert.equal((await request('/api/rooms', { body: { name: 'anonymous' } })).response.status, 401)
   pass('anonymous requests cannot read the server or create rooms')
@@ -150,24 +152,24 @@ try {
   assert.equal(fresh.name, 'Huddle')
   const anonymous = new Client(origin)
   assert.equal((await anonymous.act({ kind: 'signout' })).stage.kind, 'setup')
-  const adminEmail = syntheticEmail('admin')
   const wrong = await anonymous.call('/api/access', {
-    kind: 'setup.start',
+    kind: 'account.setup',
     code: 'not-the-setup-code',
     serverName: 'Integration studio',
-    email: adminEmail,
+    username: 'intruder',
+    password: 'intruder-secret',
   })
   assert.equal(wrong.response.status, 400)
   assert.deepEqual(AccessError.parse(wrong.value), { error: 'invalid' })
-  assert.equal((await mailIds(adminEmail)).size, 0, 'a wrong setup code sends no email')
   const ownerClient = new Client(origin)
-  const ownerIdentity = await onboard(ownerClient, {
+  const ownerUser = await setupFriend(ownerClient, {
     code: setupCode,
     serverName: 'Integration studio',
-    email: adminEmail,
+    username: 'owner',
+    password: 'owner-secret',
     name: 'Integration owner',
   })
-  const owner = account(ownerClient, ownerIdentity)
+  const owner = account(ownerClient, ownerUser)
   const named = await call('/api/info', ServerInfo)
   assert.equal(named.setup, 'complete')
   assert.equal(named.name, 'Integration studio')
@@ -176,10 +178,11 @@ try {
     assert.equal(
       (
         await new Client(origin).call('/api/access', {
-          kind: 'setup.start',
+          kind: 'account.setup',
           code,
           serverName: 'Hijacked',
-          email: syntheticEmail('intruder'),
+          username: 'intruder',
+          password: 'intruder-secret',
         })
       ).response.status,
       400,
@@ -190,10 +193,11 @@ try {
   assert.equal(
     (
       await new Client(origin).call('/api/access', {
-        kind: 'setup.start',
+        kind: 'account.setup',
         code: setupCode,
         serverName: 'Hijacked',
-        email: syntheticEmail('intruder'),
+        username: 'intruder',
+        password: 'intruder-secret',
       })
     ).response.status,
     400,
@@ -222,146 +226,92 @@ try {
   const users = async (email: string) =>
     (await fixtureDb.query('SELECT 1 FROM "user" WHERE email = $1', [email])).rowCount
   assert.equal(await users(strangerEmail), 0)
+  await fixtureDb.end()
   pass(
     'an uninvited address sees the same email step, gets a no-account email, and gets no account',
   )
 
+  const code = await friendCode(ownerClient)
   const memberClient = new Client(origin)
-  const memberIdentity = await invited(ownerClient, memberClient, 'Integration colleague')
-  const member = account(memberClient, memberIdentity)
+  const memberUser = await joinFriend(
+    memberClient,
+    code,
+    'colleague',
+    'colleague-secret',
+    'Integration colleague',
+  )
+  const member = account(memberClient, memberUser)
   const joined = await call('/api/snapshot', Snapshot, member.token)
   assert.equal(joined.server.role, 'member')
   assert.equal(joined.server.memberCount, 2)
-  const memberInvite = await request('/api/invitations', {
-    token: member.token,
-    body: { email: syntheticEmail('friend') },
-  })
+  const memberInvite = await request('/api/friend-invite', { token: member.token })
   assert.equal(memberInvite.response.status, 403)
-  const again = await request('/api/invitations', {
-    token: owner.token,
-    body: { email: memberIdentity.email },
+  assert.deepEqual(memberInvite.data, { message: 'Only an admin can do that.' })
+  const memberReset = await request('/api/members/password', {
+    token: member.token,
+    body: { userId: owner.user.id, password: 'replaced-secret' },
   })
-  assert.equal(again.response.status, 409)
-  const lateEmail = syntheticEmail('late')
-  const firstInvite = Invitation.parse(await invite(ownerClient, lateEmail))
-  await fixtureDb.query(
-    "UPDATE invitation SET expires_at = now() - interval '1 minute' WHERE email = $1",
-    [lateEmail],
-  )
-  const lateSeen = await mailIds(lateEmail)
-  await new Client(origin).act({ kind: 'email.send', email: lateEmail })
-  assert.match((await nextMail(lateEmail, lateSeen)).text, /there is no account for it/)
-  const refreshed = Invitation.parse(await invite(ownerClient, lateEmail))
-  assert.ok(Date.parse(refreshed.expiresAt) > Date.now() + 6 * 86400000)
-  assert.ok(Date.parse(refreshed.expiresAt) >= Date.parse(firstInvite.expiresAt))
-  const invitationMail = await nextMail(lateEmail, lateSeen)
-  assert.equal(
-    invitationMail.subject,
-    'Integration owner invited you to Integration studio on Huddle',
-  )
-  assert.ok(invitationMail.text.includes(`Accept invitation: ${origin}/login`))
-  assert.ok(invitationMail.text.includes(`Then sign in with ${lateEmail}.`))
-  await join(new Client(origin), lateEmail, 'Late colleague')
-  const accepted = await fixtureDb.query('SELECT accepted_by FROM invitation WHERE email = $1', [
-    lateEmail,
-  ])
-  assert.ok(accepted.rows[0].accepted_by)
+  assert.equal(memberReset.response.status, 403)
+  assert.deepEqual(memberReset.data, { message: 'Only an admin can do that.' })
+  const badJoin = await new Client(origin).call('/api/access', {
+    kind: 'account.join',
+    code: 'not-a-real-join-code-xx',
+    username: 'outsider',
+    password: 'outsider-secret',
+  })
+  assert.equal(badJoin.response.status, 400)
+  assert.deepEqual(AccessError.parse(badJoin.value), { error: 'invalid' })
+  const lateClient = new Client(origin)
+  const lateUser = await joinFriend(lateClient, code, 'latefriend', 'late-secret-1', 'Late colleague')
   assert.equal((await call('/api/snapshot', Snapshot, owner.token)).server.memberCount, 3)
-  pass(
-    'admins invite by email; expired invites stop working, re-inviting refreshes, members cannot invite',
+  const reset = await request('/api/members/password', {
+    token: owner.token,
+    body: { userId: lateUser.id, password: 'late-secret-2' },
+  })
+  assert.equal(reset.response.status, 200, JSON.stringify(reset.data))
+  assert.deepEqual(reset.data, {})
+  assert.equal(
+    (await request('/api/snapshot', { token: lateClient.sessionToken() })).response.status,
+    401,
   )
+  const stale = await new Client(origin).call('/api/access', {
+    kind: 'account.signin',
+    username: 'latefriend',
+    password: 'late-secret-1',
+  })
+  assert.equal(stale.response.status, 400)
+  assert.deepEqual(AccessError.parse(stale.value), { error: 'invalid' })
+  const returned = await new Client(origin).act({
+    kind: 'account.signin',
+    username: 'latefriend',
+    password: 'late-secret-2',
+  })
+  assert.equal(returned.stage.kind, 'ready')
+  pass('friends join with the invite code, a bad code fails, and an admin reset kills the old session')
 
   const mascot = { kind: 'mascot', shape: 'circle', color: 'indigo' }
   const roster = (await call('/api/members', Members, member.token)).members
+  const shown = roster.map(({ name, email, avatar, role, invitedBy }) => ({
+    name,
+    email,
+    avatar,
+    role,
+    invitedBy,
+  }))
   assert.deepEqual(
-    roster.map(({ name, email, avatar, role, invitedBy }) => ({
-      name,
-      email,
-      avatar,
-      role,
-      invitedBy,
-    })),
+    shown.map(({ name, avatar, role, invitedBy }) => ({ name, avatar, role, invitedBy })),
     [
-      {
-        name: 'Integration owner',
-        email: adminEmail,
-        avatar: mascot,
-        role: 'admin',
-        invitedBy: null,
-      },
-      {
-        name: 'Integration colleague',
-        email: memberIdentity.email,
-        avatar: mascot,
-        role: 'member',
-        invitedBy: 'Integration owner',
-      },
-      {
-        name: 'Late colleague',
-        email: lateEmail,
-        avatar: mascot,
-        role: 'member',
-        invitedBy: 'Integration owner',
-      },
+      { name: 'Integration owner', avatar: mascot, role: 'admin', invitedBy: null },
+      { name: 'Integration colleague', avatar: mascot, role: 'member', invitedBy: null },
+      { name: 'Late colleague', avatar: mascot, role: 'member', invitedBy: null },
     ],
   )
+  assert.ok(shown.every((person) => person.email.endsWith('@member.huddle.invalid')))
+  assert.equal(new Set(shown.map((person) => person.email)).size, 3)
   assert.equal(roster[0]?.id, owner.user.id)
   assert.ok(roster.every((person) => Date.parse(person.joinedAt) <= Date.now()))
   assert.deepEqual(await call('/api/members', Members, owner.token), { members: roster })
-  pass('every member sees the roster: admins first, with avatar, role, and who invited them')
-
-  assert.equal((await request('/api/invitations', { token: member.token })).response.status, 403)
-  const pendingEmail = syntheticEmail('pending')
-  const pendingInvite = Invitation.parse(await invite(ownerClient, pendingEmail))
-  const lapsedEmail = syntheticEmail('lapsed')
-  await invite(ownerClient, lapsedEmail)
-  await fixtureDb.query(
-    "UPDATE invitation SET expires_at = '2026-10-08T12:00:00Z' WHERE email = $1",
-    [lapsedEmail],
-  )
-  assert.deepEqual(await call('/api/invitations', PendingInvitations, owner.token), {
-    invitations: [
-      { email: lapsedEmail, expiresAt: '2026-10-08T12:00:00.000Z', invitedBy: 'Integration owner' },
-      { email: pendingEmail, expiresAt: pendingInvite.expiresAt, invitedBy: 'Integration owner' },
-    ],
-  })
-  const memberRevoke = await request('/api/invitations/revoke', {
-    token: member.token,
-    body: { email: pendingEmail },
-  })
-  assert.equal(memberRevoke.response.status, 403)
-  assert.deepEqual(memberRevoke.data, { message: 'Only an admin can do that.' })
-  assert.deepEqual(
-    await call('/api/invitations/revoke', z.unknown(), owner.token, {
-      email: pendingEmail.toUpperCase(),
-    }),
-    {},
-  )
-  assert.deepEqual(await call('/api/invitations', PendingInvitations, owner.token), {
-    invitations: [
-      { email: lapsedEmail, expiresAt: '2026-10-08T12:00:00.000Z', invitedBy: 'Integration owner' },
-    ],
-  })
-  const twice = await request('/api/invitations/revoke', {
-    token: owner.token,
-    body: { email: pendingEmail },
-  })
-  assert.equal(twice.response.status, 404)
-  assert.deepEqual(twice.data, { message: `There is no pending invitation for ${pendingEmail}.` })
-  const acceptedRevoke = await request('/api/invitations/revoke', {
-    token: owner.token,
-    body: { email: memberIdentity.email },
-  })
-  assert.equal(acceptedRevoke.response.status, 404)
-  const revokedSeen = await mailIds(pendingEmail)
-  await new Client(origin).act({ kind: 'email.send', email: pendingEmail })
-  assert.match((await nextMail(pendingEmail, revokedSeen)).text, /there is no account for it/)
-  assert.equal(await users(pendingEmail), 0)
-  assert.equal((await call('/api/members', Members, owner.token)).members.length, 3)
-  await fixtureDb.end()
-  pass(
-    'admins list pending invitations, expired ones included; revoking one stops that address from joining',
-  )
+  pass('every member sees the roster: admins first, with avatar and role')
 
   const studio = await call('/api/rooms', Room, owner.token, { name: 'Studio' })
   const channel = await call('/api/channels', Channel, owner.token, {

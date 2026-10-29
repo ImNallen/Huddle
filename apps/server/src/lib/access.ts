@@ -123,8 +123,9 @@ async function inviter(userId: string) {
 }
 async function entry(): Promise<AccessStage> {
   const local = config.AUTH_POLICY === 'mixed'
-  if (await setupRequired()) return { kind: 'setup', methods: local ? ['password'] : [] }
-  return { kind: 'signin', methods: local ? ['password', 'passkey'] : ['passkey'] }
+  if (await setupRequired())
+    return { kind: 'setup', methods: local ? ['password'] : ['company'] }
+  return { kind: 'signin', methods: local ? ['password', 'passkey'] : ['company'] }
 }
 export async function viewFor(request: Request): Promise<AccessView> {
   const principal = await optionalPrincipal(request)

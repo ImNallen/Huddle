@@ -101,6 +101,12 @@ function ask(socket: dgram.Socket, host: string, packet: Buffer) {
   })
 }
 
+export function renewDelay(lifetime: number) {
+  if (!Number.isFinite(lifetime) || lifetime < 1) return 60
+  const half = Math.floor(lifetime / 2)
+  return Math.min(86400, Math.max(1, half))
+}
+
 export async function mapPort(internalPort: number) {
   const host = await gateway()
   if (!host) return
@@ -122,7 +128,7 @@ export async function mapPort(internalPort: number) {
     const externalPort = mapped.readUInt16BE(10)
     const lifetime = mapped.readUInt32BE(12)
     if (!externalPort || !lifetime) return
-    return { address: externalAddress, port: externalPort }
+    return { address: externalAddress, port: externalPort, lifetime }
   } catch {
     return undefined
   } finally {

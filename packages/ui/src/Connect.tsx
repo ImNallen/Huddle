@@ -28,6 +28,18 @@ export function readSavedServers(): SavedServer[] {
     return []
   }
 }
+export function savedInvite(origin: string) {
+  if (typeof localStorage === 'undefined') return
+  const keyed = localStorage.getItem(`huddle.invite:${origin}`)
+  if (keyed) return keyed
+  const last = localStorage.getItem('huddle.invite')
+  if (!last) return
+  try {
+    return inviteOrigin(parseInvite(last)) === origin ? last : undefined
+  } catch {
+    return
+  }
+}
 export function saveServer(server: Omit<SavedServer, 'lastUsedAt'>) {
   const next = [
     { ...server, lastUsedAt: Date.now() },
@@ -98,6 +110,7 @@ export function Connect({
       }
       const origin = inviteOrigin(invite)
       localStorage.setItem('huddle.invite', text)
+      localStorage.setItem(`huddle.invite:${origin}`, text)
       localStorage.setItem(`huddle.join-code:${origin}`, invite.code)
       setBusy(true)
       setProblem(null)
@@ -138,6 +151,15 @@ export function Connect({
     try {
       const next = servers.filter((item) => item.origin !== origin)
       localStorage.setItem(storageKey, JSON.stringify(next))
+      localStorage.removeItem(`huddle.invite:${origin}`)
+      const last = localStorage.getItem('huddle.invite')
+      if (last) {
+        try {
+          if (inviteOrigin(parseInvite(last)) === origin) localStorage.removeItem('huddle.invite')
+        } catch {
+          localStorage.removeItem('huddle.invite')
+        }
+      }
       setServers(next)
     } catch (failure) {
       setProblem({ kind: 'other', message: errorText(failure) })
@@ -204,7 +226,7 @@ export function Connect({
                   type="button"
                   className="access-saved-server"
                   disabled={busy}
-                  onClick={() => void choose(server.origin)}
+                  onClick={() => void choose(savedInvite(server.origin) ?? server.origin)}
                 >
                   <ServerTile name={server.name} />
                   <span>

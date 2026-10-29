@@ -16,7 +16,7 @@ export async function startRealtime(friend?: Server) {
   listener.on('error', (error) => console.error({ event: 'realtime.wakeup.failed', error }))
   const plain = new WebSocketServer({
     port: config.WS_PORT,
-    host: '127.0.0.1',
+    host: config.BIND_HOST,
     maxPayload: 8192,
     perMessageDeflate: false,
     verifyClient: ({ origin, req }, done) =>

@@ -8,6 +8,7 @@ import {
   Connection,
   NetworkError,
   readSavedServers,
+  savedInvite,
   saveServer,
 } from '@huddle/ui'
 import { Client, RequestError, errorText, focusWindow, openBrowser, openInvite } from './client'
@@ -58,15 +59,12 @@ export function App() {
     const entry = readSavedServers().find((server) => server.origin === client.origin)
     if (entry) saveServer(entry)
   }, [client])
-  const restoredInvite = useRef(false)
   useEffect(() => {
-    if (restoredInvite.current) return
-    restoredInvite.current = true
-    const savedInvite = localStorage.getItem('huddle.invite')
-    if (!savedInvite) return
+    const stored = savedInvite(client.origin)
+    if (!stored) return
     let invite: FriendInvite
     try {
-      invite = parseInvite(savedInvite)
+      invite = parseInvite(stored)
     } catch {
       return
     }

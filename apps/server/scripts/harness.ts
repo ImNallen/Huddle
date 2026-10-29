@@ -7,7 +7,14 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pg from 'pg'
 import { z } from 'zod'
 import { TOTP } from 'otpauth'
-import { AccessError, AccessView, type AccessCommand, type AccessStage } from '@huddle/contracts'
+import {
+  AccessError,
+  AccessView,
+  FriendInvites,
+  parseInvite,
+  type AccessCommand,
+  type AccessStage,
+} from '@huddle/contracts'
 
 const mailpit = process.env.MAILPIT_URL ?? 'http://127.0.0.1:8025'
 const serverRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -330,4 +337,46 @@ export async function invited(admin: Client, client: Client, name: string) {
   const email = syntheticEmail('member')
   await invite(admin, email)
   return join(client, email, name)
+}
+const mascot = { kind: 'mascot' as const, shape: 'circle' as const, color: 'indigo' as const }
+async function nameFriend(client: Client, name: string) {
+  const named = await client.act({
+    kind: 'profile.save',
+    profile: { name, avatar: mascot },
+  })
+  assert.equal(named.stage.kind, 'ready')
+  assert(named.stage.kind === 'ready')
+  return named.stage.user
+}
+export async function setupFriend(
+  client: Client,
+  options: { code: string; serverName: string; username: string; password: string; name: string },
+) {
+  const ready = await client.act({
+    kind: 'account.setup',
+    code: options.code,
+    serverName: options.serverName,
+    username: options.username,
+    password: options.password,
+  })
+  assert.equal(ready.stage.kind, 'ready')
+  return nameFriend(client, options.name)
+}
+export async function joinFriend(
+  client: Client,
+  code: string,
+  username: string,
+  password: string,
+  name: string,
+) {
+  const ready = await client.act({ kind: 'account.join', code, username, password })
+  assert.equal(ready.stage.kind, 'ready')
+  return nameFriend(client, name)
+}
+export async function friendCode(admin: Client) {
+  const { response, value } = await admin.call('/api/friend-invite')
+  assert.equal(response.status, 200, `friend invite: ${JSON.stringify(value)}`)
+  const line = FriendInvites.parse(value).invites[0]
+  assert.ok(line, 'the host has an invite line')
+  return parseInvite(line).code
 }

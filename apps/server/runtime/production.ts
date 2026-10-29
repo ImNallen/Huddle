@@ -35,7 +35,7 @@ const realtime = await startRealtime(portal.server)
 await portal.listen()
 const server = serve({
   port: config.PORT,
-  hostname: '127.0.0.1',
+  hostname: config.BIND_HOST,
   fetch: async (request, env) => {
     const pathname = new URL(request.url).pathname
     if (pathname.startsWith('/api/'))
