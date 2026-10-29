@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
-import { DeviceCode, DeviceToken } from '@huddle/contracts'
+import { DeviceCode, DeviceToken, inviteOrigin, parseInvite, type FriendInvite } from '@huddle/contracts'
 import {
   Application,
   BrowserWait,
@@ -10,7 +10,7 @@ import {
   readSavedServers,
   saveServer,
 } from '@huddle/ui'
-import { Client, RequestError, errorText, focusWindow, openBrowser } from './client'
+import { Client, RequestError, errorText, focusWindow, openBrowser, openInvite } from './client'
 
 type Device =
   | { kind: 'idle' }
@@ -58,8 +58,43 @@ export function App() {
     const entry = readSavedServers().find((server) => server.origin === client.origin)
     if (entry) saveServer(entry)
   }, [client])
+  const restoredInvite = useRef(false)
+  useEffect(() => {
+    if (restoredInvite.current) return
+    restoredInvite.current = true
+    const savedInvite = localStorage.getItem('huddle.invite')
+    if (!savedInvite) return
+    let invite: FriendInvite
+    try {
+      invite = parseInvite(savedInvite)
+    } catch {
+      return
+    }
+    const origin = inviteOrigin(invite)
+    if (origin !== client.origin) return
+    let cancelled = false
+    openInvite(invite.host, invite.port, invite.pin)
+      .then((proxy) => {
+        if (cancelled) return
+        setClient((current) => {
+          if (current.origin !== origin) return current
+          current.disconnect()
+          return new Client(origin, proxy)
+        })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [client.origin])
   async function changeServer(origin: string) {
-    const next = new Client(origin)
+    await useClient(new Client(origin))
+  }
+  async function connectInvite(invite: FriendInvite) {
+    const proxy = await openInvite(invite.host, invite.port, invite.pin)
+    await useClient(new Client(inviteOrigin(invite), proxy))
+  }
+  async function useClient(next: Client) {
     try {
       const info = await next.info()
       deviceLifetime.current.abort()
@@ -212,6 +247,7 @@ export function App() {
       <Connect
         initialOrigin={localStorage.getItem('huddle.server') ? client.origin : ''}
         connect={changeServer}
+        connectInvite={connectInvite}
         close={localStorage.getItem('huddle.server') ? () => setEditingServer(false) : undefined}
       />
     )

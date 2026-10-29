@@ -133,7 +133,10 @@ export async function deviceRequest(request: Request, trustedIp?: string) {
     )
     if (!current.rows[0]) return { error: 'expired_token' }
     const proof = z
-      .object({ method: z.enum(['totp', 'recovery', 'passkey', 'company']), proved_at: z.date() })
+      .object({
+        method: z.enum(['totp', 'recovery', 'passkey', 'company', 'password']),
+        proved_at: z.date(),
+      })
       .parse(current.rows[0])
     if (config.AUTH_POLICY === 'sso-only' && proof.method !== 'company')
       return { error: 'access_denied' }

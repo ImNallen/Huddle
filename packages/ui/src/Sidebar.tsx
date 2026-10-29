@@ -166,7 +166,7 @@ export function Sidebar({
                 {admin && (
                   <button onClick={act(() => onDialog({ kind: 'invite' }))}>
                     <UserPlus size={15} />
-                    <span>Invite coworkers</span>
+                    <span>Share invite</span>
                   </button>
                 )}
                 <button onClick={act(onSecurity)}>
@@ -266,14 +266,14 @@ export function Sidebar({
         )}
         {!room && !rooms.length && <p className="sidebar-note">No rooms yet.</p>}
         <div className="section-label">
-          <span>Coworkers</span>
+          <span>Friends</span>
         </div>
         {members.kind === 'failed' ? (
-          <p className="sidebar-note">Could not load coworkers.</p>
+          <p className="sidebar-note">Could not load friends.</p>
         ) : members.kind === 'ready' && !coworkers.length ? (
           <p className="sidebar-note">Only you so far.</p>
         ) : (
-          <ul className="coworkers" aria-label="Coworkers">
+          <ul className="coworkers" aria-label="Friends">
             {coworkers.map((member) => (
               <li key={member.id}>
                 <Avatar

@@ -8,7 +8,7 @@ import {
   type SecurityChange,
   type Profile,
 } from '@huddle/contracts'
-import { Alert, CodeField, Dialog, Frame, Heading, Primary } from './primitives'
+import { Alert, CodeField, Dialog, Frame, Heading, Primary, visibleAccount } from './primitives'
 import { ProfileEditor } from './Avatar'
 import { addPasskey, provePasskey } from './passkeys'
 import type { Connection } from './connection'
@@ -151,7 +151,7 @@ export function Security({
     }
   }
   return (
-    <Frame account={inventory?.user.email} onSignOut={signOut} wide>
+    <Frame account={visibleAccount(inventory?.user.email)} onSignOut={signOut} wide>
       <div className="access-security">
         <button className="access-link" onClick={close}>
           ← Back to chat
@@ -383,7 +383,9 @@ export function Security({
           }}
         >
           <p className="access-note">
-            Confirm this change with a new authenticator code or your passkey.
+            {inventory?.hasPassword && !inventory.authenticator && inventory.passkeys.length === 0
+              ? 'Confirm this change with your password.'
+              : 'Confirm this change with a new authenticator code or your passkey.'}
           </p>
           {action.kind === 'add-passkey' && (
             <label className="access-label">
@@ -450,9 +452,40 @@ export function Security({
                   Confirm with passkey
                 </button>
               )}
+              {inventory?.hasPassword &&
+                !companySessionChange &&
+                !inventory.authenticator &&
+                inventory.passkeys.length === 0 &&
+                inventory.policy === 'mixed' && (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      const password = String(
+                        new FormData(event.currentTarget).get('password') ?? '',
+                      )
+                      void commit({ kind: 'password', password })
+                    }}
+                  >
+                    <label className="access-label">
+                      Password
+                      <input
+                        name="password"
+                        type="password"
+                        required
+                        minLength={8}
+                        maxLength={200}
+                        autoComplete="current-password"
+                      />
+                    </label>
+                    <Primary busy={busy}>
+                      {action.kind === 'add-passkey' ? 'Add passkey' : 'Confirm change'}
+                    </Primary>
+                  </form>
+                )}
               {!companySessionChange &&
                 !inventory?.authenticator &&
                 !inventory?.passkeys.length &&
+                !inventory?.hasPassword &&
                 (action.kind === 'add-passkey' && inventory?.policy === 'mixed' ? (
                   <>
                     <p className="access-note">

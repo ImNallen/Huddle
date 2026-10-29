@@ -1,32 +1,21 @@
 import { expect, test } from '@playwright/test'
-import {
-  browserLogin,
-  expectHome,
-  member,
-  nextTotp,
-  sendEmail,
-  setupKey,
-  signOut,
-  signin,
-  totp,
-} from './passwordless'
+import { browserLogin, expectHome, member, serverPassword } from './passwordless'
 import { useScratchServer } from './server'
 
 const server = useScratchServer('api')
 
-test('profile persists and sensitive recovery changes require a fresh factor and acknowledgement', async ({
-  page,
-}) => {
-  const identity = await member(server.admin, page, 'Security profile owner', browserLogin)
+test('profile name persists for a password account', async ({ page }) => {
+  await member(server.admin, page, 'profile', browserLogin)
   await expectHome(page)
   await page.getByRole('button', { name: 'Account security', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Account security', exact: true })).toBeVisible()
+  await expect(page.getByText('@member.huddle.invalid')).toHaveCount(0)
   await page.getByRole('button', { name: 'Profile', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'flower', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'circle', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
-  await expect(page.getByRole('button', { name: 'teal', exact: true })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'indigo', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
@@ -36,66 +25,9 @@ test('profile persists and sensitive recovery changes require a fresh factor and
   await page.getByRole('button', { name: 'Account security', exact: true }).click()
   await page.getByRole('button', { name: 'Profile', exact: true }).click()
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Updated profile owner')
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
-  await page.getByRole('button', { name: 'Regenerate codes', exact: true }).click()
-  await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByLabel('Authenticator code').fill(identity.enrolledCode)
-  await page.getByRole('button', { name: 'Confirm change', exact: true }).click()
-  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toHaveCount(0)
-  await page.getByLabel('Authenticator code').fill(await nextTotp(identity.secret))
-  await page.getByRole('button', { name: 'Confirm change', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toBeVisible()
-  await page.reload()
-  await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled()
-  await page.getByRole('checkbox', { name: /I've saved these codes/ }).check()
-  await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  await expectHome(page)
 })
 
-test('returning email requires TOTP and recovery leads through replacement before chat', async ({
-  page,
-}) => {
-  const identity = await member(server.admin, page, 'Recovery owner', browserLogin)
-  await expectHome(page)
-  await signOut(page)
-  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0)
-  await signin(page, identity)
-  await signOut(page)
-  const code = await sendEmail(page, identity.email)
-  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toHaveCount(0)
-  await page.getByLabel('Verification code').fill(code)
-  await page.getByRole('button', { name: 'Verify', exact: true }).click()
-  await page.getByRole('button', { name: 'Use a recovery code', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Recover your account' })).toBeVisible()
-  await page.getByRole('button', { name: 'Back to authenticator code', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Enter your authenticator code' })).toBeVisible()
-  await page.getByRole('button', { name: 'Use a recovery code', exact: true }).click()
-  await page.getByLabel('Recovery code').fill('not-a-saved-code')
-  await page.getByRole('button', { name: 'Recover account', exact: true }).click()
-  await expect(page.getByRole('alert')).toHaveText(
-    "That code isn't valid or was already used. Check for typos, or try another code from your list.",
-  )
-  const recovery = identity.recovery[0]
-  if (!recovery) throw new Error('No recovery code was issued during onboarding.')
-  await page.getByLabel('Recovery code').fill(recovery)
-  await page.getByRole('button', { name: 'Recover account', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Replace your authenticator' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Account security', exact: true })).toHaveCount(0)
-  const replacement = await setupKey(page)
-  await page.getByLabel('6-digit code').fill(totp(replacement))
-  await page.getByRole('button', { name: 'Confirm and replace' }).click()
-  await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toBeVisible()
-  await page.getByRole('checkbox', { name: /I've saved these codes/ }).check()
-  await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  const skip = page.getByRole('button', { name: 'Skip for now' })
-  if (await skip.count()) await skip.click()
-  await expectHome(page)
-})
-
-test('browser passkeys register, rename, sign in and remove with verified user presence', async ({
+test('browser passkeys register, rename, sign in and remove with the account password', async ({
   page,
   context,
 }) => {
@@ -112,12 +44,14 @@ test('browser passkeys register, rename, sign in and remove with verified user p
     },
   })
   try {
-    const identity = await member(server.admin, page, 'Passkey owner', browserLogin)
+    const identity = await member(server.admin, page, 'passkey', browserLogin)
     await page.getByRole('button', { name: 'Account security', exact: true }).click()
+    await expect(page.getByText('Continue with company login')).toHaveCount(0)
     await page.getByRole('button', { name: '+ Add passkey', exact: true }).click()
+    await expect(page.getByText('Confirm this change with your password.')).toBeVisible()
     await page.getByLabel('Passkey name').fill('Verified browser key')
-    await page.getByLabel('Authenticator code').fill(await nextTotp(identity.secret))
-    await page.getByRole('button', { name: 'Confirm change', exact: true }).click()
+    await page.getByLabel('Password').fill(identity.password)
+    await page.getByRole('button', { name: 'Add passkey', exact: true }).click()
     await expect(page.getByText('Verified browser key', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Rename', exact: true }).click()
     await page.getByLabel('Passkey name').fill('Renamed browser key')
@@ -131,8 +65,19 @@ test('browser passkeys register, rename, sign in and remove with verified user p
     await page.getByRole('button', { name: 'Remove', exact: true }).click()
     await page.getByRole('button', { name: 'Confirm with passkey', exact: true }).click()
     await expect(page.getByText('No passkeys added.', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+    const form = page.locator('form').filter({
+      has: page.getByRole('button', { name: 'Sign in', exact: true }),
+    })
+    await form.getByLabel('Username').fill(identity.username)
+    await form.getByLabel('Password').fill(serverPassword)
+    await form.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(page.getByRole('alert')).toBeVisible()
+    await form.getByLabel('Password').fill(identity.password)
+    await form.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expectHome(page)
   } finally {
-    await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId })
-    await cdp.detach()
+    await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId }).catch(() => {})
+    await cdp.detach().catch(() => {})
   }
 })

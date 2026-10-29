@@ -41,7 +41,7 @@ export async function prepareSetup() {
   if (!stored.rowCount) return
   const shown = config.SETUP_CODE ? 'the code from SETUP_CODE' : `this setup code:\n\n    ${code}\n`
   process.stdout.write(
-    `\nHuddle setup: this server is not set up yet.\nOpen ${config.SERVER_URL}/login and enter the server name, the admin's email, and ${shown}\nThe code works once and expires in 24 hours. Restarting the server replaces it until setup is complete.\n\n`,
+    `\nHuddle setup: this server is not set up yet.\nOpen ${config.SERVER_URL}/login and enter the server name, a username, a password, and ${shown}\nThe code works once and expires in 24 hours. Restarting the server replaces it until setup is complete.\n\n`,
   )
 }
 export async function checkSetupCode(code: string) {

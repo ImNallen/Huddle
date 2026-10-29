@@ -9,7 +9,10 @@ export default defineConfig({
   timeout: 180000,
   workers: 1,
   use: {
-    channel: process.env.PLAYWRIGHT_CHANNEL,
+    channel: process.env.PLAYWRIGHT_EXECUTABLE ? undefined : process.env.PLAYWRIGHT_CHANNEL,
+    launchOptions: process.env.PLAYWRIGHT_EXECUTABLE
+      ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE }
+      : {},
     baseURL: `http://127.0.0.1:${desktopPort}`,
     headless: true,
     viewport: { width: 1280, height: 860 },

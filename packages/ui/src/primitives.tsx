@@ -68,6 +68,10 @@ export function Logo({ size = 22 }: { size?: number }) {
 export function hostOf(origin: string) {
   return new URL(origin).host
 }
+export function visibleAccount(email?: string | null) {
+  if (!email || email.endsWith('@member.huddle.invalid')) return undefined
+  return email
+}
 export function ServerTile({
   name,
   size = 'medium',

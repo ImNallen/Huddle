@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Password, Username } from './invite'
 
 export const MascotShape = z.enum(['circle', 'square', 'bean', 'hexagon', 'triangle', 'flower'])
 export const MascotColor = z.enum([
@@ -174,7 +175,7 @@ export const PublicUser = Session.shape.user.extend({ avatar: Avatar })
 export const Inviter = PublicUser.pick({ name: true, email: true, avatar: true }).extend({
   role: MemberRole,
 })
-export const AccessMethod = z.enum(['email', 'passkey', 'company'])
+export const AccessMethod = z.enum(['email', 'passkey', 'company', 'password'])
 export const SetupMethod = AccessMethod.exclude(['passkey'])
 export const RecoveryBatch = z.object({
   kind: z.literal('save-recovery'),
@@ -208,6 +209,7 @@ export const AccessStage = z.discriminatedUnion('kind', [
 export const FactorInput = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('totp'), code: z.string().regex(/^\d{6}$/) }).strict(),
   z.object({ kind: z.literal('passkey'), proof: z.string().min(1).max(512) }).strict(),
+  z.object({ kind: z.literal('password'), password: Password }).strict(),
 ])
 export const SecurityChange = z.discriminatedUnion('kind', [
   z
@@ -231,6 +233,30 @@ export const AccessCommand = z.discriminatedUnion('kind', [
       code: SetupCode,
       serverName: ServerName,
       email: z.email().max(254),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('account.setup'),
+      code: SetupCode,
+      serverName: ServerName,
+      username: Username,
+      password: Password,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('account.join'),
+      code: z.string().regex(/^[A-Za-z0-9_-]{20,128}$/),
+      username: Username,
+      password: Password,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('account.signin'),
+      username: Username,
+      password: Password,
     })
     .strict(),
   z.object({ kind: z.literal('email.verify'), code: z.string().regex(/^\d{6}$/) }).strict(),
@@ -279,6 +305,7 @@ export const AccountSecurity = z.object({
   recoveryCreatedAt: z.iso.datetime().nullable(),
   recoveryTotal: z.number().int().nonnegative(),
   recoveryRemaining: z.number().int().nonnegative(),
+  hasPassword: z.boolean(),
   passkeys: z.array(
     z.object({
       id: z.string(),
@@ -291,7 +318,7 @@ export const AccountSecurity = z.object({
     z.object({
       id: z.string(),
       current: z.boolean(),
-      method: z.enum(['totp', 'recovery', 'passkey', 'company']),
+      method: z.enum(['totp', 'recovery', 'passkey', 'company', 'password']),
       createdAt: z.iso.datetime(),
       expiresAt: z.iso.datetime(),
       userAgent: z.string().nullable(),
@@ -311,3 +338,12 @@ export type AccessError = z.infer<typeof AccessError>
 export type FactorInput = z.infer<typeof FactorInput>
 export type SecurityChange = z.infer<typeof SecurityChange>
 export type AccountSecurity = z.infer<typeof AccountSecurity>
+export {
+  Username,
+  Password,
+  FriendInvites,
+  formatInvite,
+  parseInvite,
+  inviteOrigin,
+} from './invite'
+export type { Invite as FriendInvite } from './invite'

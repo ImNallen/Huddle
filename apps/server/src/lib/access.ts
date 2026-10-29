@@ -27,6 +27,7 @@ import {
   setupRequired,
   type Admission,
 } from './admission'
+import { confirmPassword, joinAccount, setupAccount, signInAccount } from './friends'
 import {
   AccessFailure,
   digest,
@@ -44,7 +45,7 @@ import {
 
 const Proof = z.object({
   epoch: z.number(),
-  method: z.enum(['totp', 'recovery', 'passkey', 'company']),
+  method: z.enum(['totp', 'recovery', 'passkey', 'company', 'password']),
   stage: z.enum(['save-recovery', 'passkey-offer', 'profile', 'ready']),
   proved_at: z.date(),
   avatar: Avatar,
@@ -121,11 +122,9 @@ async function inviter(userId: string) {
   return result.rows[0] ? Inviter.parse(result.rows[0]) : null
 }
 async function entry(): Promise<AccessStage> {
-  const company = config.OIDC_DISCOVERY_URL ? (['company'] as const) : []
   const local = config.AUTH_POLICY === 'mixed'
-  if (await setupRequired())
-    return { kind: 'setup', methods: local ? ['email', ...company] : ['company'] }
-  return { kind: 'signin', methods: local ? ['email', 'passkey', ...company] : ['company'] }
+  if (await setupRequired()) return { kind: 'setup', methods: local ? ['password'] : [] }
+  return { kind: 'signin', methods: local ? ['password', 'passkey'] : ['passkey'] }
 }
 export async function viewFor(request: Request): Promise<AccessView> {
   const principal = await optionalPrincipal(request)
@@ -225,7 +224,7 @@ export async function attach(
   sessionId: string,
   userId: string,
   epoch: number,
-  method: 'totp' | 'recovery' | 'passkey' | 'company',
+  method: 'totp' | 'recovery' | 'passkey' | 'company' | 'password',
   stage: 'save-recovery' | 'passkey-offer' | 'profile' | 'ready',
 ) {
   const account = await sql.query(
@@ -278,6 +277,12 @@ export async function verifyFactor(sql: PoolClient, principal: Principal, factor
     await forgive(`factor:${principal.user.id}`)
     return account
   }
+  if (factor.kind === 'password') {
+    if (!(await confirmPassword(sql, principal.user.id, factor.password)))
+      throw new AccessFailure('invalid')
+    await forgive(`factor:${principal.user.id}`)
+    return account
+  }
   await verifyTotp(sql, principal.user.id, factor.code)
   await forgive(`factor:${principal.user.id}`)
   return account
@@ -307,6 +312,27 @@ async function advance(
     if (actor) await db.query('DELETE FROM session WHERE id=$1', [actor.session.id])
     if (oldToken) await db.query('DELETE FROM access_ceremony WHERE id_hash=$1', [digest(oldToken)])
     return respond(request, { stage: await entry() }, { clear: true })
+  }
+  if (
+    command.kind === 'account.setup' ||
+    command.kind === 'account.join' ||
+    command.kind === 'account.signin'
+  ) {
+    localAllowed()
+    const userId =
+      command.kind === 'account.setup'
+        ? await setupAccount(command)
+        : command.kind === 'account.join'
+          ? await joinAccount(command)
+          : await signInAccount(command.username, command.password)
+    const session = await issueSession(userId, request)
+    await transaction(async (sql) => {
+      const account = await lockAccount(sql, userId)
+      await attach(sql, session.session.id, userId, account.epoch, 'password', 'ready')
+    })
+    const headers = new Headers(request.headers)
+    headers.set('authorization', `Bearer ${session.session.token}`)
+    return respond(request, await viewFor(new Request(request.url, { headers })), { session })
   }
   if (command.kind === 'reset.request') {
     localAllowed()
@@ -487,7 +513,9 @@ async function advance(
       }
       if (change.kind === 'passkey.remove' && !config.OIDC_DISCOVERY_URL) {
         const alternatives = await sql.query(
-          'SELECT 1 FROM local_factor WHERE user_id=$1 UNION ALL SELECT 1 FROM access_passkey WHERE user_id=$1 AND id<>$2',
+          `SELECT 1 FROM local_factor WHERE user_id=$1
+           UNION ALL SELECT 1 FROM access_passkey WHERE user_id=$1 AND id<>$2
+           UNION ALL SELECT 1 FROM login WHERE user_id=$1`,
           [actor.user.id, change.id],
         )
         if (!alternatives.rowCount) throw new AccessFailure('invalid')
@@ -527,7 +555,7 @@ async function advance(
         rotated.session.id,
         actor.user.id,
         account.epoch + 1,
-        command.proof.kind === 'totp' ? 'totp' : 'passkey',
+        command.proof.kind,
         change.kind === 'recovery.regenerate' ? 'save-recovery' : 'ready',
       )
       await sql.query('DELETE FROM session WHERE id=$1', [actor.session.id])
@@ -724,6 +752,12 @@ export async function accessRequest(request: Request, trustedIp?: string) {
   )
     await limit(`send-ip:${trustedIp ?? 'unavailable'}`, 100, 3600)
   if (command.kind === 'setup.start') await limit(`setup-ip:${trustedIp ?? 'unavailable'}`, 10, 900)
+  if (command.kind === 'account.setup' || command.kind === 'account.join')
+    await limit(`account-ip:${trustedIp ?? 'unavailable'}`, 10, 900)
+  if (command.kind === 'account.signin') {
+    await limit(`signin-ip:${trustedIp ?? 'unavailable'}`, 30, 900)
+    await limit(`signin-user:${command.username}`, 10, 900)
+  }
   if ('code' in command) await limit(`verify-ip:${trustedIp ?? 'unavailable'}`, 300, 900)
   return advance(request, command)
 }

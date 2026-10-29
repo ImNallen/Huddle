@@ -4,7 +4,7 @@ import { Check, Monitor, X } from 'lucide-react'
 import { ServerInfo, type PublicUser } from '@huddle/contracts'
 import { Application, Connecting } from './Application'
 import { Avatar } from './Avatar'
-import { Frame, Heading, Alert, Primary, hostOf } from './primitives'
+import { Frame, Heading, Alert, Primary, hostOf, visibleAccount } from './primitives'
 import { RequestError, type Connection } from './connection'
 import { errorText } from './transport'
 
@@ -127,13 +127,14 @@ export function DeviceApproval({
       />
     )
   const host = hostOf(client.origin)
+  const account = visibleAccount(user.email)
   const server = info ? { name: info.name, origin: client.origin } : undefined
   const problem = failure ? describe(failure) : null
   if (state.kind === 'checking') return <Connecting server={server} title="Checking your code…" />
   return (
     <Frame
       server={server}
-      account={user.email}
+      account={account}
       onSignOut={() => void signOut()}
       wide={state.kind === 'claimed'}
     >
@@ -258,7 +259,13 @@ export function DeviceApproval({
                   </em>
                 </p>
                 <span>
-                  {user.email} · <code>{host}</code>
+                  {account ? (
+                    <>
+                      {account} · <code>{host}</code>
+                    </>
+                  ) : (
+                    <code>{host}</code>
+                  )}
                 </span>
               </div>
             </div>

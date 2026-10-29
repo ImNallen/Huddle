@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { CircleAlert, RefreshCw, WifiOff, X } from 'lucide-react'
 import { z } from 'zod'
-import { serverOrigin } from '@huddle/contracts'
+import { inviteOrigin, parseInvite, serverOrigin, type FriendInvite } from '@huddle/contracts'
 import { Alert, Frame, Heading, Primary, ServerTile, hostOf } from './primitives'
 import { NetworkError } from './connection'
 import { errorText } from './transport'
@@ -48,7 +48,7 @@ function parseAddress(input: string): { origin: string } | { problem: Problem } 
     url = new URL(withScheme)
   } catch {
     return {
-      problem: { kind: 'address', message: 'Enter an address like https://chat.yourcompany.com.' },
+      problem: { kind: 'address', message: 'Paste the invite from your friend, or use http://localhost:3000 on the host.' },
     }
   }
   try {
@@ -66,10 +66,12 @@ function parseAddress(input: string): { origin: string } | { problem: Problem } 
 export function Connect({
   initialOrigin = '',
   connect,
+  connectInvite,
   close,
 }: {
   initialOrigin?: string
   connect: (origin: string) => Promise<void>
+  connectInvite?: (invite: FriendInvite) => Promise<void>
   close?: () => void
 }) {
   const [servers, setServers] = useState<SavedServer[]>([])
@@ -78,7 +80,41 @@ export function Connect({
   const [now] = useState(() => Date.now())
   useEffect(() => setServers(readSavedServers()), [])
   async function choose(input: string) {
-    const parsed = parseAddress(input)
+    const text = input.trim()
+    if (text.startsWith('huddle:')) {
+      let invite: FriendInvite
+      try {
+        invite = parseInvite(text)
+      } catch (failure) {
+        setProblem({
+          kind: 'address',
+          message: failure instanceof Error ? failure.message : 'That invite is incomplete. Ask for a new one.',
+        })
+        return
+      }
+      if (!connectInvite) {
+        setProblem({ kind: 'address', message: 'Paste that invite in the Huddle app.' })
+        return
+      }
+      const origin = inviteOrigin(invite)
+      localStorage.setItem('huddle.invite', text)
+      localStorage.setItem(`huddle.join-code:${origin}`, invite.code)
+      setBusy(true)
+      setProblem(null)
+      try {
+        await connectInvite(invite)
+      } catch (failure) {
+        setProblem(
+          failure instanceof NetworkError
+            ? { kind: 'unreachable', host: invite.host }
+            : { kind: 'other', message: errorText(failure) },
+        )
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    const parsed = parseAddress(text)
     if ('problem' in parsed) return setProblem(parsed.problem)
     setBusy(true)
     setProblem(null)
@@ -111,20 +147,19 @@ export function Connect({
     <Frame>
       <Heading
         title="Connect to Huddle"
-        description="Enter your company's Huddle server. It's in your invite email, or ask your IT team for the address."
+        description="Paste the invite from the friend who hosts Huddle. On the computer that hosts it, you can also use http://localhost:3000."
         back={close}
       />
       <form onSubmit={submit} noValidate>
         <label className="access-label">
-          Server address
+          Invite or server address
           <input
             className="access-mono"
             name="server"
-            type="url"
-            inputMode="url"
+            type="text"
             required
             defaultValue={initialOrigin}
-            placeholder="https://chat.yourcompany.com"
+            placeholder="Paste an invite, or http://localhost:3000"
             autoComplete="url"
             autoCapitalize="off"
             spellCheck={false}
@@ -144,7 +179,7 @@ export function Connect({
           <Alert
             icon={<WifiOff size={14} />}
             lead={`Can't reach ${problem.host}.`}
-            message="Check the address for typos, then make sure you're on your company network or VPN."
+            message="Check the invite for typos, then make sure this computer can reach the friend who hosts Huddle."
           />
         )}
         {problem?.kind === 'other' && <Alert message={problem.message} />}
@@ -196,8 +231,8 @@ export function Connect({
         </div>
       )}
       <p className="access-footer">
-        Huddle is hosted by your company, so each team has its own server address. Your messages
-        stay on that server.
+        One friend hosts the server. Everyone else pastes that friend's invite. Messages stay on
+        that server.
       </p>
     </Frame>
   )

@@ -10,7 +10,7 @@ import { Access, type AccessAdapter } from './Access'
 import { ServerView } from './ServerView'
 import { Security } from './Security'
 import { WifiOff } from 'lucide-react'
-import { Frame, Alert, Heading, Spinner, hostOf } from './primitives'
+import { Frame, Alert, Heading, Spinner, hostOf, visibleAccount } from './primitives'
 import { NetworkError, type Connection } from './connection'
 import { errorText } from './transport'
 
@@ -176,7 +176,7 @@ export function Application({
         {state.error instanceof NetworkError ? (
           <Alert
             lead={`${state.error.host} didn't respond.`}
-            message="Check your connection or VPN, then try again."
+            message="Check that this computer can reach the host, then try again."
           />
         ) : (
           <Alert message={errorText(state.error)} />
@@ -199,7 +199,7 @@ export function Application({
         adapter={adapter}
         view={state.view}
         info={state.info}
-        account={email}
+        account={visibleAccount(email)}
         notice={notice}
         onServer={onServer}
         onSignOut={() => void signOut()}

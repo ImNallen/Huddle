@@ -94,6 +94,12 @@ const copy: Partial<Record<Screen, Partial<Record<AccessErrorCode, Problem>>>> =
       message: 'Check for typos, or try another code from your list.',
     },
   },
+  signin: {
+    invalid: {
+      lead: "That username or password isn't right.",
+      message: 'Check both and try again.',
+    },
+  },
 }
 const generic: Record<AccessErrorCode, Problem> = {
   invalid: { lead: "That didn't work.", message: 'Check what you entered and try again.' },
@@ -287,10 +293,11 @@ export function Access({
       const problem = problemOn('setup')
       const codeProblem =
         problem?.code === 'invalid' || problem?.code === 'expired' ? problem : null
+      const password = stage.methods.includes('password')
       const email = stage.methods.includes('email')
       const company = stage.methods.includes('company')
-      const companyHere = company && !desktop
-      const finishInBrowser = !email && company && desktop
+      const companyHere = company && !desktop && !password
+      const finishInBrowser = !email && !password && company && desktop
       return (
         <Frame {...frame}>
           <ServerCard
@@ -301,7 +308,11 @@ export function Access({
           />
           <Heading
             title="Set up this server"
-            description="This Huddle server is not set up yet. Name it and create the first admin account. Everyone else joins by invitation."
+            description={
+              stage.methods.includes('password')
+                ? 'Name this server and create the first account. The setup code is in the server log. Friends join later with the invite you copy from Huddle.'
+                : 'This Huddle server is not set up yet. Name it and create the first admin account. Everyone else joins by invitation.'
+            }
           />
           {finishInBrowser ? (
             <>
@@ -335,6 +346,63 @@ export function Access({
                 </Primary>
               )}
             </>
+          ) : password ? (
+            <form
+              onSubmit={(event) =>
+                submit('setup', event, (form) => ({
+                  kind: 'account.setup',
+                  code: z.string().parse(form.get('code')),
+                  serverName: z.string().parse(form.get('serverName')),
+                  username: z.string().parse(form.get('username')),
+                  password: z.string().parse(form.get('password')),
+                }))
+              }
+            >
+              <label className="access-label">
+                Setup code
+                <input
+                  className="access-mono"
+                  name="code"
+                  required
+                  maxLength={64}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="XXXX-XXXX-XXXX-XXXX"
+                  aria-invalid={codeProblem ? true : undefined}
+                />
+              </label>
+              {codeProblem && <Alert lead={codeProblem.lead} message={codeProblem.message} />}
+              <label className="access-label">
+                Server name
+                <input name="serverName" required maxLength={60} placeholder="e.g. Saturday crew" />
+              </label>
+              <label className="access-label">
+                Username
+                <input
+                  name="username"
+                  required
+                  minLength={2}
+                  maxLength={32}
+                  autoComplete="username"
+                  spellCheck={false}
+                  placeholder="ada"
+                />
+              </label>
+              <label className="access-label">
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  maxLength={200}
+                  autoComplete="new-password"
+                />
+              </label>
+              <Primary busy={busy === 'submit'} disabled={working}>
+                Create the server
+              </Primary>
+            </form>
           ) : (
             <SetupForm
               email={email}
@@ -360,9 +428,14 @@ export function Access({
     }
     case 'signin': {
       const problem = problemOn('signin')
-      const email = stage.methods.includes('email')
+      const password = stage.methods.includes('password')
+      const email = stage.methods.includes('email') && !password
       const passkey = stage.methods.includes('passkey')
-      const company = stage.methods.includes('company')
+      const company = stage.methods.includes('company') && !password
+      const joinCode =
+        typeof localStorage === 'undefined'
+          ? null
+          : localStorage.getItem(`huddle.join-code:${client.origin}`)
       const alternatives = [company && 'company login', passkey && 'a passkey'].filter(Boolean)
       const companyButton = company && (
         <button
@@ -382,6 +455,82 @@ export function Access({
             title={`Sign in to ${info.name}`}
             description="Your account lives on this server."
           />
+          {password && joinCode && (
+            <form
+              onSubmit={(event) =>
+                submit('signin', event, (form) => ({
+                  kind: 'account.join',
+                  code: joinCode,
+                  username: z.string().parse(form.get('username')),
+                  password: z.string().parse(form.get('password')),
+                }))
+              }
+            >
+              <label className="access-label">
+                Username
+                <input
+                  name="username"
+                  required
+                  minLength={2}
+                  maxLength={32}
+                  autoComplete="username"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="access-label">
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  maxLength={200}
+                  autoComplete="new-password"
+                />
+              </label>
+              <Primary busy={busy === 'submit'} disabled={working}>
+                Create account
+              </Primary>
+            </form>
+          )}
+          {password && joinCode && <div className="access-divider">or</div>}
+          {password && (
+            <form
+              onSubmit={(event) =>
+                submit('signin', event, (form) => ({
+                  kind: 'account.signin',
+                  username: z.string().parse(form.get('username')),
+                  password: z.string().parse(form.get('password')),
+                }))
+              }
+            >
+              <label className="access-label">
+                Username
+                <input
+                  name="username"
+                  required
+                  minLength={2}
+                  maxLength={32}
+                  autoComplete="username"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="access-label">
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  required
+                  minLength={8}
+                  maxLength={200}
+                  autoComplete="current-password"
+                />
+              </label>
+              <Primary busy={busy === 'submit'} disabled={working}>
+                Sign in
+              </Primary>
+            </form>
+          )}
           {companyButton}
           {company && email && <div className="access-divider">or</div>}
           {email && (
@@ -750,7 +899,7 @@ export function Access({
           <Heading
             eyebrow="Last step"
             title="Complete your profile"
-            description="This is how your team sees you in rooms, channels and messages."
+            description="This is how friends see you in rooms, channels and messages."
           />
           <ProfileEditor
             initial={stage.profile}

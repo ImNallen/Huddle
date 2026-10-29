@@ -1,11 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { mailIds, nextMail } from '../apps/server/scripts/harness'
-import { browserLogin, expectHome, join, onboard, serverURL, syntheticEmail } from './passwordless'
+import { browserLogin, expectHome, inviteCode, join, onboard, serverURL } from './passwordless'
 import { setupCode, useScratchServer } from './server'
 
 useScratchServer('ui')
 
-test('the operator onboards with the setup code and only invited addresses can join', async ({
+test('the host sets up with the setup code and only a friend with the invite can join', async ({
   browser,
   page,
 }) => {
@@ -15,78 +14,69 @@ test('the operator onboards with the setup code and only invited addresses can j
     await page.goto(browserLogin)
     await expect(page.getByRole('heading', { name: 'Set up this server' })).toBeVisible()
     await expect(page.getByLabel('Work email')).toHaveCount(0)
+    await expect(page.getByLabel('Username')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('onboarding.png') })
     await page.getByLabel('Setup code').fill('WRONG-SETUP-CODE')
     await page.getByLabel('Server name').fill('Harbor')
-    await page.getByLabel('Admin email').fill(syntheticEmail())
-    await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
+    await page.getByLabel('Username').fill('avery')
+    await page.getByLabel('Password').fill('server-secret')
+    await page.getByRole('button', { name: 'Create the server', exact: true }).click()
     await expect(page.getByRole('alert')).toHaveText(
       'This setup code is invalid or has expired. Copy the newest code from the server log. It changes each time the server restarts.',
     )
     await expect(page.getByLabel('Setup code')).toHaveAttribute('aria-invalid', 'true')
     await expect(page.getByRole('heading', { name: 'Set up this server' })).toBeVisible()
 
-    await onboard(page, 'Avery Admin', 'Harbor', browserLogin)
+    await onboard(page, 'avery', 'Harbor', browserLogin)
     await expectHome(page)
     await expect(page.getByRole('region', { name: 'Set up Harbor' })).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('admin-home.png') })
 
-    const invited = syntheticEmail()
-    await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
-    await page.getByLabel('Email address').fill(invited)
+    await page.getByRole('button', { name: 'Share invite', exact: true }).first().click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('button', { name: 'Copy invite' }).first()).toBeVisible()
+    await expect(dialog).not.toContainText('huddle:')
     await page.screenshot({ path: test.info().outputPath('invite-dialog.png') })
-    const before = await mailIds(invited)
-    await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click()
-    await expect(page.getByRole('heading', { name: 'Invitation sent' })).toBeVisible()
-    await expect(page.getByText(`${invited} can now join Harbor.`, { exact: false })).toBeVisible()
-    const invitation = await nextMail(invited, before)
-    expect(invitation.subject).toBe('Avery Admin invited you to Harbor on Huddle')
-    expect(invitation.text).toContain(`Accept invitation: ${serverURL}/login`)
-    expect(invitation.text).toContain(`Then sign in with ${invited}.`)
-    await page.getByRole('button', { name: 'Done', exact: true }).click()
+    const code = await inviteCode(page)
+    await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 
     const stranger = await strangerContext.newPage()
     await stranger.goto(browserLogin)
     await expect(stranger.getByRole('heading', { name: 'Sign in to Harbor' })).toBeVisible()
     await expect(stranger.getByLabel('Setup code')).toHaveCount(0)
+    await expect(stranger.getByLabel('Work email')).toHaveCount(0)
     await expect(
       stranger.getByText('Need access? Ask an admin of this server for an invite.'),
     ).toBeVisible()
-    const uninvited = syntheticEmail()
-    await stranger.getByLabel('Work email').fill(uninvited)
+    await stranger.getByLabel('Username').fill('nobody')
+    await stranger.getByLabel('Password').fill('not-a-real-password')
     await stranger.screenshot({ path: test.info().outputPath('uninvited-signin.png') })
-    const strangerMail = await mailIds(uninvited)
-    await stranger.getByRole('button', { name: 'Continue with email', exact: true }).click()
-    await expect(stranger.getByRole('heading', { name: 'Check your email' })).toBeVisible()
-    await stranger.screenshot({ path: test.info().outputPath('uninvited-check-email.png') })
-    const refusal = await nextMail(uninvited, strangerMail)
-    expect(refusal.subject).toBe('Sign-in attempt at Harbor')
-    expect(refusal.text).toContain('there is no account for it')
-    expect(refusal.text).not.toMatch(/\b\d{6}\b/)
-    await stranger.getByLabel('Verification code').fill('123456')
-    await stranger.getByRole('button', { name: 'Verify', exact: true }).click()
+    await stranger.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(stranger.getByRole('alert')).toHaveText(
-      "That code isn't right. Check the newest email from Huddle and try again.",
+      "That username or password isn't right. Check both and try again.",
     )
     const second = await stranger.request.post(`${serverURL}/api/access`, {
       headers: { Origin: serverURL },
-      data: { kind: 'setup.start', code: setupCode, serverName: 'Hijack', email: uninvited },
+      data: {
+        kind: 'account.setup',
+        code: setupCode,
+        serverName: 'Hijack',
+        username: 'hijack',
+        password: 'hijack-password',
+      },
     })
     expect(second.status()).toBe(400)
 
     const colleague = await memberContext.newPage()
-    await join(colleague, invited, 'Jonas Member', browserLogin, {
-      name: 'Avery Admin',
-      server: 'Harbor',
-    })
+    await join(colleague, 'jonas', code, browserLogin)
     await expectHome(colleague)
     await expect(
       colleague.getByText('An admin is still setting things up.', { exact: false }),
     ).toBeVisible()
-    await expect(colleague.getByRole('button', { name: 'Invite coworkers' })).toHaveCount(0)
-    const denied = await colleague.request.post(`${serverURL}/api/invitations`, {
+    await expect(colleague.getByRole('button', { name: 'Share invite' })).toHaveCount(0)
+    const denied = await colleague.request.post(`${serverURL}/api/members/password`, {
       headers: { Origin: serverURL },
-      data: { email: syntheticEmail() },
+      data: { userId: 'someone', password: 'replaced-secret' },
     })
     expect(denied.status()).toBe(403)
   } finally {

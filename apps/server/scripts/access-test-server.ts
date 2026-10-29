@@ -20,7 +20,6 @@ const maintenance = setInterval(() => {
 maintenance.unref()
 async function stop() {
   clearInterval(maintenance)
-  realtime.clients.forEach((socket) => socket.terminate())
   realtime.close()
   server.close()
   await db.end()

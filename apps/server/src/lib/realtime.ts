@@ -1,3 +1,4 @@
+import type { Server } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
 import { UserId, WatchFrame } from '@huddle/contracts'
 import { requireAccess } from './access'
@@ -5,7 +6,7 @@ import { config, origins } from './config'
 import { replay, consumeWatchTicket } from './domain'
 import { db } from './db'
 
-export async function startRealtime() {
+export async function startRealtime(friend?: Server) {
   const wakeups = new Set<() => void>()
   const listener = await db.connect()
   await listener.query('LISTEN huddle_commit')
@@ -13,20 +14,49 @@ export async function startRealtime() {
     for (const wake of wakeups) wake()
   })
   listener.on('error', (error) => console.error({ event: 'realtime.wakeup.failed', error }))
-  const server = new WebSocketServer({
+  const plain = new WebSocketServer({
     port: config.WS_PORT,
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     maxPayload: 8192,
     perMessageDeflate: false,
     verifyClient: ({ origin, req }, done) =>
       done(
-        Boolean(origin && origins.has(origin) && req.url === '/' && server.clients.size < 500),
+        Boolean(origin && origins.has(origin) && req.url === '/' && plain.clients.size < 500),
         403,
         'Forbidden',
       ),
   })
-  server.once('close', () => listener.release())
-  server.on('connection', (socket, request) => {
+  const secureBox: { current?: WebSocketServer } = {}
+  const secure = friend
+    ? new WebSocketServer({
+        server: friend,
+        maxPayload: 8192,
+        perMessageDeflate: false,
+        verifyClient: ({ origin, req }, done) =>
+          done(
+            Boolean(
+              origin &&
+                origins.has(origin) &&
+                req.url === '/' &&
+                (secureBox.current?.clients.size ?? 0) < 500,
+            ),
+            403,
+            'Forbidden',
+          ),
+      })
+    : undefined
+  secureBox.current = secure
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    listener.release()
+  }
+  plain.once('close', release)
+  secure?.once('close', release)
+  const servers = secure ? [plain, secure] : [plain]
+  for (const socketServer of servers)
+    socketServer.on('connection', (socket, request) => {
     const headers = new Headers()
     if (request.headers.cookie) headers.set('cookie', request.headers.cookie)
     let watch: { after: string } | undefined
@@ -88,5 +118,13 @@ export async function startRealtime() {
       wakeups.delete(onCommit)
     })
   })
-  return server
+  return {
+    close() {
+      for (const socketServer of servers) {
+        for (const socket of socketServer.clients) socket.terminate()
+        socketServer.close()
+      }
+      release()
+    },
+  }
 }

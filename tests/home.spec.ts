@@ -1,16 +1,16 @@
 import { expect, test, type Page } from '@playwright/test'
-import { join, onboard, syntheticEmail } from './passwordless'
+import { inviteCode, join, onboard } from './passwordless'
 import { useScratchServer } from './server'
 
 useScratchServer('ui')
-async function inviteCoworker(page: Page) {
-  const email = syntheticEmail()
-  await page.getByRole('button', { name: 'Invite coworkers', exact: true }).click()
-  await page.getByLabel('Email address').fill(email)
-  await page.getByRole('dialog').getByRole('button', { name: 'Send invitation' }).click()
-  await expect(page.getByRole('heading', { name: 'Invitation sent' })).toBeVisible()
-  await page.getByRole('button', { name: 'Done', exact: true }).click()
-  return email
+async function shareInvite(page: Page) {
+  await page.getByRole('button', { name: 'Share invite', exact: true }).first().click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: 'Copy invite' }).first()).toBeVisible()
+  await expect(dialog).not.toContainText('huddle:')
+  const code = await inviteCode(page)
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+  return code
 }
 
 test('home gathers mentions and unread channels, and reading clears them', async ({
@@ -20,9 +20,9 @@ test('home gathers mentions and unread channels, and reading clears them', async
   const colleague = await browser.newContext()
   const second = await colleague.newPage()
   try {
-    await onboard(page, 'Avery Owner', 'Harbor home')
+    await onboard(page, 'avery', 'Harbor home')
     await page.clock.setFixedTime(new Date('2026-10-09T09:30:00'))
-    await expect(page.getByText('Welcome, Avery', { exact: true })).toBeVisible()
+    await expect(page.getByText('Welcome, avery', { exact: true })).toBeVisible()
     await expect(
       page.getByRole('heading', { name: 'Your server is ready', level: 1 }),
     ).toBeVisible()
@@ -46,15 +46,15 @@ test('home gathers mentions and unread channels, and reading clears them', async
     await expect(setup.getByRole('listitem')).toHaveText([
       /^Create your first roomDevelopmentDone$/,
       /^Add a channel#code-review in DevelopmentDone$/,
-      /^3Invite coworkersHuddle emails them an invitation that lasts 7 days\.Invite coworkers$/,
+      /^3Share HuddleCopy an invite\. A friend pastes it into Huddle and creates a username\.Share invite$/,
     ])
-    await expect(setup.getByRole('button', { name: 'Invite coworkers' })).toHaveClass(/primary/)
-    const invited = await inviteCoworker(page)
+    await expect(setup.getByRole('button', { name: 'Share invite' })).toHaveClass(/primary/)
+    const code = await shareInvite(page)
 
-    await join(second, invited, 'Jonas Colleague')
+    await join(second, 'jonas', code)
     await second.getByRole('button', { name: 'Development', exact: true }).click()
     const composer = second.getByRole('textbox', { name: 'Message #code-review' })
-    await composer.fill('@Avery please review')
+    await composer.fill('@avery please review')
     await second.getByRole('button', { name: 'Send message' }).click()
     await composer.fill('PR 482 is ready for a second review')
     await second.getByRole('button', { name: 'Send message' }).click()
@@ -62,21 +62,21 @@ test('home gathers mentions and unread channels, and reading clears them', async
 
     await expect(setup).toHaveCount(0)
     await expect(page.getByText('Friday, October 9', { exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Good morning, Avery' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Good morning, avery' })).toBeVisible()
 
     await expect(page.getByRole('tab', { name: 'All 2' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Mentions 1' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Messages 1' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Home 2', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Development 2', exact: true })).toBeVisible()
-    const mention = page.getByRole('button', { name: /@Avery please review/ })
-    await expect(mention).toContainText('Jonas Colleague')
+    const mention = page.getByRole('button', { name: /@avery please review/ })
+    await expect(mention).toContainText('jonas')
     await expect(mention).toContainText('Development › #code-review')
     await expect(mention).toContainText('Mention')
-    await expect(mention.locator('.mention')).toHaveText('@Avery')
+    await expect(mention.locator('.mention')).toHaveText('@avery')
     const channel = page.getByRole('button', { name: /^#code-review/ })
     await expect(channel).toContainText('Development · 2 new messages')
-    await expect(channel).toContainText('Jonas Colleague: PR 482 is ready for a second review')
+    await expect(channel).toContainText('jonas: PR 482 is ready for a second review')
     await expect(channel).toContainText('2 new')
     await page.getByRole('tab', { name: 'Mentions 1' }).click()
     await expect(channel).toHaveCount(0)
@@ -95,7 +95,7 @@ test('home gathers mentions and unread channels, and reading clears them', async
     await second.getByRole('button', { name: 'Send message' }).click()
     const next = page.getByRole('button', { name: /^#code-review/ })
     await expect(next).toContainText('1 new')
-    await expect(next).toContainText('Jonas Colleague: Standup moved to 10')
+    await expect(next).toContainText('jonas: Standup moved to 10')
     await expect(page.getByRole('button', { name: 'Development 1', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Mark all as read' }).click()
     await expect(page.getByRole('heading', { name: 'You’re all caught up' })).toBeVisible()

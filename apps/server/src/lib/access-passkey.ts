@@ -86,7 +86,7 @@ export async function passkeyRequest(request: Request) {
     const options = await generateRegistrationOptions({
       rpName: 'Huddle',
       rpID,
-      userName: actor.user.email,
+      userName: actor.user.name,
       userID: new TextEncoder().encode(actor.user.id),
       attestationType: 'none',
       authenticatorSelection: { residentKey: 'required', userVerification: 'required' },

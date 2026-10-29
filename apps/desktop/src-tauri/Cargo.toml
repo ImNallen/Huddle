@@ -1,7 +1,7 @@
 [package]
 name = "huddle"
 version = "0.1.0"
-description = "A home for your team's conversations"
+description = "A private server for your friends"
 authors = ["Huddle contributors"]
 edition = "2021"
 rust-version = "1.90"
@@ -18,3 +18,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 url = "2"
+tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt"] }
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.10"

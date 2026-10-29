@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto'
 import {
   Client,
   migratedDatabase,
-  onboard,
   startServer,
   type ServerProcess,
 } from '../apps/server/scripts/harness'
@@ -27,6 +26,7 @@ export function useScratchServer(setup: 'api' | 'ui') {
       port: serverPort,
       env: {
         SETUP_CODE: setupCode,
+        HUDDLE_INVITE_LOOPBACK: '1',
         TRUSTED_ORIGINS: [
           `http://127.0.0.1:${desktopPort}`,
           `http://localhost:${desktopPort}`,
@@ -36,7 +36,14 @@ export function useScratchServer(setup: 'api' | 'ui') {
     })
     if (setup === 'api') {
       admin = new Client(serverURL)
-      await onboard(admin, { code: setupCode, serverName, name: 'Server admin' })
+      const view = await admin.act({
+        kind: 'account.setup',
+        code: setupCode,
+        serverName,
+        username: 'uiadmin',
+        password: 'admin-secret',
+      })
+      if (view.stage.kind !== 'ready') throw new Error('API setup did not finish.')
     }
   })
   test.afterAll(async () => {

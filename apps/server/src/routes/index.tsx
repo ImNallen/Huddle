@@ -38,8 +38,8 @@ function Home() {
       <main className="landing-main">
         <div className="landing-column">
           <Logo size={44} />
-          <p className="landing-eyebrow">YOUR TEAM. YOUR SERVER.</p>
-          <h1>A place to work together.</h1>
+          <p className="landing-eyebrow">YOUR FRIENDS. YOUR SERVER.</p>
+          <h1>A place for your friends.</h1>
           {setupRequired ? (
             <p className="landing-lede">
               This Huddle server isn't set up yet. If you're the admin, select Set up this server
@@ -47,8 +47,8 @@ function Home() {
             </p>
           ) : (
             <p className="landing-lede">
-              This is the Huddle server for {name.endsWith('.') ? name : `${name}.`} Sign in here in
-              your browser, or point the Huddle desktop app at this address to connect.
+              This is the Huddle server for {name.endsWith('.') ? name : `${name}.`} Sign in here on
+              the host. Friends connect by pasting the invite from Huddle.
             </p>
           )}
           <Address origin={origin} />
@@ -64,7 +64,7 @@ function Home() {
             )}
           </div>
           {!setupRequired && (
-            <p className="landing-note">New here? Ask an admin of this server for an invite.</p>
+            <p className="landing-note">New here? Ask the host for an invite.</p>
           )}
         </div>
       </main>

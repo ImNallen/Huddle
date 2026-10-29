@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { z } from 'zod'
 import { startRealtime } from '../src/lib/realtime'
+import { openFriendPortal } from '../src/lib/portal'
 import { config } from '../src/lib/config'
 import { db } from '../src/lib/db'
 import { applicationRequest } from '../src/lib/http'
@@ -29,10 +30,12 @@ const contentTypes: Record<string, string> = {
   '.ico': 'image/x-icon',
 }
 await prepareSetup()
-const realtime = await startRealtime()
+const portal = await openFriendPortal()
+const realtime = await startRealtime(portal.server)
+await portal.listen()
 const server = serve({
   port: config.PORT,
-  hostname: '0.0.0.0',
+  hostname: '127.0.0.1',
   fetch: async (request, env) => {
     const pathname = new URL(request.url).pathname
     if (pathname.startsWith('/api/'))
@@ -60,8 +63,8 @@ const maintenance = setInterval(() => {
 maintenance.unref()
 async function stop() {
   clearInterval(maintenance)
-  realtime.clients.forEach((socket) => socket.terminate())
   realtime.close()
+  portal.close()
   server.close()
   await db.end()
   process.exit()
