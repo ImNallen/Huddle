@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { serverOrigin } from '@huddle/contracts'
-import { parseEmailConfig } from './email-config'
+import { dropUnusableDevSmtp, parseEmailConfig } from './email-config'
 
 const Environment = z
   .object({
@@ -53,6 +53,7 @@ const Environment = z
     if (friend === env.PORT || friend === env.WS_PORT)
       ctx.addIssue({ code: 'custom', message: 'FRIEND_PORT must differ from PORT and WS_PORT.' })
   })
+if (dropUnusableDevSmtp(process.env)) console.error('Ignoring development SMTP')
 const environment = Environment.parse(process.env)
 export const config = {
   ...environment,

@@ -37,6 +37,24 @@ export type EmailConfig =
       serverName: string
     }
 
+const devSmtpHosts = new Set(['localhost', '127.0.0.1', '::1', 'mailpit'])
+
+export function dropUnusableDevSmtp(env: NodeJS.ProcessEnv) {
+  if (env.NODE_ENV !== 'production' || env.SMTP_SECURITY !== 'local') return false
+  if (!devSmtpHosts.has(env.SMTP_HOST ?? '')) return false
+  for (const key of [
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'SMTP_SECURITY',
+    'SMTP_FROM',
+    'SMTP_USERNAME',
+    'SMTP_PASSWORD',
+    'SMTP_SERVER_NAME',
+  ])
+    delete env[key]
+  return true
+}
+
 export function parseEmailConfig(env: NodeJS.ProcessEnv): EmailConfig {
   const fields = Object.keys(SmtpEnvironment.shape)
   if (!fields.some((field) => env[field] !== undefined)) return { kind: 'disabled' }

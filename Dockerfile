@@ -3,6 +3,7 @@ RUN npm install --global pnpm@11.23.0
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY packages/contracts packages/contracts
+COPY packages/ui packages/ui
 COPY apps/server apps/server
 COPY apps/desktop/package.json apps/desktop/package.json
 RUN pnpm install --frozen-lockfile
