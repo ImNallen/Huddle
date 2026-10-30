@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
-import { emailRecipient, parseEmailConfig } from '../src/lib/email-config'
+import { dropUnusableDevSmtp, emailRecipient, parseEmailConfig } from '../src/lib/email-config'
 import { EmailError, emailDiagnostic } from '../src/lib/email-error'
 import { createEmailSender, SMTP_TIMEOUTS, AUTH_EMAIL_EXPIRY_SECONDS } from '../src/lib/email'
 import { smtpFixture, type FixtureMode } from './smtp-fixture'
@@ -123,6 +123,20 @@ try {
         !error.message.includes('fixture-sensitive'),
     )
   assert.equal(parseEmailConfig({ ...localEnv, SMTP_HOST: 'mailpit' }).kind, 'smtp')
+  const stockProduction: NodeJS.ProcessEnv = { ...localEnv, NODE_ENV: 'production' }
+  assert.equal(dropUnusableDevSmtp(stockProduction), true)
+  assert.equal(stockProduction.SMTP_SECURITY, undefined)
+  assert.deepEqual(parseEmailConfig(stockProduction), { kind: 'disabled' })
+  const remoteProduction: NodeJS.ProcessEnv = {
+    ...localEnv,
+    NODE_ENV: 'production',
+    SMTP_HOST: 'remote.example.com',
+  }
+  assert.equal(dropUnusableDevSmtp(remoteProduction), false)
+  assert.equal(remoteProduction.SMTP_HOST, 'remote.example.com')
+  const development: NodeJS.ProcessEnv = { ...localEnv }
+  assert.equal(dropUnusableDevSmtp(development), false)
+  assert.equal(development.SMTP_SECURITY, 'local')
   await expectedFailure(
     createEmailSender(
       { kind: 'disabled' },
