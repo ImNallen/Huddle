@@ -210,7 +210,9 @@ async function accounts() {
         })
       ).json,
     )
-    const local = invites.invites.map((line) => parseInvite(line)).find((invite) => invite.host === '127.0.0.1')
+    const local = invites.invites
+      .map((line) => parseInvite(line))
+      .find((invite) => invite.host === '127.0.0.1')
     assert.ok(local)
     await assert.rejects(
       pinned(friendPort, wrongPin(local.pin), '/api/info', { origin }),

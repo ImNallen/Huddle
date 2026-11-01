@@ -1,40 +1,32 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
-import { KeyRound, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import {
   AccountSecurity,
+  type AccessCommand,
   type AccessView,
-  type FactorInput,
-  type SecurityChange,
   type Profile,
 } from '@huddle/contracts'
-import { Alert, CodeField, Dialog, Frame, Heading, Primary, visibleAccount } from './primitives'
+import { Alert, Frame, Heading, Primary } from './primitives'
 import { ProfileEditor } from './Avatar'
-import { addPasskey, provePasskey } from './passkeys'
-import type { Connection } from './connection'
+import { RequestError, type Connection } from './connection'
 import { errorText } from './transport'
 
-type Action = { kind: 'change'; change: SecurityChange; title: string } | { kind: 'add-passkey' }
 export function Security({
   client,
   accept,
   close,
   signOut,
-  browser,
 }: {
   client: Connection
   accept: (view: AccessView, signal?: AbortSignal) => Promise<void>
   close: () => void
   signOut: () => void
-  browser?: () => Promise<void>
 }) {
   const [inventory, setInventory] = useState<z.infer<typeof AccountSecurity> | null>(null)
   const [tab, setTab] = useState<'security' | 'profile'>('security')
-  const [action, setAction] = useState<Action | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [rename, setRename] = useState<{ id: string; name: string } | null>(null)
-  const [passkeyName, setPasskeyName] = useState('My passkey')
   const lifetime = useRef(new AbortController())
   useEffect(() => {
     const abort = new AbortController()
@@ -56,102 +48,26 @@ export function Security({
     )
     if (!lifetime.current.signal.aborted) setInventory(value)
   }
-  async function commit(proof: FactorInput) {
-    if (!action) return
+  async function send(command: AccessCommand) {
+    const signal = lifetime.current.signal
+    await accept(await client.act(command, signal), signal)
+    if (!signal.aborted) await reload()
+  }
+  async function apply(command: AccessCommand) {
     setBusy(true)
     setError('')
     const signal = lifetime.current.signal
     try {
-      const view =
-        action.kind === 'add-passkey'
-          ? await addPasskey(client, passkeyName, signal, proof)
-          : await client.act({ kind: 'security.commit', change: action.change, proof }, signal)
-      await accept(view, signal)
-      if (!signal.aborted) {
-        setAction(null)
-        await reload()
-      }
+      await send(command)
     } catch (failure) {
       if (!signal.aborted) setError(errorText(failure))
     } finally {
       if (!signal.aborted) setBusy(false)
     }
   }
-  async function passkeyProof() {
-    if (browser) {
-      await browser()
-      return
-    }
-    setBusy(true)
-    setError('')
-    try {
-      await commit(await provePasskey(client, lifetime.current.signal))
-    } catch (failure) {
-      if (!lifetime.current.signal.aborted) setError(errorText(failure))
-    } finally {
-      if (!lifetime.current.signal.aborted) setBusy(false)
-    }
-  }
-  async function saveProfile(profile: Profile) {
-    setBusy(true)
-    setError('')
-    try {
-      await accept(
-        await client.act({ kind: 'profile.save', profile }, lifetime.current.signal),
-        lifetime.current.signal,
-      )
-      await reload()
-    } catch (failure) {
-      setError(errorText(failure))
-    } finally {
-      setBusy(false)
-    }
-  }
-  function request(change: SecurityChange, title: string) {
-    setError('')
-    setAction({ kind: 'change', change, title })
-  }
-  function renameSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!rename) return
-    const name = z.string().parse(new FormData(event.currentTarget).get('name'))
-    setRename(null)
-    request({ kind: 'passkey.rename', id: rename.id, name }, 'Rename passkey')
-  }
-  const companySessionChange =
-    action?.kind === 'change' &&
-    (action.change.kind === 'session.revoke' || action.change.kind === 'sessions.revoke-others') &&
-    inventory?.sessions.some((session) => session.current && session.method === 'company') &&
-    (inventory.policy === 'sso-only' ||
-      (!inventory.authenticator && inventory.passkeys.length === 0))
-      ? action.change
-      : null
-  async function companyConfirm() {
-    if (!companySessionChange) return
-    setBusy(true)
-    setError('')
-    try {
-      const result = await client.request(
-        '/api/auth/sign-in/oauth2',
-        z.object({ url: z.url() }),
-        {
-          providerId: 'company',
-          callbackURL: '/login?settings=security',
-          purpose: 'session-security',
-          change: companySessionChange,
-        },
-        lifetime.current.signal,
-      )
-      if (client.active && !lifetime.current.signal.aborted) window.location.assign(result.url)
-    } catch (failure) {
-      if (!lifetime.current.signal.aborted) {
-        setError(errorText(failure))
-        setBusy(false)
-      }
-    }
-  }
+  const others = inventory?.sessions.some((session) => !session.current) ?? false
   return (
-    <Frame account={visibleAccount(inventory?.user.email)} onSignOut={signOut} wide>
+    <Frame onSignOut={signOut} wide>
       <div className="access-security">
         <button className="access-link" onClick={close}>
           ← Back to chat
@@ -176,7 +92,7 @@ export function Security({
               title={tab === 'security' ? 'Account security' : 'Your profile'}
               description={
                 tab === 'security'
-                  ? 'How you sign in to this server. Sensitive changes ask you to verify who you are.'
+                  ? 'Sign out sessions you don’t recognize and change your password.'
                   : 'Your name and avatar are shared across this server.'
               }
             />
@@ -195,7 +111,7 @@ export function Security({
               <>
                 <ProfileEditor
                   initial={{ name: inventory.user.name, avatar: inventory.user.avatar }}
-                  save={saveProfile}
+                  save={(profile: Profile) => apply({ kind: 'profile.save', profile })}
                   busy={busy}
                   upload={(file) => client.upload(file)}
                   photo={(id, signal) => client.photo(id, signal)}
@@ -205,130 +121,19 @@ export function Security({
               </>
             ) : (
               <>
-                {inventory.policy === 'sso-only' && (
-                  <p className="access-note">
-                    This server requires company sign-in. Local authenticator, recovery and passkey
-                    changes are disabled by its policy.
-                  </p>
-                )}
-                <section className="access-card">
-                  <div className="access-row">
-                    <div>
-                      <h2>Passkeys</h2>
-                      <p>Sign in with your fingerprint, face or device PIN.</p>
-                    </div>
-                    {inventory.policy === 'mixed' && (
-                      <button
-                        className="access-link"
-                        onClick={() => {
-                          setAction({ kind: 'add-passkey' })
-                          setError('')
-                        }}
-                      >
-                        + Add passkey
-                      </button>
-                    )}
-                  </div>
-                  {inventory.passkeys.length ? (
-                    inventory.passkeys.map((key) => (
-                      <div className="access-row access-security-row" key={key.id}>
-                        <KeyRound size={18} />
-                        <div style={{ flex: 1 }}>
-                          <strong>{key.name}</strong>
-                          <p>
-                            Added {date(key.createdAt)}
-                            {key.lastUsedAt
-                              ? ` · Last used ${date(key.lastUsedAt)}`
-                              : ' · Not used yet'}
-                          </p>
-                        </div>
-                        {inventory.policy === 'mixed' && (
-                          <>
-                            {' '}
-                            <button
-                              className="access-link"
-                              onClick={() => setRename({ id: key.id, name: key.name })}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              className="access-link access-danger"
-                              onClick={() =>
-                                request({ kind: 'passkey.remove', id: key.id }, 'Remove passkey')
-                              }
-                            >
-                              Remove
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p>No passkeys added.</p>
-                  )}
-                </section>
-                <section className="access-card">
-                  <div className="access-row">
-                    <div>
-                      <h2>
-                        Authenticator app{' '}
-                        {inventory.authenticator && <span className="access-link">· Set up</span>}
-                      </h2>
-                      <p>
-                        {inventory.authenticator
-                          ? `Added ${date(inventory.authenticator.enrolledAt)}. Used when signing in with email.`
-                          : 'No local authenticator is enrolled.'}
-                      </p>
-                    </div>
-                    {inventory.policy === 'mixed' && inventory.authenticator && (
-                      <button
-                        className="access-link"
-                        onClick={() =>
-                          request({ kind: 'authenticator.replace' }, 'Replace authenticator')
-                        }
-                      >
-                        Replace authenticator
-                      </button>
-                    )}
-                  </div>
-                </section>
-                <section className="access-card">
-                  <div className="access-row">
-                    <div>
-                      <h2>Recovery codes</h2>
-                      <p>
-                        {inventory.recoveryRemaining} of {inventory.recoveryTotal} codes remaining.
-                        {inventory.recoveryCreatedAt &&
-                          ` Created ${date(inventory.recoveryCreatedAt)}.`}
-                      </p>
-                      <p>Each code works once if you lose your authenticator.</p>
-                    </div>
-                    {inventory.policy === 'mixed' && inventory.authenticator && (
-                      <button
-                        className="access-link"
-                        onClick={() =>
-                          request({ kind: 'recovery.regenerate' }, 'Regenerate recovery codes')
-                        }
-                      >
-                        Regenerate codes
-                      </button>
-                    )}
-                  </div>
-                </section>
                 <section className="access-card">
                   <div className="access-row">
                     <div>
                       <h2>Active sessions</h2>
                       <p>Where you're signed in to this server.</p>
                     </div>
-                    {inventory.sessions.some((session) => !session.current) && (
+                    {others && (
                       <button
                         className="access-link access-danger"
-                        onClick={() =>
-                          request({ kind: 'sessions.revoke-others' }, 'Sign out all other sessions')
-                        }
+                        disabled={busy}
+                        onClick={() => void apply({ kind: 'sessions.revoke-others' })}
                       >
-                        Sign out all others
+                        Sign out all other sessions
                       </button>
                     )}
                   </div>
@@ -338,19 +143,17 @@ export function Security({
                       <div style={{ flex: 1 }}>
                         <strong>
                           {session.userAgent || 'Session'}
-                          {session.current ? ' · This session' : ''}
+                          {session.current ? ' · This device' : ''}
                         </strong>
                         <p>
-                          Signed in {date(session.createdAt)} with {session.method}. Expires{' '}
-                          {date(session.expiresAt)}.
+                          Signed in {date(session.createdAt)}. Expires {date(session.expiresAt)}.
                         </p>
                       </div>
                       {!session.current && (
                         <button
                           className="access-link"
-                          onClick={() =>
-                            request({ kind: 'session.revoke', id: session.id }, 'Sign out session')
-                          }
+                          disabled={busy}
+                          onClick={() => void apply({ kind: 'session.revoke', id: session.id })}
                         >
                           Sign out
                         </button>
@@ -358,182 +161,102 @@ export function Security({
                     </div>
                   ))}
                 </section>
-                {!action && !rename && <Alert message={error} />}
+                <Alert message={error} />
+                <PasswordForm
+                  change={(current, next) => send({ kind: 'password.change', current, next })}
+                />
               </>
             )}
           </div>
         </div>
       </div>
-      {rename && (
-        <Dialog title="Rename passkey" close={() => setRename(null)}>
-          <form onSubmit={renameSubmit}>
-            <label className="access-label">
-              Passkey name
-              <input name="name" required maxLength={80} defaultValue={rename.name} />
-            </label>
-            <Primary>Continue</Primary>
-          </form>
-        </Dialog>
-      )}
-      {action && (
-        <Dialog
-          title={action.kind === 'add-passkey' ? 'Add a passkey' : action.title}
-          close={() => {
-            if (!busy) setAction(null)
-          }}
-        >
-          <p className="access-note">
-            {inventory?.hasPassword && !inventory.authenticator && inventory.passkeys.length === 0
-              ? 'Confirm this change with your password.'
-              : 'Confirm this change with a new authenticator code or your passkey.'}
-          </p>
-          {action.kind === 'add-passkey' && (
-            <label className="access-label">
-              Passkey name
-              <input
-                required
-                maxLength={80}
-                value={passkeyName}
-                onChange={(event) => setPasskeyName(event.target.value)}
-              />
-            </label>
-          )}
-          {browser &&
-          (action.kind === 'add-passkey' ||
-            !inventory?.authenticator ||
-            inventory?.policy === 'sso-only') ? (
-            <>
-              <p className="access-note">
-                Confirm this change on this server's website in your browser. Sign in there and open
-                Account security.
-              </p>
-              <button
-                className="access-primary"
-                disabled={busy}
-                onClick={() => void browser().catch((failure) => setError(errorText(failure)))}
-              >
-                Open server in browser
-              </button>
-            </>
-          ) : (
-            <>
-              {companySessionChange && (
-                <>
-                  <p className="access-note">
-                    Sign in again with your company to confirm this session change.
-                  </p>
-                  <button
-                    className="access-secondary"
-                    disabled={busy}
-                    onClick={() => void companyConfirm()}
-                  >
-                    Confirm with company login
-                  </button>
-                </>
-              )}
-              {inventory?.policy === 'mixed' && inventory.authenticator && (
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    const code = z.string().parse(new FormData(event.currentTarget).get('code'))
-                    void commit({ kind: 'totp', code })
-                  }}
-                >
-                  <CodeField label="Authenticator code" />
-                  <Primary busy={busy}>Confirm change</Primary>
-                </form>
-              )}
-              {inventory?.policy === 'mixed' && inventory.passkeys.length > 0 && !browser && (
-                <button
-                  className="access-secondary"
-                  disabled={busy}
-                  onClick={() => void passkeyProof()}
-                >
-                  Confirm with passkey
-                </button>
-              )}
-              {inventory?.hasPassword &&
-                !companySessionChange &&
-                !inventory.authenticator &&
-                inventory.passkeys.length === 0 &&
-                inventory.policy === 'mixed' && (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      const password = String(
-                        new FormData(event.currentTarget).get('password') ?? '',
-                      )
-                      void commit({ kind: 'password', password })
-                    }}
-                  >
-                    <label className="access-label">
-                      Password
-                      <input
-                        name="password"
-                        type="password"
-                        required
-                        minLength={8}
-                        maxLength={200}
-                        autoComplete="current-password"
-                      />
-                    </label>
-                    <Primary busy={busy}>
-                      {action.kind === 'add-passkey' ? 'Add passkey' : 'Confirm change'}
-                    </Primary>
-                  </form>
-                )}
-              {!companySessionChange &&
-                !inventory?.authenticator &&
-                !inventory?.passkeys.length &&
-                !inventory?.hasPassword &&
-                (action.kind === 'add-passkey' && inventory?.policy === 'mixed' ? (
-                  <>
-                    <p className="access-note">
-                      Sign in again with your company to confirm adding your first passkey.
-                    </p>
-                    <button
-                      className="access-secondary"
-                      disabled={busy}
-                      onClick={() => {
-                        setBusy(true)
-                        setError('')
-                        void client
-                          .request(
-                            '/api/auth/sign-in/oauth2',
-                            z.object({ url: z.url() }),
-                            {
-                              providerId: 'company',
-                              callbackURL: '/login?settings=security',
-                              purpose: 'first-passkey',
-                            },
-                            lifetime.current.signal,
-                          )
-                          .then((result) => {
-                            if (client.active && !lifetime.current.signal.aborted)
-                              window.location.assign(result.url)
-                          })
-                          .catch((failure) => {
-                            setError(errorText(failure))
-                            setBusy(false)
-                          })
-                      }}
-                    >
-                      Continue with company login
-                    </button>
-                  </>
-                ) : (
-                  <p className="access-note">
-                    This account has no local factor available to confirm this change.
-                  </p>
-                ))}
-            </>
-          )}
-          <Alert message={error} />
-        </Dialog>
-      )}
     </Frame>
   )
 }
+
+type PasswordStatus =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  | { kind: 'failed'; message: string }
+  | { kind: 'changed' }
+function PasswordForm({ change }: { change: (current: string, next: string) => Promise<void> }) {
+  const [status, setStatus] = useState<PasswordStatus>({ kind: 'idle' })
+  async function submit(form: HTMLFormElement) {
+    const fields = new FormData(form)
+    const current = String(fields.get('current') ?? '')
+    const next = String(fields.get('next') ?? '')
+    if (next !== String(fields.get('confirm') ?? '')) {
+      setStatus({ kind: 'failed', message: 'The new passwords don’t match.' })
+      return
+    }
+    setStatus({ kind: 'busy' })
+    try {
+      await change(current, next)
+      form.reset()
+      setStatus({ kind: 'changed' })
+    } catch (failure) {
+      setStatus({ kind: 'failed', message: passwordError(failure) })
+    }
+  }
+  return (
+    <section className="access-card">
+      <h2>Change password</h2>
+      <p>Changing your password signs out your other sessions.</p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit(event.currentTarget)
+        }}
+      >
+        <PasswordField name="current" label="Current password" autoComplete="current-password" />
+        <PasswordField name="next" label="New password" autoComplete="new-password" />
+        <PasswordField name="confirm" label="Confirm new password" autoComplete="new-password" />
+        <Primary busy={status.kind === 'busy'}>Change password</Primary>
+      </form>
+      {status.kind === 'changed' && (
+        <p className="access-note" role="status">
+          Password changed. Your other sessions were signed out.
+        </p>
+      )}
+      {status.kind === 'failed' && <Alert message={status.message} />}
+    </section>
+  )
+}
+function PasswordField({
+  name,
+  label,
+  autoComplete,
+}: {
+  name: string
+  label: string
+  autoComplete: string
+}) {
+  return (
+    <label className="access-label">
+      {label}
+      <input
+        name={name}
+        type="password"
+        required
+        minLength={8}
+        maxLength={200}
+        autoComplete={autoComplete}
+      />
+    </label>
+  )
+}
+function passwordError(failure: unknown) {
+  if (!(failure instanceof RequestError)) return errorText(failure)
+  if (failure.code === 'invalid') return 'Your current password is incorrect.'
+  if (failure.code === 'rate_limited')
+    return failure.retryAt
+      ? `Too many password attempts. Try again after ${time(failure.retryAt)}.`
+      : 'Too many password attempts. Try again later.'
+  return errorText(failure)
+}
 function date(value: string) {
   return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
+function time(value: string) {
+  return new Date(value).toLocaleTimeString(undefined, { timeStyle: 'short' })
 }

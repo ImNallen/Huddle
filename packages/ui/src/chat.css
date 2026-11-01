@@ -912,17 +912,6 @@ input:focus {
   color: var(--danger);
   text-decoration: underline;
 }
-.mail-mark {
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 6px;
-  color: var(--muted);
-}
-.invite-email,
 .member-name {
   display: flex;
   align-items: center;
@@ -942,35 +931,6 @@ input:focus {
 }
 .member-name small {
   font-size: 12px;
-}
-.expires-soon {
-  color: var(--amber);
-}
-.members-empty {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 12px;
-}
-.members-empty .mail-mark {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--count-bg);
-}
-.members-empty > span:not(.mail-mark) {
-  display: grid;
-  flex: 1;
-}
-.members-empty strong {
-  font-weight: 500;
-}
-.members-empty small {
-  color: var(--muted);
-  font-size: 13px;
 }
 .members-footnote {
   margin-top: 12px;
@@ -1154,16 +1114,6 @@ input:focus {
 .modal-description strong {
   color: var(--text);
   font-weight: 500;
-}
-.modal-icon {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  margin-bottom: 14px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--green) 14%, transparent);
-  color: var(--green);
 }
 .modal-close {
   position: absolute;

@@ -56,16 +56,8 @@ function Home() {
             <a className="landing-primary" href="/login">
               {setupRequired ? 'Set up this server' : 'Sign in to your account'}
             </a>
-            {!setupRequired && (
-              <a className="landing-secondary" href="/device">
-                <MonitorIcon />
-                Authorize a desktop
-              </a>
-            )}
           </div>
-          {!setupRequired && (
-            <p className="landing-note">New here? Ask the host for an invite.</p>
-          )}
+          {!setupRequired && <p className="landing-note">New here? Ask the host for an invite.</p>}
         </div>
       </main>
       <footer className="landing-bar">
@@ -127,14 +119,6 @@ function CheckIcon() {
   return (
     <svg {...iconProps}>
       <path d="M20 6 9 17l-5-5" />
-    </svg>
-  )
-}
-function MonitorIcon() {
-  return (
-    <svg {...iconProps}>
-      <rect x="2" y="3" width="20" height="14" rx="2" />
-      <path d="M8 21h8M12 17v4" />
     </svg>
   )
 }

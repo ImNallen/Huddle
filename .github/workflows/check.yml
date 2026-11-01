@@ -29,13 +29,9 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      mailpit:
-        image: axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
-        ports: ['1025:1025', '8025:8025']
     env:
       DATABASE_URL: postgresql://huddle:huddle-ci@localhost:5432/huddle_ci
       PLAYWRIGHT_CHANNEL: chrome
-      MAILPIT_URL: http://127.0.0.1:8025
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -50,23 +46,14 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm db:migrate
-      - run: pnpm test:email
-        env:
-          TEST_SMTP_HOST: 127.0.0.1
-          TEST_SMTP_PORT: '1025'
-          TEST_MAILPIT_URL: http://127.0.0.1:8025
       - run: pnpm test:integration
       - run: pnpm --filter @huddle/server test:rooms-migration
-      - name: Verify passwordless security
+      - run: pnpm --filter @huddle/server test:friend
+      - name: Verify account security
         working-directory: apps/server
         run: |
           pnpm test:access
           node --env-file=../../.env --import tsx scripts/access-body-check.ts
-      - name: Verify company recovery and restart boundaries
-        working-directory: apps/server
-        run: |
-          node --env-file=../../.env --import tsx scripts/company-discovery-check.ts
-          node --env-file=../../.env --import tsx scripts/access-review-check.ts
       - run: pnpm test:ui
 
   desktop:

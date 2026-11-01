@@ -5,7 +5,7 @@ dist/
 .tanstack/
 target/
 .env
-.audit/
+.audit*
 *.log
 .DS_Store
 .env.*

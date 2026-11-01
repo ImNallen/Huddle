@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
 import { randomUUID } from 'node:crypto'
@@ -8,15 +9,12 @@ import pg from 'pg'
 import {
   AccessError,
   Channel,
-  DeviceCode,
-  DeviceToken,
   EventPage,
   Home,
   Members,
   Message,
   Room,
   ServerInfo,
-  Session,
   Snapshot,
   UserId,
   type ServerEvent,
@@ -27,12 +25,9 @@ import {
   Client,
   friendCode,
   joinFriend,
-  mailIds,
   migratedDatabase,
-  nextMail,
   setupFriend,
   startServer,
-  syntheticEmail,
 } from './harness'
 
 const setupCode = `integration-${randomUUID()}`
@@ -116,6 +111,31 @@ async function rejectedFrame(frame: unknown, expected = 1008) {
   const [code] = await closed
   sockets.delete(socket)
   assert.equal(code, expected)
+}
+async function accountReset(username: string, password: string) {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/account-reset.ts', username], {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, DATABASE_URL: database.url },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
+  child.stdin.end(`${password}\n`)
+  const [code] = await once(child, 'exit')
+  return { code: z.number().parse(code), args: child.spawnargs, stdout, stderr }
+}
+async function watchedSession(token: string) {
+  const cursor = (await call('/api/snapshot', Snapshot, token)).cursor
+  const live = watch(token, cursor)
+  await eventually(() => live.ready, 'the session watches before the reset')
+  const { ticket } = await call('/api/watch-ticket', z.object({ ticket: z.string() }), token, {})
+  return async function cutOff(label: string) {
+    assert.equal((await request('/api/snapshot', { token })).response.status, 401, label)
+    await eventually(() => live.socket.readyState === WebSocket.CLOSED, `${label}: watch closes`)
+    await rejectedFrame({ kind: 'watch', after: cursor, ticket })
+  }
 }
 function pass(message: string) {
   process.stdout.write(`PASS ${message}\n`)
@@ -208,29 +228,6 @@ try {
   assert.equal(seat.memberCount, 1)
   pass('onboarding needs the setup code, makes the admin, names the server, and cannot run twice')
 
-  const strangerEmail = syntheticEmail('stranger')
-  const stranger = new Client(origin)
-  const strangerSeen = await mailIds(strangerEmail)
-  const challenged = await stranger.act({ kind: 'email.send', email: strangerEmail })
-  assert.equal(challenged.stage.kind, 'email')
-  const refusal = await nextMail(strangerEmail, strangerSeen)
-  assert.match(refusal.text, /sign in to Integration studio with this email address/)
-  assert.match(refusal.text, /there is no account for it/)
-  assert.match(refusal.text, /ask an admin to invite you/)
-  assert.doesNotMatch(refusal.text, /\b\d{6}\b/)
-  const guessed = await stranger.call('/api/access', { kind: 'email.verify', code: '123456' })
-  assert.equal(guessed.response.status, 400)
-  const fixtureDb = new pg.Client({ connectionString: database.url })
-  fixtureDb.on('error', () => undefined)
-  await fixtureDb.connect()
-  const users = async (email: string) =>
-    (await fixtureDb.query('SELECT 1 FROM "user" WHERE email = $1', [email])).rowCount
-  assert.equal(await users(strangerEmail), 0)
-  await fixtureDb.end()
-  pass(
-    'an uninvited address sees the same email step, gets a no-account email, and gets no account',
-  )
-
   const code = await friendCode(ownerClient)
   const memberClient = new Client(origin)
   const memberUser = await joinFriend(
@@ -262,18 +259,29 @@ try {
   assert.equal(badJoin.response.status, 400)
   assert.deepEqual(AccessError.parse(badJoin.value), { error: 'invalid' })
   const lateClient = new Client(origin)
-  const lateUser = await joinFriend(lateClient, code, 'latefriend', 'late-secret-1', 'Late colleague')
+  const lateUser = await joinFriend(
+    lateClient,
+    code,
+    'latefriend',
+    'late-secret-1',
+    'Late colleague',
+  )
   assert.equal((await call('/api/snapshot', Snapshot, owner.token)).server.memberCount, 3)
+  const lateCutOff = await watchedSession(lateClient.sessionToken())
+  const lateLaptop = new Client(origin)
+  await lateLaptop.act({
+    kind: 'account.signin',
+    username: 'latefriend',
+    password: 'late-secret-1',
+  })
   const reset = await request('/api/members/password', {
     token: owner.token,
     body: { userId: lateUser.id, password: 'late-secret-2' },
   })
   assert.equal(reset.response.status, 200, JSON.stringify(reset.data))
   assert.deepEqual(reset.data, {})
-  assert.equal(
-    (await request('/api/snapshot', { token: lateClient.sessionToken() })).response.status,
-    401,
-  )
+  await lateCutOff('an admin reset signs the friend out')
+  assert.equal((await lateLaptop.call('/api/snapshot')).response.status, 401)
   const stale = await new Client(origin).call('/api/access', {
     kind: 'account.signin',
     username: 'latefriend',
@@ -287,31 +295,62 @@ try {
     password: 'late-secret-2',
   })
   assert.equal(returned.stage.kind, 'ready')
-  pass('friends join with the invite code, a bad code fails, and an admin reset kills the old session')
+  pass(
+    'friends join with the invite code, a bad code fails, and an admin reset cuts off HTTP, the watch and its tickets for every session',
+  )
 
   const mascot = { kind: 'mascot', shape: 'circle', color: 'indigo' }
   const roster = (await call('/api/members', Members, member.token)).members
-  const shown = roster.map(({ name, email, avatar, role, invitedBy }) => ({
-    name,
-    email,
-    avatar,
-    role,
-    invitedBy,
-  }))
   assert.deepEqual(
-    shown.map(({ name, avatar, role, invitedBy }) => ({ name, avatar, role, invitedBy })),
+    roster.map(({ name, avatar, role }) => ({ name, avatar, role })),
     [
-      { name: 'Integration owner', avatar: mascot, role: 'admin', invitedBy: null },
-      { name: 'Integration colleague', avatar: mascot, role: 'member', invitedBy: null },
-      { name: 'Late colleague', avatar: mascot, role: 'member', invitedBy: null },
+      { name: 'Integration owner', avatar: mascot, role: 'admin' },
+      { name: 'Integration colleague', avatar: mascot, role: 'member' },
+      { name: 'Late colleague', avatar: mascot, role: 'member' },
     ],
   )
-  assert.ok(shown.every((person) => person.email.endsWith('@member.huddle.invalid')))
-  assert.equal(new Set(shown.map((person) => person.email)).size, 3)
   assert.equal(roster[0]?.id, owner.user.id)
   assert.ok(roster.every((person) => Date.parse(person.joinedAt) <= Date.now()))
   assert.deepEqual(await call('/api/members', Members, owner.token), { members: roster })
   pass('every member sees the roster: admins first, with avatar and role')
+
+  const resetClient = new Client(origin)
+  await joinFriend(resetClient, code, 'resetfriend', 'forgotten-secret', 'Reset friend')
+  const cliCutOff = await watchedSession(resetClient.sessionToken())
+  const resetLaptop = new Client(origin)
+  await resetLaptop.act({
+    kind: 'account.signin',
+    username: 'resetfriend',
+    password: 'forgotten-secret',
+  })
+  const resetByCli = await accountReset('resetfriend', 'operator-chosen-secret')
+  assert.equal(resetByCli.code, 0, resetByCli.stderr)
+  assert.match(resetByCli.stdout, /Reset the password for resetfriend/)
+  assert.ok(
+    resetByCli.args.every((arg) => !arg.includes('operator-chosen-secret')),
+    'the new password never appears in argv',
+  )
+  await cliCutOff('the CLI signs out every session of the account')
+  assert.equal((await resetLaptop.call('/api/snapshot')).response.status, 401)
+  const forgotten = await new Client(origin).call('/api/access', {
+    kind: 'account.signin',
+    username: 'resetfriend',
+    password: 'forgotten-secret',
+  })
+  assert.equal(forgotten.response.status, 400)
+  assert.deepEqual(AccessError.parse(forgotten.value), { error: 'invalid' })
+  const operatorChosen = await new Client(origin).act({
+    kind: 'account.signin',
+    username: 'resetfriend',
+    password: 'operator-chosen-secret',
+  })
+  assert.equal(operatorChosen.stage.kind, 'ready')
+  const unknown = await accountReset('nobody-here', 'operator-chosen-secret')
+  assert.notEqual(unknown.code, 0)
+  assert.match(unknown.stderr, /No account has the username nobody-here\./)
+  pass(
+    'account:reset replaces the password from stdin, cuts off HTTP, the watch and its tickets for every session, and names an unknown user',
+  )
 
   const studio = await call('/api/rooms', Room, owner.token, { name: 'Studio' })
   const channel = await call('/api/channels', Channel, owner.token, {
@@ -698,39 +737,6 @@ try {
     404,
   )
   pass('read markers reject unknown channels')
-  const device = await call('/api/auth/device/code', DeviceCode, undefined, {
-    client_id: 'huddle-desktop',
-  })
-  const pendingBody = {
-    grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    device_code: device.device_code,
-    client_id: 'huddle-desktop',
-  }
-  const pending = await request('/api/auth/device/token', { body: pendingBody })
-  assert.equal(z.object({ error: z.string() }).parse(pending.data).error, 'authorization_pending')
-  const slow = await request('/api/auth/device/token', { body: pendingBody })
-  assert.equal(z.object({ error: z.string() }).parse(slow.data).error, 'slow_down')
-  const claim = await request(
-    `/api/auth/device?user_code=${encodeURIComponent(device.user_code)}`,
-    { cookie: owner.cookie },
-  )
-  assert.equal(claim.response.status, 200, JSON.stringify(claim.data))
-  assert.equal(z.object({ client_id: z.string() }).parse(claim.data).client_id, 'huddle-desktop')
-  const hijack = await request('/api/auth/device/approve', {
-    cookie: member.cookie,
-    body: { userCode: device.user_code },
-  })
-  assert.ok(!hijack.response.ok)
-  const approved = await request('/api/auth/device/approve', {
-    cookie: owner.cookie,
-    body: { userCode: device.user_code },
-  })
-  assert.equal(approved.response.status, 200, JSON.stringify(approved.data))
-  await delay((device.interval + 5) * 1000 + 100)
-  const deviceToken = await call('/api/auth/device/token', DeviceToken, undefined, pendingBody)
-  const deviceSession = await call('/api/auth/get-session', Session, deviceToken.access_token)
-  assert.equal(deviceSession.user.id, owner.user.id)
-  pass('passwordless device claim, explicit approval, slow_down, and bearer session')
   await call('/api/auth/sign-out', z.unknown(), member.token, {})
   await eventually(
     () => reconnected.socket.readyState === WebSocket.CLOSED,

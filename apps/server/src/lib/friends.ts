@@ -16,7 +16,7 @@ import {
   type UserId as AccountId,
 } from '@huddle/contracts'
 import { checkSetupCode, onboard, setupHash } from './admission'
-import { AccessFailure, digest, limit, open, seal, transaction } from './access-store'
+import { AccessFailure, digest, forgive, limit, open, seal, transaction } from './access-store'
 import { DomainError, requireMember } from './domain'
 import { db } from './db'
 import { friendReach } from './reach'
@@ -61,7 +61,9 @@ async function verifyPassword(password: string, stored: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
-async function insertLogin(sql: PoolClient, username: string, password: string) {
+export type Login = { userId: string; passwordHash: string }
+
+async function insertLogin(sql: PoolClient, username: string, password: string): Promise<Login> {
   const id = generateId(32)
   const email = `${id}@member.huddle.invalid`
   const passwordHash = await hashPassword(password)
@@ -70,10 +72,7 @@ async function insertLogin(sql: PoolClient, username: string, password: string) 
       'INSERT INTO "user"(id, name, email, "emailVerified") VALUES ($1, $2, $3, true)',
       [id, username, email],
     )
-    await sql.query(
-      'INSERT INTO account_security(user_id, profile_completed_at) VALUES ($1, now())',
-      [id],
-    )
+    await sql.query('INSERT INTO account_security(user_id) VALUES ($1)', [id])
     await sql.query('INSERT INTO login(user_id, username, password_hash) VALUES ($1, $2, $3)', [
       id,
       username,
@@ -84,7 +83,7 @@ async function insertLogin(sql: PoolClient, username: string, password: string) 
       throw new DomainError(409, 'That username is taken.')
     throw error
   }
-  return id
+  return { userId: id, passwordHash }
 }
 
 async function insertJoinCode(sql: PoolClient) {
@@ -106,10 +105,10 @@ export async function setupAccount(input: {
   const username = Username.parse(input.username)
   const password = Password.parse(input.password)
   return transaction(async (sql) => {
-    const userId = await insertLogin(sql, username, password)
-    await onboard(sql, userId, input.serverName, setupHash(input.code))
+    const login = await insertLogin(sql, username, password)
+    await onboard(sql, login.userId, input.serverName, setupHash(input.code))
     await insertJoinCode(sql)
-    return userId
+    return login
   })
 }
 
@@ -123,22 +122,52 @@ export async function joinAccount(input: { code: string; username: string; passw
   if (!stored || expected.length !== actual.length || !timingSafeEqual(expected, actual))
     throw new AccessFailure('invalid')
   return transaction(async (sql) => {
-    const userId = await insertLogin(sql, username, password)
-    await sql.query("INSERT INTO member(user_id, role) VALUES ($1, 'member')", [userId])
-    return userId
+    const login = await insertLogin(sql, username, password)
+    await sql.query("INSERT INTO member(user_id, role) VALUES ($1, 'member')", [login.userId])
+    return login
   })
 }
 
-export async function confirmPassword(
-  sql: Pick<PoolClient, 'query'>,
+async function replacePassword(
+  sql: PoolClient,
   userId: string,
-  password: string,
+  passwordHash: string,
+  keepSession: string | null = null,
 ) {
-  Password.parse(password)
-  const row = await sql.query('SELECT password_hash FROM login WHERE user_id=$1', [userId])
-  const stored = z.string().optional().parse(row.rows[0]?.password_hash) ?? (await dummyHash())
-  const ok = await verifyPassword(password, stored)
-  return Boolean(row.rowCount) && ok
+  const row = await sql.query(
+    'UPDATE login SET password_hash=$2 WHERE user_id=$1 RETURNING user_id',
+    [userId, passwordHash],
+  )
+  if (!row.rowCount) return false
+  await sql.query('DELETE FROM session WHERE "userId"=$1 AND id IS DISTINCT FROM $2', [
+    userId,
+    keepSession,
+  ])
+  return true
+}
+
+export async function changePassword(
+  userId: string,
+  sessionId: string,
+  current: string,
+  next: string,
+) {
+  await limit(`password-change:${userId}`, 5, 900)
+  const passwordHash = await hashPassword(Password.parse(next))
+  await transaction(async (sql) => {
+    const row = await sql.query('SELECT password_hash FROM login WHERE user_id=$1 FOR UPDATE', [
+      userId,
+    ])
+    const live = await sql.query(
+      'SELECT 1 FROM session WHERE id=$1 AND "userId"=$2 AND "expiresAt">now() FOR UPDATE',
+      [sessionId, userId],
+    )
+    if (!live.rowCount) throw new AccessFailure('reauth_required')
+    const stored = z.string().parse(row.rows[0]?.password_hash)
+    if (!(await verifyPassword(Password.parse(current), stored))) throw new AccessFailure('invalid')
+    await replacePassword(sql, userId, passwordHash, sessionId)
+  })
+  await forgive(`password-change:${userId}`)
 }
 
 export async function resetMemberPassword(
@@ -152,15 +181,22 @@ export async function resetMemberPassword(
   const passwordHash = await hashPassword(next)
   await transaction(async (sql) => {
     await requireMember(sql, actorId, 'admin')
-    const row = await sql.query('SELECT 1 FROM login WHERE user_id=$1 FOR UPDATE', [target])
-    if (!row.rowCount) throw new DomainError(409, 'That account has no password.')
-    await sql.query('UPDATE login SET password_hash=$2 WHERE user_id=$1', [target, passwordHash])
-    await sql.query('UPDATE account_security SET epoch=epoch+1 WHERE user_id=$1', [target])
-    await sql.query('DELETE FROM session WHERE "userId"=$1', [target])
+    if (!(await replacePassword(sql, target, passwordHash)))
+      throw new DomainError(404, 'That member was not found.')
   })
 }
 
-export async function signInAccount(username: string, password: string) {
+export async function resetPasswordByUsername(username: string, password: string) {
+  const name = Username.parse(username)
+  const passwordHash = await hashPassword(Password.parse(password))
+  return transaction(async (sql) => {
+    const row = await sql.query('SELECT user_id FROM login WHERE username=$1 FOR UPDATE', [name])
+    const userId = z.string().optional().parse(row.rows[0]?.user_id)
+    return userId ? replacePassword(sql, userId, passwordHash) : false
+  })
+}
+
+export async function signInAccount(username: string, password: string): Promise<Login> {
   const name = Username.parse(username)
   Password.parse(password)
   const row = await db.query('SELECT user_id, password_hash FROM login WHERE username = $1', [name])
@@ -168,7 +204,7 @@ export async function signInAccount(username: string, password: string) {
   const ok = await verifyPassword(password, stored)
   const userId = z.string().optional().parse(row.rows[0]?.user_id)
   if (!userId || !ok) throw new AccessFailure('invalid')
-  return userId
+  return { userId, passwordHash: stored }
 }
 
 export async function friendInvites(userId: AccountId) {

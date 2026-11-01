@@ -1,22 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Huddle window and system browser access",
+  "description": "Huddle window",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-set-focus",
-    {
-      "identifier": "opener:allow-open-url",
-      "allow": [
-        { "url": "https://*" },
-        { "url": "http://localhost/*" },
-        { "url": "http://localhost:*" },
-        { "url": "http://127.0.0.1/*" },
-        { "url": "http://127.0.0.1:*" },
-        { "url": "http://[[]::1[]]/*" },
-        { "url": "http://[[]::1[]]:*" }
-      ]
-    }
-  ]
+  "permissions": ["core:default"]
 }

@@ -2,23 +2,25 @@
 
 ## Problem
 
-Build a desktop client and self-hosted server that let a team set up its server, invite colleagues by email, and exchange persistent text messages. One server holds one team. Desktop uses Tauri 2, React, and TanStack Router. The server uses TanStack Start, Better Auth, and PostgreSQL. Convex is excluded.
+Build a desktop client and self-hosted server that let a group of friends chat the way they would on a Discord server, on a machine one of them runs. The host sets up the server and shares an invite. Friends paste the invite, create an account, and exchange persistent text messages. One server holds one group. Desktop uses Tauri 2, React, and TanStack Router. The server uses TanStack Start, Better Auth, and PostgreSQL. Convex is excluded.
 
 ## Usage
 
-Start PostgreSQL, apply migrations, and start the server and desktop frontend. Connect the desktop to the company server URL. The operator onboards the server with the setup code from the server log, a server name, and the admin's email. The admin creates rooms and channels and invites colleagues by email. An invited colleague signs in with the invited address and joins as a member. Accounts come only from onboarding or an invitation. Company OIDC never grants access without an invitation.
+Start PostgreSQL, apply migrations, and start the server and desktop frontend. The host connects the desktop to `http://localhost:3000` and sets up the server with the setup code from the server log, a server name, a username, and a password. The host becomes the admin, creates rooms and channels, and copies an invite from **Share invite**. A friend pastes the invite into the desktop app, chooses a username and password, and joins as a member. Accounts come only from setup or an invite.
+
+The server listens for friends on a separate HTTPS port with its own self-signed certificate. An invite is `huddle:` followed by base64url JSON with the host, friend port, join code, and the SHA-256 pin of that certificate. The desktop's Rust shell opens a loopback listener and bridges each connection to the friend port over TLS that accepts only the pinned certificate. The client keeps the invite's `https://host:port` as its server origin, which scopes its stored credential. It sends requests through the bridge at `http://127.0.0.1:<port>`, which the desktop's content security policy permits.
 
 The desktop sends explicit HTTP requests for application operations. It opens an authenticated WebSocket to watch server events. An authenticated HTTP POST to `/api/watch-ticket` returns a one-use, 30-second opaque ticket. The database stores only the ticket hash and its Better Auth session ID. The initial watch frame carries this ticket, which the realtime listener consumes atomically. Native bearer tokens are also accepted in a watch frame. No credential appears in a WebSocket URL. It never imports Start server functions.
 
 ```ts
 const room = await client.createRoom({ name: 'Studio' })
 const channel = await client.createChannel({ roomId: room.id, name: 'general' })
-await client.invite({ email: 'colleague@example.com' })
+const { invites } = await client.request('/api/friend-invite', FriendInvites)
 await client.watchServer({ after: snapshot.cursor })
 await client.sendMessage({
   channelId: channel.id,
   retryId: crypto.randomUUID(),
-  body: 'Hello team',
+  body: 'Hello everyone',
 })
 ```
 
@@ -26,20 +28,22 @@ These are caller-facing responsibilities. Implementation may use an HTTP client 
 
 ## Data shape
 
-Better Auth owns users, sessions and linked company accounts. Huddle owns staged authentication ceremonies, session proofs, factors, recovery and device grants, alongside these application tables:
+Better Auth owns users and sessions. Huddle owns password logins and session proofs, alongside these application tables:
 
-- Server holds at most one row, enforced by a boolean `singleton` primary key. It stores the server name chosen at onboarding and a transactionally updated event cursor.
-- Member gives a user an `admin` or `member` role on the server, one row per user. Only admins invite people and create rooms and channels.
+- Server holds at most one row, enforced by a boolean `singleton` primary key. It stores the server name chosen at setup and a transactionally updated event cursor.
+- Member gives a user an `admin` or `member` role on the server, one row per user. Only admins share invites, reset member passwords, and create rooms and channels.
 - Room has a case-insensitively unique name on the server. Every member sees every room.
 - Channel belongs to a room and has a unique normalized name within it.
 - Message has an author, channel, body, stable retry UUID, and committed event cursor.
 - Event records each public server change at its cursor.
-- Invitation is keyed by a lowercase email address. It records the inviting admin, an expiry, and who accepted it and when.
+- Login maps a unique lowercase username to a user and an scrypt password hash. Better Auth requires an email, so each user gets a placeholder under `member.huddle.invalid` that Huddle never shows or uses.
+- AccountSecurity holds each user's avatar.
+- JoinCode holds at most one row, with the hash of the server's join code and the code sealed with the auth encryption key, so admins can show it in invites. Setup creates it.
 - SetupCode holds at most one row, with an HMAC hash of the one-time setup code and its expiry.
 - A read marker stores, per user and channel, the highest cursor that user has read. It only moves forward and never passes the server cursor. Read state is private, so it emits no event.
 - A mention records which members a message names with `@` followed by their full or first name.
 
-Migration `007_single_server.sql` moves a database with zero or one legacy workspace to this shape and keeps its rooms, channels, messages, read markers, mentions, and events. It strips legacy workspace IDs from stored event JSON and drops the legacy workspace tables. It refuses a database with more than one legacy workspace.
+Migration `007_single_server.sql` moves a database with zero or one legacy workspace to this shape and keeps its rooms, channels, messages, read markers, mentions, and events. It strips legacy workspace IDs from stored event JSON and drops the legacy workspace tables. It refuses a database with more than one legacy workspace. Migration `009_password_only.sql` drops the tables and columns of the removed email, authenticator, passkey, device, and company login features.
 
 Each server write locks the server row, checks membership, applies its mutation, advances the server cursor, inserts its event, and commits. Event cursors are decimal strings over the network. Database allocation follows commit order because the same row serializes mutations. A bare sequence or timestamp is insufficient.
 
@@ -62,17 +66,15 @@ Validate configuration and incoming network data at boundaries. Use parameterize
 
 Better Auth runs directly in the Node-hosted Start server and stores its data in PostgreSQL. Browser pages use HttpOnly sessions. The initial local development frontend proxies `/api` to the server so browser cookies use one origin.
 
-Native clients use Better Auth's Bearer session support. Store the durable credential in the operating system credential store, scoped to the canonical company server. Do not put session tokens in browser localStorage. Clear credentials and active subscriptions on logout and server changes.
+Native clients sign in with `account.signin` and use Better Auth's Bearer session support. Store the durable credential in the operating system credential store, scoped to the server's canonical origin. Do not put session tokens in browser localStorage. Clear credentials and active subscriptions on logout and server changes.
 
-Company login uses an environment-configured Generic OAuth OIDC provider with signed ID-token verification. Huddle owns native device authorization. The desktop displays a code, opens the server approval page in the system browser, and polls at the server's interval. The approval page requires an admitted session, displays the code and Huddle client name, and requires explicit approval or denial. The resulting credential is a Better Auth session token with a Huddle proof.
+The only way to sign in is a username and password. Huddle sends no email. Revoking access means deleting Better Auth session rows. A deleted session fails HTTP checks, its watch tickets cascade away, and the realtime listener closes its socket on the next revalidation. See [accounts and sign-in](accounts.md) for limits and password resets.
 
-Local email sign-in requires TOTP enrollment or verification before application access. Passkeys require user verification and bypass TOTP. Account epochs revoke stale HTTP, socket, watch-ticket and device authority after sensitive changes. See [passwordless authentication](passwordless.md) for the full assurance and recovery model.
+Require HTTPS for remote servers. Permit HTTP only for loopback, which covers both local development and the desktop's pinned invite bridge. Enforce configured origins at auth, mutation, and socket boundaries. Credential changes must not reach a different server.
 
-Require HTTPS for remote company servers. Permit HTTP only for explicit loopback development. Enforce configured origins at auth, mutation, and socket boundaries. Credential changes must not reach a different server. Member roles and permissions remain in Huddle, independently of login providers.
+Setup creates the server. Until the server row exists, the access flow offers setup instead of sign-in. On each start before setup, the server generates a one-time code, stores only its HMAC hash with a 24-hour expiry, and prints the code to stdout. `SETUP_CODE` supplies the code instead and is not printed. `account.setup` creates the admin's login, the server row with its name, the admin member, and the join code in one transaction that consumes the setup code. After setup, setup is impossible.
 
-Onboarding creates the server. Until the server row exists, the access flow offers setup instead of sign-in. On each start before onboarding, the server generates a one-time code, stores only its HMAC hash with a 24-hour expiry, and prints the code to stdout. `SETUP_CODE` supplies the code instead and is not printed. Verifying the admin's email creates the user, the server row with its name, and the admin member in one transaction that consumes the code. With company OIDC configured, the company identity that completes login with the setup code becomes the admin instead. After onboarding, setup is impossible.
-
-An invitation binds access to a verified email address. Creation requires the admin role. Invitations expire after 7 days. Inviting the same address again restarts that period and resends the email. Inviting an existing member returns 409. Verifying the invited address, by email code or by company login with that email, creates the user and a `member` row and marks the invitation accepted in one transaction. An existing account without membership accepts its invitation at its next sign-in. For an uninvited address without an account, `email.send` shows the same email step but sends a no-account email with no code. A new company identity without an invitation is rejected before Better Auth creates a user. A company domain alone cannot grant access.
+A friend account comes from `account.join`, which compares the join code's hash in constant time, then creates the login and a `member` row in one transaction. A taken username returns 409. `account.signin` checks the password against the stored hash, or against a dummy hash for an unknown username. A password reset, by an admin or by `account:reset` on the server, replaces the hash and deletes the account's sessions. `password.change` checks the current password, replaces the hash, and deletes every other session in one transaction. Sign-in checks the password, creates the session, then rereads the hash under a share lock and drops the new session if a password change committed in between. `session.revoke` deletes one of the caller's other sessions, and `sessions.revoke-others` deletes all of them.
 
 ## Realtime contract
 
@@ -88,28 +90,34 @@ Reconnection starts a new authorized watch from the applied cursor. A server cra
 
 Use the socket candidate's durable event log and transactionally ordered cursor as the base. Graft the HTTP candidate's explicit mutation and query boundary. Keep the socket watch-only. This removes request correlation and custom socket command errors without weakening replay.
 
-Both candidates recommended native Device Authorization and OS credential storage. Keep those shared choices.
+Both candidates recommended OS credential storage. Keep that shared choice.
 
 Superseded: "Reject singleton bootstrap and setup-secret enrollment because user-owned workspaces plus explicit invitations establish a smaller, testable authorization model."
 
 On 2026-10-09 this decision was reversed. A self-hosted company server serves one team. Per-user workspaces let anyone who reached the server create an account and a workspace. A singleton server row plus a one-time setup code gives the operator a bootstrap path outside the web interface. The server stores only the code's hash, expires it after 24 hours, and prints it to the operator's log, so no first visitor can claim the server. Email invitations bind access to a verified address instead of a bearer code that anyone holding it could redeem.
 
+On 2026-10-29 Huddle moved from company teams to groups of friends. Friends rarely share an SMTP relay or a domain with a certificate. A pinned invite replaces both. It carries the address, so friends type nothing. Its certificate pin replaces a certificate authority. Its join code admits a new account without email. The join code is a bearer secret, which the 2026-10-09 decision rejected for company servers. For a group of friends, the host decides who receives the invite, and the server cannot rotate the code yet.
+
+On 2026-11-01 Huddle removed email entirely. No friend group should need a mail server to chat. Email codes were also the only way into authenticator (TOTP) enrollment and recovery codes, so those went too. The person who runs the server resets passwords from the command line instead.
+
+Later on 2026-11-01 Huddle dropped company login, passkeys, and native device approval. Friends do not have a company identity provider, and one sign-in method is easier to explain and to secure. The desktop signs in with a password directly. An admin resets a forgotten password and sends it to the friend.
+
 The independent cross-judge agreed with this synthesis. Candidate evidence is in the local task audit; production code and tests must prove the contracts here.
 
 ## Tradeoffs
 
-We accept a server row lock and event table in exchange for commit-ordered replay. We accept a single application instance in exchange for an initial installation without Redis or Kafka. Native device approval has an extra confirmation step but avoids a custom credential callback protocol.
+We accept a server row lock and event table in exchange for commit-ordered replay. We accept a single application instance in exchange for an initial installation without Redis or Kafka.
 
 Voice, video, file uploads, message editing, and mobile clients are follow-up slices. The interface must not pretend those features work. LiveKit remains the planned media service.
 
 ## Verification
 
-Use real PostgreSQL and Better Auth to verify anonymous rejection, a required single-use setup code, rejection of a second onboarding, the no-account email for an uninvited address, rejection of an uninvited company identity, joining by invited email and invited company identity, admin-only invitations, invitation refresh after expiry, two-client delivery, retry deduplication and conflicting retries, concurrent commit ordering, snapshot/watch overlap, session revocation, missed-wakeup recovery, and persistence after server restart.
+Use real PostgreSQL and Better Auth to verify anonymous rejection, a required single-use setup code, rejection of a second setup, joining with the join code, rejection of a certificate that does not match the invite's pin, admin-only invites and password resets, the command-line password reset, two-client delivery, retry deduplication and conflicting retries, concurrent commit ordering, snapshot/watch overlap, session revocation, sign-in rate limits, missed-wakeup recovery, and persistence after server restart.
 
-Drive the interface through server onboarding, room and channel creation, an email invitation, the invited colleague's sign-in, message send, reconnect, and logout. Exercise native device approval with local browser login. A signed local OIDC fixture verifies company callbacks and rejection paths. Customer identity providers still require release testing.
+Drive the interface through server setup, room and channel creation, a shared invite, the friend's account creation, message send, reconnect, and logout. Sign in from the desktop with a password and keep its token in the OS credential store.
 
 Typecheck and build both JavaScript applications. Compile and launch Tauri on macOS. Windows and Linux remain unverified unless this session obtains those environments.
 
 ## Implementation reconciliation
 
-The Start production fetch handler runs in a Node HTTP service with a companion WebSocket listener on a separately configured port. PostgreSQL NOTIFY crosses the framework bundle boundary; a one-second poll remains the recovery mechanism. Watch tickets bridge browser cookie host scoping and native authentication without exposing browser session tokens. PostgreSQL migrations own ticket persistence. The server serves the shared browser application and device approval pages. The local desktop frontend uses the Vite API proxy for the default local server. The native client selects its server at runtime and stores credentials through Rust keyring commands.
+The Start production fetch handler runs in a Node HTTP service with a companion WebSocket listener on a separately configured port. The friend listener on `FRIEND_PORT` serves the API handler and WebSocket upgrades over its self-signed TLS, and publishes its LAN and NAT-PMP addresses for the invite list. PostgreSQL NOTIFY crosses the framework bundle boundary; a one-second poll remains the recovery mechanism. Watch tickets bridge browser cookie host scoping and native authentication without exposing browser session tokens. PostgreSQL migrations own ticket persistence. The server serves the shared browser application. The local desktop frontend uses the Vite API proxy for the default local server. The native client selects its server at runtime and stores credentials through Rust keyring commands.

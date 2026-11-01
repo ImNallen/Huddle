@@ -270,12 +270,10 @@ export async function members(userId: UserId) {
   return transaction(async (sql) => {
     await requireMember(sql, userId)
     const rows = await sql.query<Record<string, unknown>>(
-      `SELECT u.id, u.name, u.email, a.avatar, m.role,
-        to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "joinedAt",
-        (SELECT inviter.name FROM invitation i JOIN "user" inviter ON inviter.id = i.invited_by
-          WHERE i.accepted_by = u.id ORDER BY i.accepted_at DESC LIMIT 1) AS "invitedBy"
+      `SELECT u.id, u.name, a.avatar, m.role,
+        to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "joinedAt"
       FROM member m JOIN "user" u ON u.id = m.user_id
-      LEFT JOIN account_security a ON a.user_id = u.id
+      JOIN account_security a ON a.user_id = u.id
       ORDER BY m.role = 'admin' DESC, m.created_at, u.id`,
     )
     return Members.parse({ members: rows.rows })
@@ -312,7 +310,7 @@ export async function createWatchTicket(sessionId: string) {
 }
 export async function consumeWatchTicket(ticket: string) {
   const result = await db.query<Record<string, unknown>>(
-    'WITH claimed AS (DELETE FROM watch_ticket WHERE hash = $1 AND expires_at > now() RETURNING session_id) SELECT s.token FROM session s JOIN claimed ON claimed.session_id = s.id JOIN session_proof p ON p.session_id=s.id JOIN account_security a ON a.user_id=p.user_id AND a.epoch=p.epoch WHERE s."expiresAt">now() AND p.stage=\'ready\'',
+    'WITH claimed AS (DELETE FROM watch_ticket WHERE hash = $1 AND expires_at > now() RETURNING session_id) SELECT s.token FROM session s JOIN claimed ON claimed.session_id = s.id WHERE s."expiresAt">now()',
     [hash(ticket)],
   )
   return z.object({ token: z.string() }).parse(result.rows[0]).token

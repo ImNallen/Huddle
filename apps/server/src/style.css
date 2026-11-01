@@ -129,13 +129,6 @@ footer.landing-bar {
 .landing-primary:hover {
   filter: brightness(1.08);
 }
-.landing-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-}
-.landing-secondary:hover,
 .landing-status a:hover,
 .landing-bar > a:hover {
   text-decoration: underline;

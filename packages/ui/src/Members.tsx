@@ -4,7 +4,6 @@ import { UserPlus } from 'lucide-react'
 import { Members, type Member, type MemberRole, type Server, type Session } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
-import { visibleAccount } from './primitives'
 
 export type Resource<T> =
   | { kind: 'loading' }
@@ -120,79 +119,75 @@ export function MembersPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {people.map((member) => {
-                    const email = visibleAccount(member.email)
-                    return (
-                      <tr key={member.id}>
-                        <td>
-                          <span className="member-name">
-                            <Avatar
-                              avatar={member.avatar}
-                              name={member.name}
-                              photo={client.photo?.bind(client)}
-                              size={24}
-                            />
-                            <span>
-                              <strong>
-                                {member.name}
-                                {member.id === session.user.id && <span> (you)</span>}
-                              </strong>
-                              {email && <small>{email}</small>}
-                            </span>
+                  {people.map((member) => (
+                    <tr key={member.id}>
+                      <td>
+                        <span className="member-name">
+                          <Avatar
+                            avatar={member.avatar}
+                            name={member.name}
+                            photo={client.photo?.bind(client)}
+                            size={24}
+                          />
+                          <span>
+                            <strong>
+                              {member.name}
+                              {member.id === session.user.id && <span> (you)</span>}
+                            </strong>
                           </span>
-                        </td>
-                        <td className="role">
-                          <span className={`tag ${member.role === 'admin' ? 'accent' : ''}`}>
-                            {roleLabels[member.role]}
-                          </span>
-                        </td>
-                        <td className="joined">{shortDate(member.joinedAt)}</td>
-                        {admin && (
-                          <td className="actions">
-                            {resetFor === member.id ? (
-                              <form
-                                className="members-reset"
-                                onSubmit={(event) => void savePassword(event, member.id)}
-                              >
-                                <input
-                                  name="password"
-                                  type="password"
-                                  required
-                                  minLength={8}
-                                  maxLength={200}
-                                  autoComplete="new-password"
-                                  aria-label={`New password for ${member.name}`}
-                                />
-                                <button className="button small primary" disabled={busy}>
-                                  Save password
-                                </button>
-                                <button
-                                  type="button"
-                                  className="button small"
-                                  disabled={busy}
-                                  onClick={() => setResetFor(null)}
-                                >
-                                  Cancel
-                                </button>
-                              </form>
-                            ) : (
+                        </span>
+                      </td>
+                      <td className="role">
+                        <span className={`tag ${member.role === 'admin' ? 'accent' : ''}`}>
+                          {roleLabels[member.role]}
+                        </span>
+                      </td>
+                      <td className="joined">{shortDate(member.joinedAt)}</td>
+                      {admin && (
+                        <td className="actions">
+                          {resetFor === member.id ? (
+                            <form
+                              className="members-reset"
+                              onSubmit={(event) => void savePassword(event, member.id)}
+                            >
+                              <input
+                                name="password"
+                                type="password"
+                                required
+                                minLength={8}
+                                maxLength={200}
+                                autoComplete="new-password"
+                                aria-label={`New password for ${member.name}`}
+                              />
+                              <button className="button small primary" disabled={busy}>
+                                Save password
+                              </button>
                               <button
                                 type="button"
                                 className="button small"
-                                onClick={() => {
-                                  setResetFor(member.id)
-                                  setError('')
-                                  setNotice('')
-                                }}
+                                disabled={busy}
+                                onClick={() => setResetFor(null)}
                               >
-                                Reset password
+                                Cancel
                               </button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  })}
+                            </form>
+                          ) : (
+                            <button
+                              type="button"
+                              className="button small"
+                              onClick={() => {
+                                setResetFor(member.id)
+                                setError('')
+                                setNotice('')
+                              }}
+                            >
+                              Reset password
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
