@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { browserLogin, expectHome, inviteCode, join, onboard, serverURL } from './passwordless'
+import { browserLogin, expectHome, inviteCode, join, onboard, serverURL } from './accounts'
 import { setupCode, useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -13,7 +13,6 @@ test('the host sets up with the setup code and only a friend with the invite can
   try {
     await page.goto(browserLogin)
     await expect(page.getByRole('heading', { name: 'Set up this server' })).toBeVisible()
-    await expect(page.getByLabel('Work email')).toHaveCount(0)
     await expect(page.getByLabel('Username')).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('onboarding.png') })
     await page.getByLabel('Setup code').fill('WRONG-SETUP-CODE')
@@ -44,7 +43,6 @@ test('the host sets up with the setup code and only a friend with the invite can
     await stranger.goto(browserLogin)
     await expect(stranger.getByRole('heading', { name: 'Sign in to Harbor' })).toBeVisible()
     await expect(stranger.getByLabel('Setup code')).toHaveCount(0)
-    await expect(stranger.getByLabel('Work email')).toHaveCount(0)
     await expect(
       stranger.getByText('Need access? Ask an admin of this server for an invite.'),
     ).toBeVisible()

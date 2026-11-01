@@ -1,30 +1,82 @@
 import assert from 'node:assert/strict'
-import { randomUUID, randomBytes, generateKeyPairSync, createHash, sign } from 'node:crypto'
-import { isoCBOR } from '@simplewebauthn/server/helpers'
-import { z } from 'zod'
-import { execFileSync } from 'node:child_process'
-import { readFile, unlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { once } from 'node:events'
+import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import sharp from 'sharp'
-import pg from 'pg'
-import { TOTP } from 'otpauth'
-import {
-  AccessView,
-  AccountSecurity,
-  DeviceCode,
-  DeviceToken,
-  Snapshot,
-  type AccessCommand,
-} from '@huddle/contracts'
+import { WebSocket } from 'ws'
+import { z } from 'zod'
+import { AccessError, AccessView, AccountSecurity, Snapshot } from '@huddle/contracts'
 import {
   Client,
-  emailCode,
-  mailIds,
+  joinFriend,
   migratedDatabase,
+  setupFriend,
   startServer,
-  syntheticEmail,
+  storedJoinCode,
 } from './harness'
+
+type Result = Awaited<ReturnType<Client['call']>>
+function failed(result: Result, status: number, error: AccessError['error'], label: string) {
+  assert.equal(result.response.status, status, `${label}: ${JSON.stringify(result.value)}`)
+  assert.equal(AccessError.parse(result.value).error, error, label)
+}
+function stage(result: Result) {
+  assert.equal(result.response.status, 200, JSON.stringify(result.value))
+  return AccessView.parse(result.value).stage
+}
+function pass(message: string) {
+  process.stdout.write(`PASS ${message}\n`)
+}
+
+async function watchTicket(client: Client) {
+  return z.object({ ticket: z.string() }).parse((await client.call('/api/watch-ticket', {})).value)
+    .ticket
+}
+async function currentSession(client: Client) {
+  const session = AccountSecurity.parse((await client.call('/api/account')).value).sessions.find(
+    (item) => item.current,
+  )
+  assert(session)
+  return session.id
+}
+type Watch = { socket: WebSocket; closed: Promise<unknown> }
+async function watchFrame(ticket: string) {
+  const socket = new WebSocket(server.websocket, { origin: base })
+  sockets.add(socket)
+  socket.on('error', () => {})
+  const closed = once(socket, 'close')
+  await once(socket, 'open')
+  const page = once(socket, 'message').then(() => 'page' as const)
+  socket.send(JSON.stringify({ kind: 'watch', after: '0', ticket }))
+  return { socket, closed, page }
+}
+async function watching(client: Client): Promise<Watch> {
+  const watch = await watchFrame(await watchTicket(client))
+  await Promise.race([
+    watch.page,
+    watch.closed.then(() => assert.fail('watch closed before its first page')),
+    delay(5000).then(() => assert.fail('watch did not start')),
+  ])
+  return watch
+}
+async function cutOff(client: Client, live: Watch, ticket: string, label: string) {
+  failed(await client.call('/api/snapshot'), 401, 'reauth_required', label)
+  await Promise.race([
+    live.closed,
+    delay(5000).then(() => assert.fail(`${label}: watch stayed open`)),
+  ])
+  const unused = await watchFrame(ticket)
+  const [code] = z
+    .tuple([z.number(), z.unknown()])
+    .parse(await Promise.race([unused.closed, unused.page]))
+  assert.equal(code, 1008, `${label}: its unused ticket fails`)
+}
+async function stillLive(client: Client, live: Watch | undefined, label: string) {
+  assert.equal((await client.call('/api/snapshot')).response.status, 200, label)
+  if (!live) return
+  await delay(2500)
+  assert.equal(live.socket.readyState, WebSocket.OPEN, `${label}: watch stays open`)
+}
 
 const setupCode = `access-${randomUUID()}`
 const database = await migratedDatabase()
@@ -38,336 +90,246 @@ const server = await startServer({
   throw error
 })
 const base = server.origin
-const scratchEnv = { ...process.env, DATABASE_URL: database.url, SERVER_URL: base }
-async function nextStep(authenticator: TOTP) {
-  await new Promise((resolve) => setTimeout(resolve, 30000 - (Date.now() % 30000) + 50))
-  return authenticator.generate()
-}
+const sockets = new Set<WebSocket>()
 try {
-  async function enrollAccount(client: Client, email: string, begin: AccessCommand) {
-    const sentAt = Date.now()
-    const seen = await mailIds(email)
-    await client.act(begin)
-    let view = await client.act({ kind: 'email.verify', code: await emailCode(email, seen) })
-    assert.equal(view.stage.kind, 'enroll')
-    assert.equal((await client.call('/api/snapshot')).response.status, 401)
-    if (view.stage.kind !== 'enroll') throw new Error('Enrollment missing')
-    const inviter = view.stage.inviter
-    const oldGeneration = view.stage.generation
-    view = await client.act({ kind: 'enrollment.refresh' })
-    if (view.stage.kind !== 'enroll') throw new Error('Enrollment missing')
-    assert.notEqual(view.stage.generation, oldGeneration)
-    const secret = view.stage.secret
-    const authenticator = new TOTP({ secret, algorithm: 'SHA1', digits: 6, period: 30 })
-    const enrolledCode = authenticator.generate()
-    view = await client.act({
-      kind: 'enrollment.verify',
-      generation: view.stage.generation,
-      code: enrolledCode,
-    })
-    assert.equal(view.stage.kind, 'save-recovery')
-    if (view.stage.kind !== 'save-recovery') throw new Error('Recovery missing')
-    const codes = view.stage.codes
-    assert.equal((await client.call('/api/snapshot')).response.status, 401)
-    await client.act({ kind: 'recovery.ack', batch: view.stage.batch })
-    await client.act({ kind: 'passkey.skip' })
-    view = await client.act({
-      kind: 'profile.save',
-      profile: {
-        name: 'Synthetic member',
-        avatar: { kind: 'mascot', shape: 'flower', color: 'rose' },
-      },
-    })
-    assert.equal(view.stage.kind, 'ready')
-    const inventory = AccountSecurity.parse((await client.call('/api/account')).value)
-    assert.equal(inventory.recoveryRemaining, 10)
-    assert.equal(inventory.user.avatar.kind, 'mascot')
-    return { email, authenticator, codes, enrolledCode, sentAt, inviter }
-  }
-  const browser = new Client(base)
-  const adminEmail = syntheticEmail('access')
-  const account = await enrollAccount(browser, adminEmail, {
-    kind: 'setup.start',
-    code: setupCode,
-    serverName: 'Access server',
-    email: adminEmail,
-  })
-  assert(browser.cookies.size > 0)
-  assert.equal(browser.token, '')
-  const native = new Client(base, true)
-  const nativeEmail = syntheticEmail('access')
-  const adminAccount = AccountSecurity.parse((await browser.call('/api/account')).value)
-  const fixture = new pg.Client({ connectionString: database.url })
-  await fixture.connect()
-  await fixture.query(
-    `INSERT INTO invitation(email, invited_by, expires_at) VALUES ($1, $2, now() + interval '7 days')`,
-    [nativeEmail, adminAccount.user.id],
-  )
-  await fixture.end()
-  const nativeAccount = await enrollAccount(native, nativeEmail, {
-    kind: 'email.send',
-    email: nativeEmail,
-  })
-  assert(native.token.length > 0)
-  assert.equal(account.inviter, null)
-  assert.deepEqual(
-    nativeAccount.inviter && {
-      name: nativeAccount.inviter.name,
-      email: nativeAccount.inviter.email,
-      role: nativeAccount.inviter.role,
-    },
-    { name: 'Synthetic member', email: adminEmail, role: 'admin' },
-  )
-  const seat = Snapshot.parse((await browser.call('/api/snapshot')).value).server
-  assert.equal(seat.role, 'admin')
-  assert.equal(seat.memberCount, 2)
-  assert.equal(seat.channelCount, 0)
+  const anonymous = new Client(base)
+  assert.deepEqual(stage(await anonymous.call('/api/access')), { kind: 'setup' })
+  for (const path of ['/api/snapshot', '/api/home', '/api/account'])
+    failed(await anonymous.call(path), 401, 'reauth_required', `anonymous ${path}`)
   for (const path of [
     '/sign-in/email',
     '/sign-up/email',
-    '/email-otp/sign-in',
-    '/two-factor/disable',
+    '/sign-in/social',
+    '/request-password-reset',
+    '/reset-password',
+    '/get-session',
     '/huddle/response',
-    '/huddle/continuation',
-  ]) {
-    assert.equal((await browser.call(`/api/auth${path}`, {})).response.status, 400)
-  }
-  const device = DeviceCode.parse(
-    (await native.call('/api/auth/device/code', { client_id: 'huddle-desktop' })).value,
-  )
-  await browser.act({ kind: 'device.decide', userCode: device.user_code, decision: 'approve' })
-  const granted = DeviceToken.parse(
-    (
-      await native.call('/api/auth/device/token', {
-        device_code: device.device_code,
-        client_id: 'huddle-desktop',
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      })
-    ).value,
-  )
-  const deviceClient = new Client(base, true)
-  deviceClient.token = granted.access_token
-  assert.equal((await deviceClient.call('/api/snapshot')).response.status, 200)
-  assert.equal(
-    (
-      await native.call('/api/auth/device/token', {
-        device_code: device.device_code,
-        client_id: 'huddle-desktop',
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      })
-    ).response.status,
+  ])
+    failed(await anonymous.call(`/api/auth${path}`, {}), 400, 'invalid', `raw Better Auth ${path}`)
+  failed(
+    await anonymous.call('/api/access', {
+      kind: 'account.setup',
+      code: 'not-the-setup-code',
+      serverName: 'Access server',
+      username: 'intruder',
+      password: 'intruder-secret',
+    }),
     400,
+    'invalid',
+    'setup with a wrong code',
   )
-  const replay = await browser.call('/api/access', {
-    kind: 'security.commit',
-    change: { kind: 'sessions.revoke-others' },
-    proof: { kind: 'totp', code: account.enrolledCode },
+  pass('anonymous callers see setup, cannot read the server, and reach no raw Better Auth route')
+
+  const browser = new Client(base)
+  const adminPassword = 'access-admin-secret'
+  await setupFriend(browser, {
+    code: setupCode,
+    serverName: 'Access server',
+    username: 'access-admin',
+    password: adminPassword,
+    name: 'Synthetic member',
   })
-  assert.equal(replay.response.status, 400)
-  process.stdout.write(
-    'PASS cookie/native SMTP enrollment, refresh, staged admission, recovery inventory, denied raw routes, device grant single-use and TOTP replay.\n',
+  assert(browser.cookies.size > 0)
+  assert.equal(browser.token, '')
+  assert.deepEqual(stage(await new Client(base).call('/api/access')), { kind: 'signin' })
+  const native = new Client(base, true)
+  const memberPassword = 'access-member-secret'
+  await joinFriend(
+    native,
+    await storedJoinCode(database.url),
+    'access-member',
+    memberPassword,
+    'Native member',
   )
-  const keys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' })
-  const jwk = keys.publicKey.export({ format: 'jwk' })
-  const id = randomBytes(32)
-  const cose = isoCBOR.encode(
-    new Map<number, number | Uint8Array>([
-      [1, 2],
-      [3, -7],
-      [-1, 1],
-      [-2, Buffer.from(jwk.x ?? '', 'base64url')],
-      [-3, Buffer.from(jwk.y ?? '', 'base64url')],
-    ]),
-  )
-  const hash = (input: string | Buffer) => createHash('sha256').update(input).digest()
-  const rpHash = hash(new URL(base).hostname)
-  const encode = (input: unknown) => Buffer.from(JSON.stringify(input)).toString('base64url')
-  const length = Buffer.alloc(2)
-  length.writeUInt16BE(id.length)
-  function registration(challenge: string, uv: boolean) {
-    const authData = Buffer.concat([
-      rpHash,
-      Buffer.from([uv ? 0x45 : 0x41]),
-      Buffer.alloc(4),
-      Buffer.alloc(16),
-      length,
-      id,
-      cose,
-    ])
-    const attestation = isoCBOR.encode(
-      new Map<string, string | Uint8Array | Map<string, string>>([
-        ['fmt', 'none'],
-        ['attStmt', new Map()],
-        ['authData', authData],
-      ]),
+  assert(native.token.length > 0)
+  assert.equal(native.cookies.size, 0)
+  for (const client of [browser, native]) {
+    const inventory = AccountSecurity.parse((await client.call('/api/account')).value)
+    assert.equal(inventory.user.avatar.kind, 'mascot')
+    assert.deepEqual(
+      inventory.sessions.map((session) => session.current),
+      [true],
     )
-    return {
-      id: id.toString('base64url'),
-      rawId: id.toString('base64url'),
-      type: 'public-key',
-      clientExtensionResults: {},
-      response: {
-        clientDataJSON: encode({ type: 'webauthn.create', challenge, origin: base }),
-        attestationObject: Buffer.from(attestation).toString('base64url'),
-        transports: ['internal'],
-      },
-    }
   }
-  function authentication(challenge: string, uv: boolean, counter: number) {
-    const count = Buffer.alloc(4)
-    count.writeUInt32BE(counter)
-    const authenticatorData = Buffer.concat([rpHash, Buffer.from([uv ? 5 : 1]), count])
-    const clientDataJSON = encode({ type: 'webauthn.get', challenge, origin: base })
-    const signature = sign(
-      'sha256',
-      Buffer.concat([authenticatorData, hash(Buffer.from(clientDataJSON, 'base64url'))]),
-      keys.privateKey,
-    )
-    return {
-      id: id.toString('base64url'),
-      rawId: id.toString('base64url'),
-      type: 'public-key',
-      clientExtensionResults: {},
-      response: {
-        clientDataJSON,
-        authenticatorData: authenticatorData.toString('base64url'),
-        signature: signature.toString('base64url'),
-      },
-    }
-  }
-  await new Promise((resolve) => setTimeout(resolve, 30050 - (Date.now() % 30000)))
-  const optionResult = await browser.call('/api/access/passkey/register/options', {
-    name: 'Cryptographic fixture',
-    proof: { kind: 'totp', code: account.authenticator.generate() },
-  })
-  assert.equal(optionResult.response.status, 200)
-  const options = z.object({ challenge: z.string() }).parse(optionResult.value)
-  assert.equal(
-    (
-      await browser.call(
-        '/api/access/passkey/register/verify',
-        registration(options.challenge, false),
-      )
-    ).response.ok,
-    false,
+  const seat = Snapshot.parse((await browser.call('/api/snapshot')).value).server
+  assert.equal(seat.role, 'admin')
+  assert.equal(seat.memberCount, 2)
+  failed(
+    await new Client(base).call('/api/access', {
+      kind: 'account.signin',
+      username: 'access-stranger',
+      password: 'access-stranger-secret',
+    }),
+    400,
+    'invalid',
+    'an unknown username',
   )
-  assert.equal(
-    (
-      await browser.call(
-        '/api/access/passkey/register/verify',
-        registration(options.challenge, true),
-      )
-    ).response.status,
-    200,
+  failed(
+    await new Client(base).call('/api/access', {
+      kind: 'account.signin',
+      username: 'access-member',
+      password: 'access-wrong-secret',
+    }),
+    400,
+    'invalid',
+    'a wrong password',
   )
-  const passkeyClient = new Client(base)
-  const signInOptions = z
-    .object({ challenge: z.string() })
-    .parse(
-      (await passkeyClient.call('/api/access/passkey/authenticate/options', { purpose: 'signin' }))
-        .value,
-    )
-  assert.equal(
-    (
-      await passkeyClient.call('/api/access/passkey/authenticate/verify', {
-        purpose: 'signin',
-        response: authentication(signInOptions.challenge, false, 1),
-      })
-    ).response.ok,
-    false,
-  )
-  const valid = await passkeyClient.call('/api/access/passkey/authenticate/verify', {
-    purpose: 'signin',
-    response: authentication(signInOptions.challenge, true, 1),
-  })
-  assert.equal(valid.response.status, 200)
-  assert.equal(AccessView.parse(valid.value).stage.kind, 'ready')
-  assert.equal(
-    (
-      await passkeyClient.call('/api/access/passkey/authenticate/verify', {
-        purpose: 'signin',
-        response: authentication(signInOptions.challenge, true, 1),
-      })
-    ).response.ok,
-    false,
-  )
-  assert.equal((await deviceClient.call('/api/snapshot')).response.status, 401)
-  const reauth = z
-    .object({ challenge: z.string() })
-    .parse(
-      (await passkeyClient.call('/api/access/passkey/authenticate/options', { purpose: 'reauth' }))
-        .value,
-    )
-  const proof = z.object({ proof: z.string() }).parse(
-    (
-      await passkeyClient.call('/api/access/passkey/authenticate/verify', {
-        purpose: 'reauth',
-        response: authentication(reauth.challenge, true, 2),
-      })
-    ).value,
-  )
-  await passkeyClient.act({
-    kind: 'security.commit',
-    change: { kind: 'passkey.rename', id: id.toString('base64url'), name: 'Renamed fixture' },
-    proof: { kind: 'passkey', proof: proof.proof },
-  })
-  assert.equal(
-    (
-      await passkeyClient.call('/api/access', {
-        kind: 'security.commit',
-        change: { kind: 'sessions.revoke-others' },
-        proof: { kind: 'passkey', proof: proof.proof },
-      })
-    ).response.ok,
-    false,
-  )
-  process.stdout.write(
-    'PASS cryptographically valid WebAuthn UV registration/login, missing UV rejection, challenge replay, single-use reauthentication and epoch revocation. These are software fixtures, not platform authenticator tests.\n',
+  pass(
+    'setup gives the admin a cookie session, join gives a native bearer, and unknown users or wrong passwords get nothing',
   )
 
-  const regenerationOptions = z
-    .object({ challenge: z.string() })
-    .parse(
-      (await passkeyClient.call('/api/access/passkey/authenticate/options', { purpose: 'reauth' }))
-        .value,
-    )
-  const regenerationProof = z.object({ proof: z.string() }).parse(
-    (
-      await passkeyClient.call('/api/access/passkey/authenticate/verify', {
-        purpose: 'reauth',
-        response: authentication(regenerationOptions.challenge, true, 3),
-      })
-    ).value,
+  const limited = new Client(base, true)
+  await joinFriend(
+    limited,
+    await storedJoinCode(database.url),
+    'access-limited',
+    'access-limited-secret',
+    'Limited member',
   )
-  const unsaved = await passkeyClient.act({
-    kind: 'security.commit',
-    change: { kind: 'recovery.regenerate' },
-    proof: { kind: 'passkey', proof: regenerationProof.proof },
+  for (let attempt = 0; attempt < 10; attempt++)
+    failed(
+      await new Client(base).call('/api/access', {
+        kind: 'account.signin',
+        username: 'access-limited',
+        password: 'access-wrong-secret',
+      }),
+      400,
+      'invalid',
+      `wrong password attempt ${attempt + 1}`,
+    )
+  const throttled = await new Client(base).call('/api/access', {
+    kind: 'account.signin',
+    username: 'access-limited',
+    password: 'access-limited-secret',
   })
-  assert(unsaved.stage.kind === 'save-recovery')
-  const resumed = new Client(base)
-  const resumeOptions = z
-    .object({ challenge: z.string() })
-    .parse(
-      (await resumed.call('/api/access/passkey/authenticate/options', { purpose: 'signin' })).value,
+  failed(throttled, 429, 'rate_limited', 'the eleventh sign-in for one username')
+  assert.ok(Date.parse(z.string().parse(AccessError.parse(throttled.value).retryAt)) > Date.now())
+  assert.equal((await limited.call('/api/snapshot')).response.status, 200)
+  pass('ten sign-ins per username per window, then even the right password waits until retryAt')
+
+  const memberSignIn = {
+    kind: 'account.signin',
+    username: 'access-member',
+    password: memberPassword,
+  } as const
+  const phone = new Client(base, true)
+  await phone.act(memberSignIn)
+  const laptop = new Client(base)
+  await laptop.act(memberSignIn)
+  const nativeToken = native.token
+  const phoneLive = await watching(phone)
+  const phoneTicket = await watchTicket(phone)
+  const laptopLive = await watching(laptop)
+  const phoneSession = await currentSession(phone)
+  stage(await native.call('/api/access', { kind: 'session.revoke', id: phoneSession }))
+  await cutOff(phone, phoneLive, phoneTicket, 'the revoked session')
+  await stillLive(laptop, laptopLive, 'a session that was not revoked')
+  await stillLive(native, undefined, 'the revoking session')
+  assert.equal(native.token, nativeToken, 'the revoking session keeps its token')
+  assert.deepEqual(
+    AccountSecurity.parse((await native.call('/api/account')).value).sessions.map(
+      (session) => session.current,
+    ),
+    [true, false],
+  )
+  pass('signing out one session ends its HTTP access, its watch and its tickets, and nothing else')
+
+  const laptopSession = await currentSession(laptop)
+  stage(await browser.call('/api/access', { kind: 'session.revoke', id: laptopSession }))
+  await stillLive(laptop, laptopLive, 'a session another account tried to revoke')
+  pass("a session cannot sign out another account's session")
+
+  const tablet = new Client(base, true)
+  await tablet.act(memberSignIn)
+  const laptopTicket = await watchTicket(laptop)
+  stage(await native.call('/api/access', { kind: 'sessions.revoke-others' }))
+  await cutOff(laptop, laptopLive, laptopTicket, 'another session after sign out all others')
+  failed(await tablet.call('/api/snapshot'), 401, 'reauth_required', 'the second other session')
+  await stillLive(native, undefined, 'the session that signed out the others')
+  assert.deepEqual(
+    AccountSecurity.parse((await native.call('/api/account')).value).sessions.map(
+      (session) => session.current,
+    ),
+    [true],
+  )
+  pass('signing out all other sessions ends every session but the current one')
+
+  for (let attempt = 0; attempt < 5; attempt++)
+    failed(
+      await limited.call('/api/access', {
+        kind: 'password.change',
+        current: 'access-wrong-secret',
+        next: 'access-limited-next',
+      }),
+      400,
+      'invalid',
+      `wrong current password attempt ${attempt + 1}`,
     )
-  const resumedView = AccessView.parse(
-    (
-      await resumed.call('/api/access/passkey/authenticate/verify', {
-        purpose: 'signin',
-        response: authentication(resumeOptions.challenge, true, 4),
-      })
-    ).value,
+  const passwordThrottled = await limited.call('/api/access', {
+    kind: 'password.change',
+    current: 'access-limited-secret',
+    next: 'access-limited-next',
+  })
+  failed(passwordThrottled, 429, 'rate_limited', 'the sixth password change in a window')
+  assert.ok(
+    Date.parse(z.string().parse(AccessError.parse(passwordThrottled.value).retryAt)) > Date.now(),
   )
-  assert(resumedView.stage.kind === 'save-recovery')
-  assert.equal(resumedView.stage.batch, unsaved.stage.batch)
-  assert.equal((await resumed.call('/api/snapshot')).response.status, 401)
-  assert.equal((await passkeyClient.call('/api/snapshot')).response.status, 401)
-  await resumed.act({ kind: 'recovery.ack', batch: resumedView.stage.batch })
-  assert.equal((await passkeyClient.call('/api/snapshot')).response.status, 200)
-  process.stdout.write(
-    'PASS pending recovery acknowledgement survives a separate verified login and denies both sessions until the matching batch is acknowledged.\n',
+  assert.equal((await limited.call('/api/snapshot')).response.status, 200)
+  pass('five password changes per account per window, then even the right password waits')
+
+  const nextPassword = 'access-member-next-secret'
+  const desktop = new Client(base, true)
+  await desktop.act(memberSignIn)
+  const desktopLive = await watching(desktop)
+  const desktopTicket = await watchTicket(desktop)
+  failed(
+    await native.call('/api/access', {
+      kind: 'password.change',
+      current: 'not-the-member-secret',
+      next: nextPassword,
+    }),
+    400,
+    'invalid',
+    'a wrong current password',
   )
+  failed(
+    await native.call('/api/access', {
+      kind: 'password.change',
+      current: memberPassword,
+      next: 'short',
+    }),
+    400,
+    'invalid',
+    'a new password under eight characters',
+  )
+  await stillLive(desktop, desktopLive, 'a rejected password change ends nothing')
+  assert.equal(
+    stage(
+      await native.call('/api/access', {
+        kind: 'password.change',
+        current: memberPassword,
+        next: nextPassword,
+      }),
+    ).kind,
+    'ready',
+  )
+  await stillLive(native, undefined, 'the session that changed the password')
+  assert.equal(native.token, nativeToken, 'changing the password keeps the current token')
+  await cutOff(desktop, desktopLive, desktopTicket, 'another session after a password change')
+  failed(
+    await new Client(base).call('/api/access', memberSignIn),
+    400,
+    'invalid',
+    'the old password after a change',
+  )
+  assert.equal(
+    (await new Client(base).act({ ...memberSignIn, password: nextPassword })).stage.kind,
+    'ready',
+  )
+  pass(
+    'a password change needs the current password, keeps this session, ends the others, and only the new password signs in',
+  )
+
   const photo = await sharp({
     create: { width: 32, height: 32, channels: 3, background: '#346bf1' },
   })
@@ -375,21 +337,20 @@ try {
     .toBuffer()
   const form = new FormData()
   form.set('photo', new File([new Uint8Array(photo)], 'avatar.png', { type: 'image/png' }))
-  const cookieHeader = () =>
-    [...passkeyClient.cookies].map(([key, value]) => `${key}=${value}`).join('; ')
   const upload = await fetch(`${base}/api/account/photo`, {
     method: 'POST',
-    headers: { Origin: base, Cookie: cookieHeader() },
+    headers: { Origin: base, Cookie: browser.cookie() },
     body: form,
   })
   assert.equal(upload.status, 200)
   const uploaded = z.object({ uploadId: z.string() }).parse(await upload.json())
-  await passkeyClient.act({
+  const saved = await browser.act({
     kind: 'profile.save',
     profile: { name: 'Photo member', avatar: { kind: 'photo', uploadId: uploaded.uploadId } },
   })
+  assert.equal(saved.stage.kind === 'ready' && saved.stage.user.name, 'Photo member')
   const image = await fetch(`${base}/api/account/photo/${uploaded.uploadId}`, {
-    headers: { Cookie: cookieHeader() },
+    headers: { Cookie: browser.cookie() },
   })
   assert.equal(image.status, 200)
   assert.equal((await sharp(Buffer.from(await image.arrayBuffer())).metadata()).format, 'webp')
@@ -397,6 +358,15 @@ try {
   assert.equal(
     (await new Client(base).call(`/api/account/photo/${uploaded.uploadId}`)).response.ok,
     false,
+  )
+  failed(
+    await native.call('/api/access', {
+      kind: 'profile.save',
+      profile: { name: 'Borrowed photo', avatar: { kind: 'photo', uploadId: uploaded.uploadId } },
+    }),
+    400,
+    'invalid',
+    "another member's photo",
   )
   const invalidForm = new FormData()
   invalidForm.set(
@@ -407,123 +377,26 @@ try {
     (
       await fetch(`${base}/api/account/photo`, {
         method: 'POST',
-        headers: { Origin: base, Cookie: cookieHeader() },
+        headers: { Origin: base, Cookie: browser.cookie() },
         body: invalidForm,
       })
     ).ok,
     false,
   )
-  process.stdout.write(
-    'PASS photo decode/reencode, persisted profile, visibility to fellow members but not anonymous callers, and active SVG rejection.\n',
-  )
-  await passkeyClient.act({ kind: 'reset.request', email: account.email })
-  const resetRequests = z
-    .array(z.object({ id: z.string() }))
-    .parse(
-      JSON.parse(
-        execFileSync(
-          process.execPath,
-          ['--import', 'tsx', 'scripts/account-reset.ts', 'list', account.email],
-          { encoding: 'utf8', env: scratchEnv },
-        ),
-      ),
-    )
-  const resetId = resetRequests[0]?.id
-  assert(resetId)
-  const capabilityPath = join(tmpdir(), `huddle-reset-${randomUUID()}`)
-  execFileSync(
-    process.execPath,
-    [
-      '--import',
-      'tsx',
-      'scripts/account-reset.ts',
-      'issue',
-      resetId,
-      'synthetic-operator',
-      'Synthetic fixture independently confirmed by test operator',
-      capabilityPath,
-    ],
-    { env: { ...scratchEnv, HUDDLE_IDENTITY_CONFIRMED: 'yes' }, stdio: 'pipe' },
-  )
-  const capability = (await readFile(capabilityPath, 'utf8')).trim()
-  await unlink(capabilityPath)
-  await new Promise((resolve) =>
-    setTimeout(resolve, Math.max(0, 61000 - (Date.now() - account.sentAt))),
-  )
-  const recovered = new Client(base, true)
-  const resetSeen = await mailIds(account.email)
-  await recovered.act({ kind: 'reset.redeem', capability })
-  let resetView = await recovered.act({
-    kind: 'email.verify',
-    code: await emailCode(account.email, resetSeen),
-  })
-  assert(resetView.stage.kind === 'enroll')
-  resetView = await recovered.act({
-    kind: 'enrollment.verify',
-    generation: resetView.stage.generation,
-    code: new TOTP({
-      secret: resetView.stage.secret,
-      algorithm: 'SHA1',
-      digits: 6,
-      period: 30,
-    }).generate(),
-  })
-  assert(resetView.stage.kind === 'save-recovery')
-  await recovered.act({ kind: 'recovery.ack', batch: resetView.stage.batch })
-  const resetInventory = AccountSecurity.parse((await recovered.call('/api/account')).value)
-  assert.equal(resetInventory.passkeys.length, 0)
-  assert.equal(resetInventory.recoveryRemaining, 10)
-  assert.equal((await passkeyClient.call('/api/snapshot')).response.status, 401)
-  assert.equal(
-    (await new Client(base, true).call('/api/access', { kind: 'reset.redeem', capability }))
-      .response.status,
-    400,
-  )
-  process.stdout.write(
-    'PASS operator-confirmed capability, fresh email and enrollment, local passkey revocation, old-session rejection and reset single use.\n',
+  pass(
+    'photo decode and re-encode, persisted profile, visibility to fellow members but not anonymous callers, and active SVG rejection',
   )
 
-  await new Promise((resolve) =>
-    setTimeout(resolve, Math.max(0, 61000 - (Date.now() - nativeAccount.sentAt))),
-  )
-  const returning = new Client(base, true)
-  const returningSeen = await mailIds(nativeEmail)
-  await returning.act({ kind: 'email.send', email: nativeEmail })
-  let returningView = await returning.act({
-    kind: 'email.verify',
-    code: await emailCode(nativeEmail, returningSeen),
+  assert.deepEqual(stage(await browser.call('/api/access', { kind: 'signout' })), {
+    kind: 'signin',
   })
-  assert.equal(returningView.stage.kind, 'totp')
-  returningView = await returning.act({ kind: 'recovery.choose' })
-  assert.equal(returningView.stage.kind, 'recovery')
-  returningView = await returning.act({ kind: 'totp.choose' })
-  assert.equal(returningView.stage.kind, 'totp')
-  returningView = await returning.act({
-    kind: 'totp.verify',
-    code: await nextStep(nativeAccount.authenticator),
-  })
-  assert.equal(returningView.stage.kind, 'ready')
-  const replacement = await returning.act({
-    kind: 'security.commit',
-    change: { kind: 'authenticator.replace' },
-    proof: { kind: 'totp', code: await nextStep(nativeAccount.authenticator) },
-  })
-  assert(replacement.stage.kind === 'enroll' && replacement.stage.replacing)
-  assert.equal(replacement.stage.inviter, null)
-  assert.equal((await returning.act({ kind: 'totp.choose' })).stage.kind, 'ready')
-  assert.equal(AccessView.parse((await returning.call('/api/access')).value).stage.kind, 'ready')
-  process.stdout.write(
-    'PASS invited enrollment names its inviter, setup enrollment has none, recovery returns to the authenticator code and an Account security replacement can be abandoned.\n',
-  )
-
-  if (process.env.ACCESS_TEST_STATE)
-    await writeFile(process.env.ACCESS_TEST_STATE, JSON.stringify({ localToken: native.token }), {
-      mode: 0o600,
-    })
+  failed(await browser.call('/api/snapshot'), 401, 'reauth_required', 'a signed-out cookie')
+  pass('sign-out ends the session and returns to sign-in')
 } catch (error) {
   process.stderr.write(server.logs())
   throw error
 } finally {
+  for (const socket of sockets) socket.terminate()
   await server.stop()
   await database.drop()
 }

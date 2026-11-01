@@ -63,9 +63,7 @@ export async function join(
   await form.getByLabel('Username').fill(username)
   await form.getByLabel('Password').fill(password)
   await form.getByRole('button', { name: 'Create account', exact: true }).click()
-  if (decodeURIComponent(path).includes('/device?'))
-    await expect(page.getByRole('heading', { name: 'Sign in to Huddle Desktop?' })).toBeVisible()
-  else await expectHome(page)
+  await expectHome(page)
   return { username, password, name: username }
 }
 export async function member(admin: Client, page: Page, username: string, path = '/') {

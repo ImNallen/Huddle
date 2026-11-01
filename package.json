@@ -16,15 +16,12 @@
     "desktop": "pnpm --filter @huddle/desktop tauri dev",
     "setup:local": "node scripts/setup.mjs",
     "test:ui": "playwright test",
-    "format:check": "prettier --check apps packages scripts tests *.json *.ts README.md docs",
-    "email:test": "pnpm --silent --filter @huddle/server email:test",
-    "test:email": "pnpm --filter @huddle/server test:email"
+    "format:check": "prettier --check apps packages scripts tests *.json *.ts README.md docs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
     "@types/node": "24.10.1",
     "prettier": "3.6.2",
-    "typescript": "5.9.3",
-    "otpauth": "9.4.1"
+    "typescript": "5.9.3"
   }
 }

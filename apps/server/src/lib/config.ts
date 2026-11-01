@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { serverOrigin } from '@huddle/contracts'
-import { dropUnusableDevSmtp, parseEmailConfig } from './email-config'
 
 const Environment = z
   .object({
@@ -27,21 +26,10 @@ const Environment = z
       .default(
         'http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost',
       ),
-    AUTH_POLICY: z.enum(['mixed', 'sso-only']).default('mixed'),
     SETUP_CODE: z.string().trim().min(8).max(64).optional(),
     FRIEND_PORT: z.coerce.number().int().min(1).max(65535).optional(),
-    OIDC_DISCOVERY_URL: z.url().optional(),
-    OIDC_CLIENT_ID: z.string().min(1).optional(),
-    OIDC_CLIENT_SECRET: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
-    const count = [env.OIDC_DISCOVERY_URL, env.OIDC_CLIENT_ID, env.OIDC_CLIENT_SECRET].filter(
-      Boolean,
-    ).length
-    if (env.AUTH_POLICY === 'sso-only' && count !== 3)
-      ctx.addIssue({ code: 'custom', message: 'SSO-only policy requires company OIDC.' })
-    if (count !== 0 && count !== 3)
-      ctx.addIssue({ code: 'custom', message: 'Set all three OIDC values together.' })
     if (/change|example|secretsecret|password/i.test(env.BETTER_AUTH_SECRET))
       ctx.addIssue({
         code: 'custom',
@@ -53,14 +41,12 @@ const Environment = z
     if (friend === env.PORT || friend === env.WS_PORT)
       ctx.addIssue({ code: 'custom', message: 'FRIEND_PORT must differ from PORT and WS_PORT.' })
   })
-if (dropUnusableDevSmtp(process.env)) console.error('Ignoring development SMTP')
 const environment = Environment.parse(process.env)
 export const config = {
   ...environment,
   FRIEND_PORT:
     environment.FRIEND_PORT ??
     (environment.PORT + 1000 <= 65535 ? environment.PORT + 1000 : environment.PORT + 1),
-  EMAIL: parseEmailConfig(process.env),
 }
 export const origins = new Set([
   config.SERVER_URL,

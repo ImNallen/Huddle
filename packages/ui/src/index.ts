@@ -1,8 +1,5 @@
 export { errorText, type Transport } from './transport'
 export { Connect, readSavedServers, saveServer, savedInvite } from './Connect'
 export { Connection, NetworkError, RequestError } from './connection'
-export { Access, type AccessAdapter } from './Access'
 export { Application, Connecting } from './Application'
 export { Frame, Heading, Alert, Logo } from './primitives'
-export { BrowserWait } from './BrowserWait'
-export { DeviceApproval } from './DeviceApproval'

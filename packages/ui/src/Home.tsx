@@ -108,11 +108,7 @@ export function Home({
   const firstName = session.user.name.split(/\s+/)[0]
   const steps = admin
     ? adminSteps(rooms, channels, members?.length ?? server.memberCount)
-    : memberSteps(
-        rooms,
-        channels,
-        members?.find((member) => member.id === session.user.id)?.invitedBy ?? null,
-      )
+    : memberSteps(rooms, channels)
   const place = (id: ChannelId): Place | undefined => {
     const channel = channels.find((channel) => channel.id === id)
     const room = rooms.find((room) => room.id === channel?.roomId)
@@ -286,13 +282,13 @@ function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): St
     },
   ]
 }
-function memberSteps(rooms: Room[], channels: Channel[], invitedBy: string | null): Step[] {
+function memberSteps(rooms: Room[], channels: Channel[]): Step[] {
   const room = rooms[0]
   const channel = placed(rooms, channels)
   return [
     {
       title: 'You joined this server',
-      detail: `You joined from ${invitedBy ? `${invitedBy}’s` : 'an'} invite.`,
+      detail: 'You joined from an invite.',
       done: true,
       action: null,
     },

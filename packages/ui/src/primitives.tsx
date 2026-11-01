@@ -1,22 +1,18 @@
-import { Check, ChevronLeft, CircleAlert, Clock, Copy, Info, TriangleAlert, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronLeft, CircleAlert, Copy } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { serverInitials } from '@huddle/contracts'
 
 export type FrameServer = { name?: string; origin: string }
 export function Frame({
   server,
-  account,
   onServer,
   onSignOut,
-  onSignIn,
   children,
   wide = false,
 }: {
   server?: FrameServer
-  account?: string
   onServer?: () => void
   onSignOut?: () => void
-  onSignIn?: () => void
   children: ReactNode
   wide?: boolean
 }) {
@@ -41,9 +37,7 @@ export function Frame({
           )}
         </nav>
         <div className="access-header-right">
-          {account && <span className="access-header-account">{account}</span>}
           {onServer && <button onClick={onServer}>Change server</button>}
-          {onSignIn && <button onClick={onSignIn}>Sign in</button>}
           {onSignOut && <button onClick={onSignOut}>Sign out</button>}
         </div>
       </header>
@@ -67,10 +61,6 @@ export function Logo({ size = 22 }: { size?: number }) {
 }
 export function hostOf(origin: string) {
   return new URL(origin).host
-}
-export function visibleAccount(email?: string | null) {
-  if (!email || email.endsWith('@member.huddle.invalid')) return undefined
-  return email
 }
 export function ServerTile({
   name,
@@ -118,52 +108,43 @@ export function Heading({
   title,
   description,
   icon,
-  iconTone,
   eyebrow,
   back,
-  backLabel = 'Back',
 }: {
   title: string
   description?: ReactNode
   icon?: ReactNode
-  iconTone?: 'success' | 'danger'
   eyebrow?: string
   back?: () => void
-  backLabel?: string
 }) {
   return (
     <>
       {back && (
         <button type="button" className="access-back" onClick={back}>
           <ChevronLeft size={14} />
-          {backLabel}
+          Back
         </button>
       )}
-      {icon && <div className={`access-symbol ${iconTone ? `is-${iconTone}` : ''}`}>{icon}</div>}
+      {icon && <div className="access-symbol">{icon}</div>}
       {eyebrow && <p className="access-eyebrow">{eyebrow}</p>}
       <h1>{title}</h1>
       {description && <p className="access-description">{description}</p>}
     </>
   )
 }
-export type Tone = 'danger' | 'warning' | 'info'
-const toneIcons = { danger: CircleAlert, warning: TriangleAlert, info: Info }
 export function Alert({
   message,
   lead,
-  tone = 'danger',
   icon,
 }: {
   message?: ReactNode
   lead?: string
-  tone?: Tone
   icon?: ReactNode
 }) {
   if (!message && !lead) return null
-  const Icon = toneIcons[tone]
   return (
-    <div className={`access-alert access-alert-${tone}`} role={tone === 'info' ? 'note' : 'alert'}>
-      <span className="access-alert-icon">{icon ?? <Icon size={14} />}</span>
+    <div className="access-alert" role="alert">
+      <span className="access-alert-icon">{icon ?? <CircleAlert size={14} />}</span>
       <p>
         {lead && <strong>{lead}</strong>} {message}
       </p>
@@ -207,10 +188,6 @@ export function Primary({
     </button>
   )
 }
-export function Countdown({ until, now }: { until: string | number; now: number }) {
-  const seconds = Math.max(0, Math.ceil((new Date(until).getTime() - now) / 1000))
-  return <>{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`}</>
-}
 export function useNow() {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -218,112 +195,6 @@ export function useNow() {
     return () => clearInterval(timer)
   }, [])
   return now
-}
-export function CodeField({
-  label = '6-digit code',
-  name = 'code',
-  aside,
-  invalid = false,
-  expired = false,
-  hideLabel = false,
-}: {
-  label?: string
-  name?: string
-  aside?: ReactNode
-  invalid?: boolean
-  expired?: boolean
-  hideLabel?: boolean
-}) {
-  const id = useId()
-  const [value, setValue] = useState('')
-  const [focused, setFocused] = useState(false)
-  const active = focused && !expired ? Math.min(value.length, 5) : -1
-  return (
-    <div className="access-field">
-      <div className={`access-label-row ${hideLabel ? 'access-visually-hidden' : ''}`}>
-        <label htmlFor={id}>{label}</label>
-        {aside}
-      </div>
-      <div className={`access-code ${invalid ? 'is-invalid' : ''} ${expired ? 'is-expired' : ''}`}>
-        <input
-          id={id}
-          name={name}
-          value={value}
-          onChange={(event) => setValue(event.target.value.replace(/\D/g, '').slice(0, 6))}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          inputMode="numeric"
-          pattern="[0-9]{6}"
-          maxLength={6}
-          minLength={6}
-          autoComplete="one-time-code"
-          spellCheck={false}
-          aria-invalid={invalid || undefined}
-          disabled={expired}
-          required
-          autoFocus
-        />
-        <div className="access-code-boxes" aria-hidden="true">
-          {Array.from({ length: 6 }, (_, index) => (
-            <span key={index} className={index === active ? 'is-active' : ''}>
-              {value[index] ?? ''}
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-export function Expiry({
-  expiresAt,
-  now,
-  expired = Date.parse(expiresAt) <= now,
-}: {
-  expiresAt: string
-  now: number
-  expired?: boolean
-}) {
-  return (
-    <span className={`access-aside ${expired ? 'is-warning' : ''}`}>
-      <Clock size={12} />
-      {expired ? (
-        'Expired'
-      ) : (
-        <>
-          Expires in <Countdown until={expiresAt} now={now} />
-        </>
-      )}
-    </span>
-  )
-}
-const stepLabels = ['Authenticator', 'Recovery codes', 'Passkey']
-export function Steps({ step }: { step: 1 | 2 | 3 }) {
-  return (
-    <div className="access-steps">
-      <div className="access-steps-head">
-        <span>Secure your account</span>
-        <span>
-          Step {step} of 3{step === 3 ? ' · Optional' : ''}
-        </span>
-      </div>
-      <ol>
-        {stepLabels.map((label, index) => {
-          const state = index + 1 < step ? 'done' : index + 1 === step ? 'current' : 'ahead'
-          return (
-            <li
-              key={label}
-              className={`is-${state}`}
-              aria-current={state === 'current' ? 'step' : undefined}
-            >
-              {state === 'done' && <Check size={11} />}
-              {label}
-              {state === 'done' && <span className="access-visually-hidden"> (done)</span>}
-            </li>
-          )
-        })}
-      </ol>
-    </div>
-  )
 }
 export function CopyButton({
   value,
@@ -355,38 +226,5 @@ export function CopyButton({
       {state === 'copied' ? <Check size={13} /> : <Copy size={13} />}
       {!iconOnly && text}
     </button>
-  )
-}
-export function Dialog({
-  title,
-  children,
-  close,
-}: {
-  title: string
-  children: ReactNode
-  close: () => void
-}) {
-  const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    const dialog = ref.current
-    dialog?.showModal()
-    return () => dialog?.close()
-  }, [])
-  return (
-    <dialog
-      ref={ref}
-      className="access-dialog"
-      aria-labelledby="access-dialog-title"
-      onCancel={(event) => {
-        event.preventDefault()
-        close()
-      }}
-    >
-      <button className="access-dialog-close" aria-label="Close" onClick={close}>
-        <X size={18} />
-      </button>
-      <h2 id="access-dialog-title">{title}</h2>
-      {children}
-    </dialog>
   )
 }

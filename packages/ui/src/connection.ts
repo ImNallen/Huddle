@@ -5,7 +5,6 @@ import {
   AccessView,
   PhotoUpload,
   ServerInfo,
-  Session,
   serverOrigin,
   type AccessCommand as Command,
   type AccessError as AccessErrorBody,
@@ -20,7 +19,6 @@ export class RequestError extends Error {
     message: string,
     public retryAt?: string,
     public code?: AccessErrorCode,
-    public oauth?: string,
   ) {
     super(message)
   }
@@ -32,7 +30,6 @@ export class NetworkError extends Error {
 }
 export class Connection implements Transport {
   protected lifetime = new AbortController()
-  private continuation: string | undefined
   token: string | null = null
   readonly origin: string
   constructor(
@@ -47,7 +44,6 @@ export class Connection implements Transport {
   disconnect() {
     this.lifetime.abort()
     this.token = null
-    this.continuation = undefined
   }
   endpoint(path: string) {
     return this.origin + path
@@ -57,7 +53,6 @@ export class Connection implements Transport {
     if (json) headers.set('Content-Type', 'application/json')
     if (this.native) headers.set('X-Huddle-Client', 'native')
     if (this.token) headers.set('Authorization', `Bearer ${this.token}`)
-    if (this.continuation) headers.set('X-Huddle-Continuation', this.continuation)
     return headers
   }
   protected signal(signal?: AbortSignal) {
@@ -91,7 +86,6 @@ export class Connection implements Transport {
         .object({
           message: z.string().optional(),
           error: z.string().optional(),
-          error_description: z.string().optional(),
           retryAt: z.string().optional(),
         })
         .safeParse(value)
@@ -99,20 +93,16 @@ export class Connection implements Transport {
       throw new RequestError(
         response.status,
         error.success
-          ? (error.data.message ?? error.data.error_description ?? errorMessage(error.data.error))
+          ? (error.data.message ?? errorMessage(error.data.error))
           : 'The request failed.',
         error.success ? error.data.retryAt : undefined,
         code.success ? code.data : undefined,
-        error.success && !code.success ? error.data.error : undefined,
       )
     }
     return schema.parse(value)
   }
   info() {
     return this.request('/api/info', ServerInfo)
-  }
-  session(signal?: AbortSignal) {
-    return this.request('/api/auth/get-session', Session.nullable(), undefined, signal)
   }
   async resume(signal?: AbortSignal) {
     const view = await this.request('/api/access', AccessView, undefined, signal)
@@ -126,13 +116,8 @@ export class Connection implements Transport {
   }
   receive(view: View, signal?: AbortSignal) {
     if (!this.active || signal?.aborted) return
-    if (view.continuation) this.continuation = view.continuation
     if (view.bearerToken) this.token = view.bearerToken
-    if (view.stage.kind === 'signin' || view.stage.kind === 'setup') {
-      this.continuation = undefined
-      this.token = null
-    }
-    if (view.stage.kind === 'ready') this.continuation = undefined
+    if (view.stage.kind !== 'ready') this.token = null
   }
   async restore() {}
   async remember(token: string, signal?: AbortSignal) {
@@ -140,7 +125,6 @@ export class Connection implements Transport {
   }
   async forget() {
     this.token = null
-    this.continuation = undefined
   }
   async signOut() {
     try {
@@ -189,7 +173,7 @@ export class Connection implements Transport {
 function errorMessage(error?: string) {
   switch (error) {
     case 'invalid':
-      return 'That code or action could not be verified. Please try again.'
+      return 'That didn’t work. Check what you entered and try again.'
     case 'expired':
       return 'This verification expired. Start again.'
     case 'rate_limited':
@@ -197,7 +181,7 @@ function errorMessage(error?: string) {
     case 'unavailable':
       return 'This service is currently unavailable. Please try again later.'
     case 'reauth_required':
-      return 'Please verify your identity again to continue.'
+      return 'Please sign in again to continue.'
     default:
       return error ?? 'The request failed.'
   }

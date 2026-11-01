@@ -16,10 +16,7 @@ import { db } from './db'
 import { boundedBody } from './request-body'
 import { accessRequest, requireAccess } from './access'
 import { accountRequest } from './access-account'
-import { deviceRequest } from './access-device'
-import { passkeyRequest } from './access-passkey'
 import { AccessFailure } from './access-store'
-import { companyRequest } from './auth-provider'
 import { serverName, setupRequired } from './admission'
 import { friendInvites, resetMemberPassword } from './friends'
 
@@ -30,8 +27,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
   const headers = new Headers({
     Vary: 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers':
-      'Content-Type, Authorization, X-Huddle-Client, X-Huddle-Continuation',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Huddle-Client',
     'Access-Control-Allow-Credentials': 'true',
   })
   if (origin) headers.set('Access-Control-Allow-Origin', origin)
@@ -58,35 +54,10 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
       throw new AccessFailure('invalid')
     let accessResponse: Response | undefined
     if (path === '/api/access') accessResponse = await accessRequest(request, trustedIp)
-    else if (path.startsWith('/api/access/passkey/')) accessResponse = await passkeyRequest(request)
     else if (path === '/api/account' || path.startsWith('/api/account/photo'))
       accessResponse = await accountRequest(request)
-    else if (path === '/api/auth/device' || path.startsWith('/api/auth/device/'))
-      accessResponse = await deviceRequest(request, trustedIp)
-    else if (path === '/api/auth/get-session') {
-      try {
-        const actor = await requireAccess(request.headers)
-        accessResponse = Response.json({ user: actor.user })
-      } catch (error) {
-        if (!(error instanceof AccessFailure)) throw error
-        accessResponse = Response.json(null)
-      }
-    } else if (path.startsWith('/api/auth/')) {
-      if (
-        path === '/api/auth/sign-out' ||
-        (config.OIDC_DISCOVERY_URL &&
-          [
-            '/api/auth/sign-in/oauth2',
-            '/api/auth/oauth2/callback/company',
-            '/api/auth/callback/company',
-          ].includes(path))
-      )
-        accessResponse =
-          path === '/api/auth/sign-out'
-            ? await auth.handler(request)
-            : await companyRequest(request)
-      else throw new AccessFailure('invalid')
-    }
+    else if (path === '/api/auth/sign-out') accessResponse = await auth.handler(request)
+    else if (path.startsWith('/api/auth/')) throw new AccessFailure('invalid')
     if (accessResponse) {
       accessResponse.headers.set('Cache-Control', 'no-store')
       accessResponse.headers.delete('set-auth-token')
@@ -98,10 +69,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
         {
           name: await serverName(),
           setup: (await setupRequired()) ? 'required' : 'complete',
-          policy: config.AUTH_POLICY,
-          emailAvailable: config.AUTH_POLICY === 'mixed' && config.EMAIL.kind !== 'disabled',
           websocketUrl: config.WS_PUBLIC_URL,
-          oidc: Boolean(config.OIDC_DISCOVERY_URL),
         },
         { headers },
       )

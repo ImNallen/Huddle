@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectHome, friendPassword, inviteCode, join, onboard, signIn } from './passwordless'
+import { expectHome, friendPassword, inviteCode, join, onboard, signIn } from './accounts'
 import { useScratchServer } from './server'
 
 useScratchServer('ui')

@@ -1,9 +1,6 @@
 import { isTauri, invoke } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
-import { openUrl } from '@tauri-apps/plugin-opener'
 import { Connection } from '@huddle/ui'
 import { CredentialStore } from './credentials'
-export { RequestError, errorText } from '@huddle/ui'
 
 export const native = isTauri()
 export class Client extends Connection {
@@ -54,11 +51,4 @@ export class Client extends Connection {
 export async function openInvite(host: string, port: number, pin: string) {
   if (!native) throw new Error('Paste that invite in the Huddle app.')
   return invoke<string>('open_invite', { host, port, pin })
-}
-export async function openBrowser(url: string) {
-  if (native) await openUrl(url)
-  else window.open(url, '_blank', 'noopener,noreferrer')
-}
-export async function focusWindow() {
-  if (native) await getCurrentWindow().setFocus()
 }
