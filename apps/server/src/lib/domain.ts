@@ -416,14 +416,20 @@ async function findChannel(sql: PoolClient, channelId: ChannelId) {
   return Channel.parse(rows.rows[0])
 }
 const hash = (code: string) => createHash('sha256').update(code).digest('hex')
+const replayPage = 100
 export async function replay(userId: UserId, after: string) {
   return transaction(async (sql) => {
     await requireMember(sql, userId)
     const rows = await sql.query<Record<string, unknown>>(
-      'SELECT event FROM event WHERE cursor > $1 AND (audience IS NULL OR $2 = ANY(audience)) ORDER BY cursor LIMIT 100',
+      `SELECT event FROM event WHERE cursor > $1 AND (audience IS NULL OR $2 = ANY(audience)) ORDER BY cursor LIMIT ${replayPage}`,
       [after, userId],
     )
-    return rows.rows.map((row) => ServerEvent.parse(row.event))
+    const events = rows.rows.map((row) => ServerEvent.parse(row.event))
+    const last = events.at(-1)
+    if (last && events.length === replayPage) return { events, scanned: last.cursor }
+    const head = await sql.query<Record<string, unknown>>('SELECT cursor::text FROM server')
+    const { cursor } = z.object({ cursor: z.string() }).parse(head.rows[0])
+    return { events, scanned: BigInt(cursor) > BigInt(after) ? cursor : after }
   }, true)
 }
 

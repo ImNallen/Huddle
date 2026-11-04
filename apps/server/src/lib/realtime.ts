@@ -73,15 +73,15 @@ export async function startRealtime(friend?: Server) {
           socket.close(1008, 'Session expired.')
           return
         }
-        const events = await replay(UserId.parse(session.user.id), watch.after)
+        const { events, scanned } = await replay(UserId.parse(session.user.id), watch.after)
         if (socket.bufferedAmount > 512 * 1024) {
           socket.close(1013, 'Reconnect to catch up.')
           return
         }
-        if (socket.readyState === WebSocket.OPEN && (sendEmpty || events.length)) {
-          socket.send(JSON.stringify({ kind: 'events', events }))
-          const last = events.at(-1)
-          if (last) watch.after = last.cursor
+        if (socket.readyState === WebSocket.OPEN) {
+          if (sendEmpty || events.length)
+            socket.send(JSON.stringify({ kind: 'events', events }))
+          watch.after = scanned
         }
       } catch {
         socket.close(1008, 'Server or session unavailable.')

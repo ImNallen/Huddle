@@ -13,7 +13,11 @@ try {
   const { db } = await import('../src/lib/db')
   const domain = await import('../src/lib/domain')
   const { pruneAccess } = await import('../src/lib/access-maintenance')
-  closeDomain = () => db.end()
+  closeDomain = async () => {
+    // db.end() can resolve before its sockets close, and the forced drop then terminates them.
+    db.on('error', () => {})
+    await db.end()
+  }
   const { getMigrations } = await import('better-auth/db/migration')
   await (await getMigrations(auth.options)).runMigrations()
 
@@ -308,9 +312,9 @@ try {
       [],
       'a stored message.created event without mentions parses to none',
     )
-    assert.deepEqual(await domain.replay(owner, '0'), events)
+    assert.deepEqual((await domain.replay(owner, '0')).events, events)
     assert.deepEqual(
-      await domain.replay(colleague, '0'),
+      (await domain.replay(colleague, '0')).events,
       events,
       'after 012 existing events stay visible to everyone',
     )
@@ -404,6 +408,26 @@ try {
     assert.deepEqual(snapshot.directs, [])
     assert.equal(snapshot.cursor, '5')
     assert.equal((await domain.snapshot(colleague)).server.role, 'member')
+
+    const { scanned: seen } = await domain.replay(colleague, '0')
+    const hidden = (
+      await scratch.query('UPDATE server SET cursor = cursor + 1 RETURNING cursor::text')
+    ).rows[0].cursor
+    await scratch.query('INSERT INTO event(cursor, event, audience) VALUES ($1, $2, $3)', [
+      hidden,
+      { kind: 'direct.message.created' },
+      ['someone-else'],
+    ])
+    assert.deepEqual(
+      await domain.replay(colleague, seen),
+      { events: [], scanned: hidden },
+      'a watcher moves past an event it cannot see without receiving it',
+    )
+    assert.deepEqual(
+      await domain.replay(colleague, hidden),
+      { events: [], scanned: hidden },
+      'a watcher at the head stays there',
+    )
   } finally {
     await scratch.end()
   }
