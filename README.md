@@ -1,8 +1,8 @@
 # Huddle
 
-Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. You run the server and share an invite. Friends paste it into the Huddle desktop app, pick a username and password, and chat with you in rooms and channels.
+Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. You run the server and share an invite. Friends paste it into the Huddle desktop app, pick a username and password, and chat with you in rooms and channels. Any two friends can also message each other directly from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
 
-Huddle is text only for now. Voice, video, file uploads, message editing, and mobile apps are not built yet.
+Huddle is text only for now. A room can list voice channels, but they carry no audio yet. Voice calls, video, file uploads, message editing, group direct messages, blocking, and mobile apps are not built yet.
 
 ## Host a server
 

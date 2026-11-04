@@ -1,0 +1,1456 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-04T18:08:59.263Z",
+  "title": "Design System: Huddle",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Huddle Indigo",
+        "canonical": "#5865f2",
+        "tonalRamp": [
+          "#060821",
+          "#171562",
+          "#2c2b9f",
+          "#434ad3",
+          "#606ffb",
+          "#899dff",
+          "#b8c6ff",
+          "#e9eefe"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Pressed Indigo",
+        "canonical": "#4752c4",
+        "tonalRamp": [
+          "#06091d",
+          "#181b58",
+          "#2d3390",
+          "#4651c1",
+          "#6475e8",
+          "#899dfe",
+          "#b8c6fe",
+          "#eaeefe"
+        ]
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "On Indigo White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "focus-dark": {
+        "role": "primary",
+        "displayName": "Focus Ring (Dark)",
+        "canonical": "#8a93f6",
+        "tonalRamp": [
+          "#08091a",
+          "#1d1d4f",
+          "#353682",
+          "#5154b0",
+          "#7077d6",
+          "#939cf2",
+          "#bcc5fe",
+          "#ebedfe"
+        ]
+      },
+      "focus-light": {
+        "role": "primary",
+        "displayName": "Focus Ring (Light)",
+        "canonical": "#5865f2",
+        "tonalRamp": [
+          "#060821",
+          "#171562",
+          "#2c2b9f",
+          "#434ad3",
+          "#606ffb",
+          "#899dff",
+          "#b8c6ff",
+          "#e9eefe"
+        ]
+      },
+      "link-dark": {
+        "role": "primary",
+        "displayName": "Link Periwinkle (Dark)",
+        "canonical": "#afbeed",
+        "tonalRamp": [
+          "#080b12",
+          "#1d243a",
+          "#364062",
+          "#535f88",
+          "#7380ac",
+          "#97a4cb",
+          "#bfc8e6",
+          "#eaeefa"
+        ]
+      },
+      "link-light": {
+        "role": "primary",
+        "displayName": "Link Periwinkle (Light)",
+        "canonical": "#4752c4",
+        "tonalRamp": [
+          "#06091d",
+          "#181b58",
+          "#2d3390",
+          "#4651c1",
+          "#6475e8",
+          "#899dfe",
+          "#b8c6fe",
+          "#eaeefe"
+        ]
+      },
+      "mention-dark": {
+        "role": "primary",
+        "displayName": "Mention Text (Dark)",
+        "canonical": "#c9cdfb",
+        "tonalRamp": [
+          "#0a0a12",
+          "#222338",
+          "#3d3e5f",
+          "#5b5d85",
+          "#7b7ea8",
+          "#9ea2c8",
+          "#c4c7e3",
+          "#ecedf9"
+        ]
+      },
+      "mention-light": {
+        "role": "primary",
+        "displayName": "Mention Text (Light)",
+        "canonical": "#3c45a5",
+        "tonalRamp": [
+          "#07091b",
+          "#191d52",
+          "#2f3786",
+          "#4955b5",
+          "#6878db",
+          "#8c9ef7",
+          "#b9c6fe",
+          "#eaeefe"
+        ]
+      },
+      "mention-bg-dark": {
+        "role": "primary",
+        "displayName": "Mention Tint (Dark)",
+        "canonical": "rgb(88 101 242 / 0.3)",
+        "tonalRamp": [
+          "#060821",
+          "#171562",
+          "#2c2b9f",
+          "#434ad3",
+          "#606ffb",
+          "#899dff",
+          "#b8c6ff",
+          "#e9eefe"
+        ]
+      },
+      "mention-bg-light": {
+        "role": "primary",
+        "displayName": "Mention Tint (Light)",
+        "canonical": "rgb(88 101 242 / 0.15)",
+        "tonalRamp": [
+          "#060821",
+          "#171562",
+          "#2c2b9f",
+          "#434ad3",
+          "#606ffb",
+          "#899dff",
+          "#b8c6ff",
+          "#e9eefe"
+        ]
+      },
+      "green-dark": {
+        "role": "secondary",
+        "displayName": "Connected Green (Dark)",
+        "canonical": "#23a55a",
+        "tonalRamp": [
+          "#001004",
+          "#002e13",
+          "#005026",
+          "#00753a",
+          "#169b52",
+          "#5bbd7b",
+          "#99dcab",
+          "#dcf7e2"
+        ]
+      },
+      "green-light": {
+        "role": "secondary",
+        "displayName": "Connected Green (Light)",
+        "canonical": "#1c8548",
+        "tonalRamp": [
+          "#020f05",
+          "#002e13",
+          "#005026",
+          "#04753b",
+          "#38985b",
+          "#6aba82",
+          "#a1d9b0",
+          "#dff5e4"
+        ]
+      },
+      "amber-dark": {
+        "role": "secondary",
+        "displayName": "Waiting Amber (Dark)",
+        "canonical": "#f0b232",
+        "tonalRamp": [
+          "#130900",
+          "#332100",
+          "#573c00",
+          "#7f5a02",
+          "#a97902",
+          "#cf9b34",
+          "#e9c382",
+          "#fcecd3"
+        ]
+      },
+      "amber-light": {
+        "role": "secondary",
+        "displayName": "Waiting Amber (Light)",
+        "canonical": "#a96a00",
+        "tonalRamp": [
+          "#140800",
+          "#371f00",
+          "#5e3800",
+          "#875403",
+          "#b17319",
+          "#d19855",
+          "#ebc192",
+          "#fdebd8"
+        ]
+      },
+      "danger-dark": {
+        "role": "secondary",
+        "displayName": "Soft Danger (Dark)",
+        "canonical": "#f87171",
+        "tonalRamp": [
+          "#190404",
+          "#4b030c",
+          "#7d0c1b",
+          "#ab2b33",
+          "#d25154",
+          "#f17d7b",
+          "#ffb2ae",
+          "#fee9e7"
+        ]
+      },
+      "danger-light": {
+        "role": "secondary",
+        "displayName": "Soft Danger (Light)",
+        "canonical": "#c02e33",
+        "tonalRamp": [
+          "#1b0303",
+          "#4d0006",
+          "#800012",
+          "#b11f28",
+          "#d94a49",
+          "#f87973",
+          "#ffb2ac",
+          "#fee9e7"
+        ]
+      },
+      "danger-fill": {
+        "role": "secondary",
+        "displayName": "Count Red",
+        "canonical": "#da373c",
+        "tonalRamp": [
+          "#1c0203",
+          "#4d0006",
+          "#800012",
+          "#b70820",
+          "#e04043",
+          "#fe736e",
+          "#feb3ad",
+          "#fee9e7"
+        ]
+      },
+      "mascot-indigo": {
+        "role": "tertiary",
+        "displayName": "Mascot Indigo",
+        "canonical": "#818cf8",
+        "tonalRamp": [
+          "#07091b",
+          "#1b1c53",
+          "#333488",
+          "#4e53b7",
+          "#6d76de",
+          "#909cf9",
+          "#bbc5ff",
+          "#eaedff"
+        ]
+      },
+      "mascot-sky": {
+        "role": "tertiary",
+        "displayName": "Mascot Sky",
+        "canonical": "#38bdf8",
+        "tonalRamp": [
+          "#000d17",
+          "#00293b",
+          "#004864",
+          "#026a91",
+          "#008ec0",
+          "#48b1e3",
+          "#8fd3f8",
+          "#dcf2ff"
+        ]
+      },
+      "mascot-teal": {
+        "role": "tertiary",
+        "displayName": "Mascot Teal",
+        "canonical": "#2dd4bf",
+        "tonalRamp": [
+          "#000f0c",
+          "#002c27",
+          "#004e45",
+          "#007165",
+          "#029787",
+          "#39bcaa",
+          "#8bdbcd",
+          "#d7f6f0"
+        ]
+      },
+      "mascot-lime": {
+        "role": "tertiary",
+        "displayName": "Mascot Lime",
+        "canonical": "#a3e635",
+        "tonalRamp": [
+          "#050f00",
+          "#1a2b00",
+          "#314b00",
+          "#4a6e01",
+          "#649302",
+          "#82b924",
+          "#afd97d",
+          "#e4f6d1"
+        ]
+      },
+      "mascot-amber": {
+        "role": "tertiary",
+        "displayName": "Mascot Amber",
+        "canonical": "#fbbf24",
+        "tonalRamp": [
+          "#120900",
+          "#312200",
+          "#553e00",
+          "#7b5b03",
+          "#a57b03",
+          "#ce9c1b",
+          "#e8c47a",
+          "#fcedd0"
+        ]
+      },
+      "mascot-orange": {
+        "role": "tertiary",
+        "displayName": "Mascot Orange",
+        "canonical": "#fb923c",
+        "tonalRamp": [
+          "#170600",
+          "#3c1b00",
+          "#663200",
+          "#934b00",
+          "#c36600",
+          "#e58c47",
+          "#fbb98a",
+          "#ffeadc"
+        ]
+      },
+      "mascot-rose": {
+        "role": "tertiary",
+        "displayName": "Mascot Rose",
+        "canonical": "#fb7185",
+        "tonalRamp": [
+          "#190406",
+          "#4b0116",
+          "#7d072a",
+          "#aa2745",
+          "#d24e65",
+          "#f17b8a",
+          "#feb1b8",
+          "#fee8ea"
+        ]
+      },
+      "mascot-violet": {
+        "role": "tertiary",
+        "displayName": "Mascot Violet",
+        "canonical": "#c084fc",
+        "tonalRamp": [
+          "#10061a",
+          "#320f4e",
+          "#562180",
+          "#7a3dae",
+          "#9c61d4",
+          "#bc8af0",
+          "#d9b9fe",
+          "#f3eafe"
+        ]
+      },
+      "chrome-dark": {
+        "role": "neutral",
+        "displayName": "Graphite Shell (Dark)",
+        "canonical": "#131215",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252527",
+          "#424144",
+          "#626064",
+          "#838185",
+          "#a5a4a8",
+          "#c9c8cb",
+          "#eeeeef"
+        ]
+      },
+      "chrome-light": {
+        "role": "neutral",
+        "displayName": "Graphite Shell (Light)",
+        "canonical": "#e3e5e8",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242526",
+          "#414244",
+          "#606164",
+          "#818285",
+          "#a3a5a7",
+          "#c8c9cb",
+          "#eeeeef"
+        ]
+      },
+      "sidebar-dark": {
+        "role": "neutral",
+        "displayName": "Channel Column (Dark)",
+        "canonical": "#131215",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252527",
+          "#424144",
+          "#626064",
+          "#838185",
+          "#a5a4a8",
+          "#c9c8cb",
+          "#eeeeef"
+        ]
+      },
+      "sidebar-light": {
+        "role": "neutral",
+        "displayName": "Channel Column (Light)",
+        "canonical": "#f2f3f5",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#414243",
+          "#606163",
+          "#818284",
+          "#a4a5a7",
+          "#c8c9ca",
+          "#eeeeef"
+        ]
+      },
+      "bg-dark": {
+        "role": "neutral",
+        "displayName": "Chat Ground (Dark)",
+        "canonical": "#1b1a1f",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252428",
+          "#424146",
+          "#616066",
+          "#828188",
+          "#a5a4aa",
+          "#c9c8cd",
+          "#eeeef0"
+        ]
+      },
+      "bg-light": {
+        "role": "neutral",
+        "displayName": "Chat Ground (Light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "panel-dark": {
+        "role": "neutral",
+        "displayName": "Account Panel Ground (Dark)",
+        "canonical": "#212025",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252428",
+          "#424146",
+          "#616066",
+          "#828187",
+          "#a5a4aa",
+          "#c9c8cd",
+          "#eeeef0"
+        ]
+      },
+      "panel-light": {
+        "role": "neutral",
+        "displayName": "Account Panel Ground (Light)",
+        "canonical": "#ebedef",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242526",
+          "#414243",
+          "#606163",
+          "#818284",
+          "#a3a5a7",
+          "#c8c9ca",
+          "#eeeeef"
+        ]
+      },
+      "rail-tile-dark": {
+        "role": "neutral",
+        "displayName": "Rail Tile (Dark)",
+        "canonical": "#212025",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252428",
+          "#424146",
+          "#616066",
+          "#828187",
+          "#a5a4aa",
+          "#c9c8cd",
+          "#eeeef0"
+        ]
+      },
+      "rail-tile-light": {
+        "role": "neutral",
+        "displayName": "Rail Tile (Light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "raised-dark": {
+        "role": "neutral",
+        "displayName": "Raised Surface (Dark)",
+        "canonical": "#242328",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252428",
+          "#424146",
+          "#616066",
+          "#828187",
+          "#a5a4aa",
+          "#c9c8cd",
+          "#eeeef0"
+        ]
+      },
+      "raised-light": {
+        "role": "neutral",
+        "displayName": "Raised Surface (Light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "card-dark": {
+        "role": "neutral",
+        "displayName": "Card Surface (Dark)",
+        "canonical": "#1c1b20",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252428",
+          "#424146",
+          "#616066",
+          "#828188",
+          "#a5a4aa",
+          "#c9c8cd",
+          "#eeeef0"
+        ]
+      },
+      "card-light": {
+        "role": "neutral",
+        "displayName": "Card Surface (Light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "input-dark": {
+        "role": "neutral",
+        "displayName": "Composer Fill (Dark)",
+        "canonical": "#212327",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242528",
+          "#404246",
+          "#5f6166",
+          "#808287",
+          "#a3a5a9",
+          "#c7c9cc",
+          "#eeeef0"
+        ]
+      },
+      "input-light": {
+        "role": "neutral",
+        "displayName": "Composer Fill (Light)",
+        "canonical": "#ebedef",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242526",
+          "#414243",
+          "#606163",
+          "#818284",
+          "#a3a5a7",
+          "#c8c9ca",
+          "#eeeeef"
+        ]
+      },
+      "secondary-dark": {
+        "role": "neutral",
+        "displayName": "Secondary Fill (Dark)",
+        "canonical": "#2a292e",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252528",
+          "#424146",
+          "#616066",
+          "#828187",
+          "#a5a4aa",
+          "#c9c8cc",
+          "#eeeef0"
+        ]
+      },
+      "secondary-light": {
+        "role": "neutral",
+        "displayName": "Secondary Fill (Light)",
+        "canonical": "#e3e5e8",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242526",
+          "#414244",
+          "#606164",
+          "#818285",
+          "#a3a5a7",
+          "#c8c9cb",
+          "#eeeeef"
+        ]
+      },
+      "secondary-hover-dark": {
+        "role": "neutral",
+        "displayName": "Secondary Fill Hover (Dark)",
+        "canonical": "#38373d",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252428",
+          "#424146",
+          "#616067",
+          "#828188",
+          "#a5a4aa",
+          "#c9c8cd",
+          "#eeeef0"
+        ]
+      },
+      "secondary-hover-light": {
+        "role": "neutral",
+        "displayName": "Secondary Fill Hover (Light)",
+        "canonical": "#d7d9dc",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242526",
+          "#414244",
+          "#606164",
+          "#818285",
+          "#a3a5a7",
+          "#c8c9cb",
+          "#eeeeef"
+        ]
+      },
+      "tile-dark": {
+        "role": "neutral",
+        "displayName": "Icon Tile (Dark)",
+        "canonical": "#393a40",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242528",
+          "#414247",
+          "#606167",
+          "#818289",
+          "#a3a5ab",
+          "#c8c9cd",
+          "#eeeef0"
+        ]
+      },
+      "tile-light": {
+        "role": "neutral",
+        "displayName": "Icon Tile (Light)",
+        "canonical": "#dfe1e5",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242527",
+          "#414245",
+          "#5f6165",
+          "#808286",
+          "#a3a5a8",
+          "#c8c9cb",
+          "#eeeeef"
+        ]
+      },
+      "hover-dark": {
+        "role": "neutral",
+        "displayName": "Hover Wash (Dark)",
+        "canonical": "rgb(255 255 255 / 0.05)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "hover-light": {
+        "role": "neutral",
+        "displayName": "Hover Wash (Light)",
+        "canonical": "rgb(6 6 7 / 0.05)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "selected-dark": {
+        "role": "neutral",
+        "displayName": "Selected Wash (Dark)",
+        "canonical": "rgb(255 255 255 / 0.11)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "selected-light": {
+        "role": "neutral",
+        "displayName": "Selected Wash (Light)",
+        "canonical": "rgb(6 6 7 / 0.09)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "message-hover-dark": {
+        "role": "neutral",
+        "displayName": "Message Wash (Dark)",
+        "canonical": "rgb(255 255 255 / 0.04)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "message-hover-light": {
+        "role": "neutral",
+        "displayName": "Message Wash (Light)",
+        "canonical": "rgb(6 6 7 / 0.03)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "line-dark": {
+        "role": "neutral",
+        "displayName": "Hairline (Dark)",
+        "canonical": "rgb(255 255 255 / 0.07)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "line-light": {
+        "role": "neutral",
+        "displayName": "Hairline (Light)",
+        "canonical": "rgb(6 6 7 / 0.09)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "line-strong-dark": {
+        "role": "neutral",
+        "displayName": "Strong Hairline (Dark)",
+        "canonical": "rgb(255 255 255 / 0.13)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "line-strong-light": {
+        "role": "neutral",
+        "displayName": "Strong Hairline (Light)",
+        "canonical": "rgb(6 6 7 / 0.16)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "text-dark": {
+        "role": "neutral",
+        "displayName": "Message Text (Dark)",
+        "canonical": "#f2f2f3",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616162",
+          "#828283",
+          "#a5a5a6",
+          "#c9c9c9",
+          "#eeeeef"
+        ]
+      },
+      "text-light": {
+        "role": "neutral",
+        "displayName": "Message Text (Light)",
+        "canonical": "#1f2125",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242528",
+          "#404246",
+          "#5f6166",
+          "#808287",
+          "#a3a5aa",
+          "#c7c9cc",
+          "#eeeef0"
+        ]
+      },
+      "strong-dark": {
+        "role": "neutral",
+        "displayName": "Strong Text (Dark)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "strong-light": {
+        "role": "neutral",
+        "displayName": "Strong Text (Light)",
+        "canonical": "#060607",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Muted Text (Dark)",
+        "canonical": "#a09fa4",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252527",
+          "#424145",
+          "#616065",
+          "#828186",
+          "#a5a4a9",
+          "#c9c8cc",
+          "#eeeeef"
+        ]
+      },
+      "muted-light": {
+        "role": "neutral",
+        "displayName": "Muted Text (Light)",
+        "canonical": "#5c5e66",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242529",
+          "#404248",
+          "#5f6169",
+          "#80828a",
+          "#a3a5ac",
+          "#c7c9ce",
+          "#eeeef1"
+        ]
+      },
+      "faint-dark": {
+        "role": "neutral",
+        "displayName": "Faint Text (Dark)",
+        "canonical": "#96959a",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#252527",
+          "#424145",
+          "#616065",
+          "#828186",
+          "#a5a4a9",
+          "#c9c8cc",
+          "#eeeeef"
+        ]
+      },
+      "faint-light": {
+        "role": "neutral",
+        "displayName": "Faint Text (Light)",
+        "canonical": "#5c5e66",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242529",
+          "#404248",
+          "#5f6169",
+          "#80828a",
+          "#a3a5ac",
+          "#c7c9ce",
+          "#eeeef1"
+        ]
+      },
+      "placeholder-dark": {
+        "role": "neutral",
+        "displayName": "Placeholder Text (Dark)",
+        "canonical": "#94969b",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242527",
+          "#404246",
+          "#5f6166",
+          "#808287",
+          "#a3a5a9",
+          "#c8c9cc",
+          "#eeeef0"
+        ]
+      },
+      "placeholder-light": {
+        "role": "neutral",
+        "displayName": "Placeholder Text (Light)",
+        "canonical": "#5c5e66",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242529",
+          "#404248",
+          "#5f6169",
+          "#80828a",
+          "#a3a5ac",
+          "#c7c9ce",
+          "#eeeef1"
+        ]
+      },
+      "scroll-thumb-dark": {
+        "role": "neutral",
+        "displayName": "Scroll Thumb (Dark)",
+        "canonical": "rgb(255 255 255 / 0.16)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "scroll-thumb-light": {
+        "role": "neutral",
+        "displayName": "Scroll Thumb (Light)",
+        "canonical": "rgb(6 6 7 / 0.22)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252526",
+          "#424243",
+          "#616163",
+          "#828284",
+          "#a5a5a6",
+          "#c9c9ca",
+          "#eeeeef"
+        ]
+      },
+      "access-field-from-dark": {
+        "role": "neutral",
+        "displayName": "Access Field Start (Dark)",
+        "canonical": "#1a1650",
+        "tonalRamp": [
+          "#090a16",
+          "#1f2143",
+          "#393b70",
+          "#565a99",
+          "#767bbe",
+          "#99a0dc",
+          "#c0c6f2",
+          "#ebedff"
+        ]
+      },
+      "access-field-from-light": {
+        "role": "neutral",
+        "displayName": "Access Field Start (Light)",
+        "canonical": "#262a8c",
+        "tonalRamp": [
+          "#06091c",
+          "#171d53",
+          "#2d3689",
+          "#4755b8",
+          "#6578de",
+          "#899efa",
+          "#b8c6fe",
+          "#e9eeff"
+        ]
+      },
+      "access-field-to-dark": {
+        "role": "neutral",
+        "displayName": "Access Field End (Dark)",
+        "canonical": "#2b52d2",
+        "tonalRamp": [
+          "#030920",
+          "#091a60",
+          "#16339c",
+          "#2b52d0",
+          "#4977f7",
+          "#7ba1fe",
+          "#b1c9ff",
+          "#e7effe"
+        ]
+      },
+      "access-field-to-light": {
+        "role": "neutral",
+        "displayName": "Access Field End (Light)",
+        "canonical": "#2a54c8",
+        "tonalRamp": [
+          "#03091f",
+          "#081d5c",
+          "#163696",
+          "#2c56c8",
+          "#4b7aef",
+          "#79a2fe",
+          "#b0c9fe",
+          "#e7effe"
+        ]
+      },
+      "access-card-dark": {
+        "role": "neutral",
+        "displayName": "Access Card (Dark)",
+        "canonical": "#323339",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242528",
+          "#414247",
+          "#606167",
+          "#818289",
+          "#a3a5ab",
+          "#c8c9cd",
+          "#eeeef0"
+        ]
+      },
+      "access-card-light": {
+        "role": "neutral",
+        "displayName": "Access Card (Light)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "access-input-dark": {
+        "role": "neutral",
+        "displayName": "Access Input (Dark)",
+        "canonical": "#27292d",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242527",
+          "#404246",
+          "#5f6166",
+          "#808287",
+          "#a3a5a9",
+          "#c7c9cc",
+          "#eeeef0"
+        ]
+      },
+      "access-input-light": {
+        "role": "neutral",
+        "displayName": "Access Input (Light)",
+        "canonical": "#ebedef",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242526",
+          "#414243",
+          "#606163",
+          "#818284",
+          "#a3a5a7",
+          "#c8c9ca",
+          "#eeeeef"
+        ]
+      },
+      "scrim": {
+        "role": "neutral",
+        "displayName": "Scrim",
+        "canonical": "rgb(0 0 0 / 0.7)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The channel welcome heading only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Home greeting, the Members page, and settings pages."
+      },
+      "headline-access": {
+        "displayName": "Headline Access",
+        "purpose": "The centered heading on the access card."
+      },
+      "title-dialog": {
+        "displayName": "Title Dialog",
+        "purpose": "Centered dialog headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Channel name, server name, message authors, and card headings, including Direct messages on Home."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Message text and the composer."
+      },
+      "nav": {
+        "displayName": "Nav",
+        "purpose": "Channel rows, member rows, and settings navigation."
+      },
+      "ui": {
+        "displayName": "UI",
+        "purpose": "The interface base, set on the root."
+      },
+      "ui-strong": {
+        "displayName": "UI Strong",
+        "purpose": "Buttons, menu items, tabs, and field labels."
+      },
+      "section-label": {
+        "displayName": "Section Label",
+        "purpose": "Text Channels and member group headings, in mixed case."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Timestamps and counts, with tabular numerals."
+      },
+      "access-label": {
+        "displayName": "Access Label",
+        "purpose": "Uppercase field and list labels inside the access card."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Hostnames, invite codes, and session values."
+      }
+    },
+    "shadows": [
+      {
+        "name": "menu-dark",
+        "value": "0 8px 24px rgb(0 0 0 / 0.4)",
+        "purpose": "Server menu and rail tooltips in dark."
+      },
+      {
+        "name": "menu-light",
+        "value": "0 8px 24px rgb(6 6 7 / 0.16)",
+        "purpose": "Server menu and rail tooltips in light."
+      },
+      {
+        "name": "modal-dark",
+        "value": "0 16px 48px rgb(0 0 0 / 0.5)",
+        "purpose": "Dialogs in dark, over the scrim."
+      },
+      {
+        "name": "modal-light",
+        "value": "0 16px 48px rgb(6 6 7 / 0.24)",
+        "purpose": "Dialogs in light, over the scrim."
+      },
+      {
+        "name": "card-dark",
+        "value": "0 4px 16px rgb(0 0 0 / 0.35)",
+        "purpose": "The access card on the access field in dark."
+      },
+      {
+        "name": "card-light",
+        "value": "0 4px 16px rgb(6 6 7 / 0.2)",
+        "purpose": "The access card on the access field in light."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "120ms",
+        "purpose": "Color, border, radius, and pill changes."
+      },
+      {
+        "name": "ease-settle",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Rail pill height, tile radius, and tooltip movement."
+      },
+      {
+        "name": "spin",
+        "value": "0.8s linear infinite",
+        "purpose": "The busy spinner."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "member-list-hidden",
+        "value": "1000px"
+      },
+      {
+        "name": "shell-narrow",
+        "value": "760px"
+      },
+      {
+        "name": "access-compact",
+        "value": "560px"
+      },
+      {
+        "name": "shell-phone",
+        "value": "480px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The main action in a view or dialog.",
+      "html": "<button class=\"ds-btn-primary\">Share invite</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 16px; border: 0; border-radius: 8px; font: 500 14px var(--font); white-space: nowrap; cursor: pointer; transition: background-color 120ms; background: var(--accent); color: var(--on-accent); } .ds-btn-primary:hover { background: var(--accent-hover); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Every other action, such as Reset password.",
+      "html": "<button class=\"ds-btn-secondary\">Reset password</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 16px; border: 0; border-radius: 8px; font: 500 14px var(--font); white-space: nowrap; cursor: pointer; transition: background-color 120ms; background: var(--secondary); color: var(--text); } .ds-btn-secondary:hover { background: var(--secondary-hover); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The standard field in dialogs and settings.",
+      "html": "<input class=\"ds-input\" placeholder=\"new-channel\" aria-label=\"Channel name\" />",
+      "css": ".ds-input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--text); font: 400 14px var(--font); transition: border-color 120ms; } .ds-input::placeholder { color: var(--placeholder); } .ds-input:focus { border-color: var(--accent); } .ds-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Rail Tile",
+      "kind": "nav",
+      "refersTo": "rail-tile-current",
+      "description": "Rounded-square tiles on the rail, with the pill marking state.",
+      "html": "<div class=\"ds-rail\"><div class=\"ds-rail-item is-current\"><i class=\"ds-rail-pill\"></i><button class=\"ds-rail-tile\" aria-label=\"Home\" aria-current=\"page\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><mask id=\"ds-logo-cut\"><rect width=\"24\" height=\"24\" fill=\"white\"/><rect x=\"5.9\" width=\"1.3\" height=\"24\" fill=\"black\"/><rect x=\"16.8\" width=\"1.3\" height=\"24\" fill=\"black\"/><rect x=\"10.8\" width=\"2.4\" height=\"9.6\" fill=\"black\"/><rect x=\"10.8\" y=\"14.4\" width=\"2.4\" height=\"9.6\" fill=\"black\"/></mask><circle cx=\"12\" cy=\"12\" r=\"12\" fill=\"currentColor\" mask=\"url(#ds-logo-cut)\"/></svg></button></div><div class=\"ds-rail-item is-unread\"><i class=\"ds-rail-pill\"></i><button class=\"ds-rail-tile\" aria-label=\"Gaming\">GM</button></div></div>",
+      "css": ".ds-rail { display: flex; flex-direction: column; gap: 8px; width: 72px; padding: 8px 0; background: var(--chrome); } .ds-rail-item { position: relative; display: flex; justify-content: center; } .ds-rail-pill { position: absolute; top: 50%; left: 0; width: 4px; height: 0; border-radius: 0 4px 4px 0; background: var(--strong); transform: translateY(-50%); transition: height 120ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-rail-item.is-unread .ds-rail-pill { height: 8px; } .ds-rail-item:hover .ds-rail-pill { height: 20px; } .ds-rail-item.is-current .ds-rail-pill { height: 32px; } .ds-rail-tile { display: grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--rail-tile); color: var(--strong); font: 600 14px var(--font); cursor: pointer; transition: background-color 120ms, color 120ms, border-radius 120ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-rail-tile:hover { border-radius: 10px; } .ds-rail-tile:hover, .ds-rail-tile[aria-current] { background: var(--accent); color: var(--on-accent); } .ds-rail-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Channel Row",
+      "kind": "nav",
+      "refersTo": "nav-row",
+      "description": "Sidebar rows with default, hover, and current states.",
+      "html": "<div class=\"ds-channels\"><button class=\"ds-nav-row\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><line x1=\"4\" x2=\"20\" y1=\"9\" y2=\"9\"/><line x1=\"4\" x2=\"20\" y1=\"15\" y2=\"15\"/><line x1=\"10\" x2=\"8\" y1=\"3\" y2=\"21\"/><line x1=\"16\" x2=\"14\" y1=\"3\" y2=\"21\"/></svg><span>clips</span></button><button class=\"ds-nav-row\" aria-current=\"page\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><line x1=\"4\" x2=\"20\" y1=\"9\" y2=\"9\"/><line x1=\"4\" x2=\"20\" y1=\"15\" y2=\"15\"/><line x1=\"10\" x2=\"8\" y1=\"3\" y2=\"21\"/><line x1=\"16\" x2=\"14\" y1=\"3\" y2=\"21\"/></svg><span>general</span></button></div>",
+      "css": ".ds-channels { display: grid; gap: 2px; width: 248px; padding: 8px; background: var(--sidebar); } .ds-nav-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: 500 15px var(--font); text-align: left; cursor: pointer; } .ds-nav-row:hover { background: var(--hover); color: var(--text); } .ds-nav-row[aria-current='page'] { background: var(--selected); color: var(--strong); } .ds-nav-row:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Message",
+      "kind": "custom",
+      "refersTo": "message",
+      "description": "Flat, full-width message rows with a hover wash and no bubble.",
+      "html": "<article class=\"ds-message\"><span class=\"ds-message-avatar\"><span class=\"ds-mascot\"></span></span><div class=\"ds-message-meta\"><strong>Sam Rivera</strong><time>5:49 PM</time></div><p class=\"ds-message-body\">anyone up for ranked tonight?</p></article>",
+      "css": ".ds-message { position: relative; padding: 2px 48px 2px 72px; background: var(--bg); font-family: var(--font); line-height: 1.375; } .ds-message:hover { background: var(--message-hover); } .ds-message-avatar { position: absolute; top: 4px; left: 16px; display: flex; } .ds-message-meta { display: flex; align-items: baseline; gap: 8px; } .ds-message-meta strong { color: var(--strong); font-size: 16px; font-weight: 600; } .ds-message-meta time { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; } .ds-message-body { margin: 0; color: var(--text); font-size: 16px; } .ds-mascot { position: relative; display: inline-grid; flex: none; width: 40px; height: 40px; border-radius: 50%; background: #fb923c; } .ds-mascot::before, .ds-mascot::after { content: \"\"; position: absolute; top: 37%; width: 9%; height: 26%; border-radius: 99px; background: white; } .ds-mascot::before { left: 35%; } .ds-mascot::after { right: 35%; }"
+    },
+    {
+      "name": "Composer",
+      "kind": "custom",
+      "refersTo": "composer",
+      "description": "A text area and send icon only, with no controls for unbuilt features.",
+      "html": "<form class=\"ds-composer\"><textarea rows=\"1\" placeholder=\"Message #general\" aria-label=\"Message\"></textarea><button type=\"button\" aria-label=\"Send\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z\"/><path d=\"M6 12h16\"/></svg></button></form>",
+      "css": ".ds-composer { display: flex; align-items: flex-end; min-height: 52px; border-radius: 8px; background: var(--input); transition: box-shadow 120ms; } .ds-composer:focus-within { box-shadow: 0 0 0 1px var(--line-strong); } .ds-composer textarea { flex: 1; min-width: 0; min-height: 52px; padding: 15px 16px; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: 400 16px/22px var(--font); } .ds-composer textarea::placeholder { color: var(--placeholder); } .ds-composer button { display: grid; place-items: center; width: 32px; height: 32px; margin: 10px; border: 0; border-radius: 6px; background: none; color: var(--accent); cursor: pointer; } .ds-composer button:hover { background: var(--hover); } .ds-composer button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    },
+    {
+      "name": "Account Panel",
+      "kind": "custom",
+      "refersTo": "account-panel",
+      "description": "The floating panel with the product’s only presence dot, showing connection state.",
+      "html": "<div class=\"ds-account\"><span class=\"ds-account-avatar\"><span class=\"ds-mascot\"></span><i class=\"ds-presence\"></i></span><span class=\"ds-account-name\"><strong>alex</strong><span>Admin</span></span><button class=\"ds-icon-button\" aria-label=\"Account security\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg></button></div>",
+      "css": ".ds-account { display: flex; align-items: center; gap: 8px; width: 304px; height: 56px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-family: var(--font); } .ds-account-avatar { position: relative; display: flex; } .ds-account-avatar .ds-mascot { width: 32px; height: 32px; } .ds-presence { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border: 2px solid var(--panel); border-radius: 50%; background: var(--green); } .ds-account-name { display: grid; flex: 1; min-width: 0; line-height: 1.3; } .ds-account-name strong { color: var(--strong); font-size: 14px; font-weight: 600; } .ds-account-name span { color: var(--muted); font-size: 12px; } .ds-icon-button { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; } .ds-icon-button:hover { background: var(--hover); color: var(--text); } .ds-icon-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-mascot { position: relative; display: inline-grid; flex: none; width: 40px; height: 40px; border-radius: 50%; background: #fb923c; } .ds-mascot::before, .ds-mascot::after { content: \"\"; position: absolute; top: 37%; width: 9%; height: 26%; border-radius: 99px; background: white; } .ds-mascot::before { left: 35%; } .ds-mascot::after { right: 35%; }"
+    },
+    {
+      "name": "Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Small labels for roles and unread reasons, with an accent variant.",
+      "html": "<span class=\"ds-tag\">Member</span> <span class=\"ds-tag ds-tag-accent\">Admin</span>",
+      "css": ".ds-tag { display: inline-block; padding: 1px 6px; border-radius: 4px; background: var(--secondary); color: var(--text); font: 500 12px var(--font); white-space: nowrap; } .ds-tag-accent { background: var(--mention-bg); color: var(--mention); }"
+    },
+    {
+      "name": "Access Card",
+      "kind": "card",
+      "refersTo": "access-card",
+      "description": "The sign-in, setup, and join card on the gradient field.",
+      "html": "<div class=\"ds-access\"><form class=\"ds-access-card\"><h1>Sign in to Gaming</h1><label>Username<input autocomplete=\"off\" /></label><button type=\"button\">Sign in</button></form></div>",
+      "css": ".ds-access { padding: 40px 16px; background: var(--access-field); font-family: var(--font); } .ds-access-card { width: min(480px, 100%); margin: auto; padding: 32px; border-radius: 8px; background: var(--access-card); box-shadow: var(--shadow-card); } .ds-access-card h1 { margin: 0 0 8px; color: var(--strong); font-size: 24px; font-weight: 600; line-height: 1.25; text-align: center; } .ds-access-card label { display: grid; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; } .ds-access-card input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; background: var(--access-input); color: var(--text); font: 400 16px var(--font); } .ds-access-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); } .ds-access-card input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-access-card button { width: 100%; height: 44px; margin-top: 20px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: 500 16px var(--font); cursor: pointer; transition: background-color 120ms; } .ds-access-card button:hover { background: var(--accent-hover); } .ds-access-card button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Known Floor Plan",
+    "overview": "A Discord user should know where everything is at first sight. Huddle deliberately follows Discord's desktop shell, at the user's request, and plays it straight: a rail of rounded-square tiles, a channel sidebar, a flexible chat, a member list, a composer at the bottom, and an account panel floating across the rail and sidebar. Recognition is the design. Nothing here competes with that layout for attention, and the shell asks nothing of the people chatting in it.\n\nHuddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat, near-black room: a graphite shell around a slightly lifted chat ground, one indigo accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.\n\nThe interface shows only what exists. Controls for unbuilt features (voice calls, search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. Voice channels are the one exception: they can be created and listed, and opening one says voice isn't available yet, with no call controls. The theme follows the system. Dark values were sampled from Mobbin captures of Discord; the light palette is derived, with no reference.",
+    "keyCharacteristics": [
+      "A fixed floor plan that a Discord user reads without learning it.",
+      "Flat, full-width messages on a slightly lifted ground inside a darker shell.",
+      "One indigo accent for action, focus, and the current place on the rail.",
+      "Hairlines and tonal steps for structure; shadows only where something floats.",
+      "Figtree throughout, with a tight type ramp and a 14px interface base.",
+      "Only built features have controls."
+    ],
+    "rules": [
+      {
+        "name": "The Sampled Ground Rule",
+        "body": "Dark values were sampled from Mobbin captures of Discord. The light palette is derived, with no reference, so check a light value by contrast and by capture rather than by comparison to a source.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Accent Rule",
+        "body": "Indigo marks action, focus, and the current place on the rail. It is never a panel ground, and no second accent exists.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Family Rule",
+        "body": "Figtree sets everything people read as language. Monospace appears only for machine values such as hostnames and invite codes.",
+        "section": "typography"
+      },
+      {
+        "name": "The Quiet Label Rule",
+        "body": "Shell labels stay 12px and mixed case. Uppercase belongs to field and list labels inside the access card, and nowhere in the shell.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Shell Rule",
+        "body": "Rail, sidebar, chat, member list, and account panel carry no shadow. A shadow means the element is temporarily above the shell or sits on the access field.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do place every shell zone where a Discord user expects it: 72px rail, 248px sidebar, flexible chat, 240px member list, composer at the bottom, account panel floating across rail and sidebar.",
+      "Do keep the Huddle name and logo on the rail and access screens.",
+      "Do set messages flat and full width, with authors grouped and continuation lines flush.",
+      "Do use the Rail Pill lengths exactly: 8px unread, 20px hover or focus, 32px current.",
+      "Do read every color from the tokens in `src/chat.css` so both modes resolve, and define a new role in both.",
+      "Do use Lucide line icons, mostly at 16 to 20px, in `muted`, moving to `text` or `strong` with state.",
+      "Do build separation from hairlines and tonal steps before reaching for a shadow.",
+      "Do draw the merged 32px window bar over every desktop screen, with traffic lights on macOS and drawn controls elsewhere."
+    ],
+    "donts": [
+      "Don't use Discord's logo, illustrations, or proprietary font.",
+      "Don't add controls for features that are not built, including voice calls, search, emoji, attachments, and presence.",
+      "Don't show a presence dot anywhere but the account panel, or use it for anything but connection state.",
+      "Don't put messages in bubbles or constrain the thread to a centered column. Home, setup, and settings may still use a readable column.",
+      "Don't add breadcrumbs to the top bar.",
+      "Don't uppercase labels in the shell.",
+      "Don't add a resting shadow to the rail, sidebar, chat, member list, or account panel.",
+      "Don't use a gradient outside the access field."
+    ]
+  }
+}

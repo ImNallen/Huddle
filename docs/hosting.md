@@ -43,6 +43,8 @@ PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgra
 
 Migrations are transactional and tracked in `huddle_migration`. Migration `007_single_server.sql` converts a database from the earlier workspace design. It keeps rooms, channels, messages, read markers, mentions, and events from zero or one workspace, and fails on a database with more than one. To start over from such a database, drop and recreate it, run the migrations, and set up the server again.
 
+Migration `011_channel_kind.sql` marks every existing channel as a text channel. Rooms, channels, and messages are otherwise unchanged. Channels are text or voice, and voice channels carry no audio yet.
+
 ## Open Huddle in a browser from other machines
 
 Friends need only the friend port. To also use the browser app from elsewhere, put an HTTPS reverse proxy in front of the server:
