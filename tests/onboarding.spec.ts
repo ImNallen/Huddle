@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { browserLogin, expectHome, inviteCode, join, onboard, serverURL } from './accounts'
+import { browserLogin, expectHome, inviteCode, join, onboard, serverURL, signOut } from './accounts'
 import { setupCode, useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -66,17 +66,39 @@ test('the host sets up with the setup code and only a friend with the invite can
     expect(second.status()).toBe(400)
 
     const colleague = await memberContext.newPage()
-    await join(colleague, 'jonas', code, browserLogin)
-    await expectHome(colleague)
+    await colleague.addInitScript(
+      ({ origin, code }) => localStorage.setItem(`huddle.join-code:${origin}`, code),
+      { origin: serverURL, code },
+    )
+    await colleague.goto(browserLogin)
+    await expect(colleague.getByRole('heading', { name: 'Join Harbor' })).toBeVisible()
     await expect(
-      colleague.getByText('An admin is still setting things up.', { exact: false }),
+      colleague.getByRole('button', { name: 'Create account', exact: true }),
+    ).toHaveCount(1)
+    await expect(colleague.locator('form')).toHaveCount(1)
+    await colleague.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(colleague.getByRole('heading', { name: 'Sign in to Harbor' })).toBeVisible()
+    await expect(
+      colleague.getByRole('button', { name: 'Create account', exact: true }),
+    ).toHaveCount(0)
+    await expect(colleague.getByRole('button', { name: 'Sign in', exact: true })).toHaveCount(1)
+    await colleague.getByRole('button', { name: 'Create one', exact: true }).click()
+    await expect(colleague.getByRole('heading', { name: 'Join Harbor' })).toBeVisible()
+    await colleague.close()
+    const invited = await memberContext.newPage()
+    await join(invited, 'jonas', code, browserLogin)
+    await expectHome(invited)
+    await expect(
+      invited.getByText('An admin is still setting things up.', { exact: false }),
     ).toBeVisible()
-    await expect(colleague.getByRole('button', { name: 'Share invite' })).toHaveCount(0)
-    const denied = await colleague.request.post(`${serverURL}/api/members/password`, {
+    await expect(invited.getByRole('button', { name: 'Share invite' })).toHaveCount(0)
+    const denied = await invited.request.post(`${serverURL}/api/members/password`, {
       headers: { Origin: serverURL },
       data: { userId: 'someone', password: 'replaced-secret' },
     })
     expect(denied.status()).toBe(403)
+    await signOut(invited, 'Harbor')
+    await expect(invited.getByRole('heading', { name: 'Sign in to Harbor' })).toBeVisible()
   } finally {
     await strangerContext.close()
     await memberContext.close()

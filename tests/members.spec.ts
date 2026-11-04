@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectHome, friendPassword, inviteCode, join, onboard, signIn } from './accounts'
+import { expectHome, friendPassword, inviteCode, join, onboard, railTile, signIn } from './accounts'
 import { useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -47,7 +47,9 @@ test('admins share an invite and reset a password; members see setup progress bu
     ])
     await expect(setup.getByRole('button')).toHaveCount(0)
     await expect(second.getByText('Only admins see it.', { exact: false })).toHaveCount(0)
-    await expect(second.getByRole('list', { name: 'Friends' })).toHaveText('nallenAdmin')
+    await expect(second.getByRole('list', { name: 'Members' })).toHaveText(
+      'Admins — 1nallenMembers — 1aiko',
+    )
     await expect(second.locator('.account-name > span').first()).toHaveText('Member')
 
     const denied = await second.evaluate(async () => {
@@ -69,9 +71,10 @@ test('admins share an invite and reset a password; members see setup progress bu
       `aikoMember${shortDate(new Date())}Reset password`,
     ])
     await expect(page.getByText('You’re the only member so far.', { exact: false })).toHaveCount(0)
-    await expect(page.getByRole('list', { name: 'Friends' })).toHaveText('aiko')
+    await expect(page.getByRole('list', { name: 'Members' })).toHaveCount(0)
 
     await page.getByRole('button', { name: 'Reset password', exact: true }).nth(1).click()
+    await expect(page.getByRole('button', { name: 'Reset password', exact: true })).toHaveCount(1)
     await page.getByLabel('New password for aiko').fill('replaced-secret')
     await page.getByRole('button', { name: 'Save password', exact: true }).click()
     await expect(
@@ -91,7 +94,7 @@ test('admins share an invite and reset a password; members see setup progress bu
     )
     await signIn(second, 'aiko', 'replaced-secret')
 
-    await page.getByRole('button', { name: 'Create room', exact: true }).click()
+    await railTile(page, 'Create room').click()
     await page.getByLabel('Room name').fill('Product')
     await page.getByRole('dialog').getByRole('button', { name: 'Create room' }).click()
     await expect(setup).toContainText('2 of 3 done')
