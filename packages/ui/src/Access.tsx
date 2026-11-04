@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { z } from 'zod'
 import { type AccessCommand, type AccessView, type ServerInfo } from '@huddle/contracts'
 import { Alert, Frame, Heading, Primary, ServerCard, useNow, type FrameServer } from './primitives'
+import { clock } from './Badges'
 import { NetworkError, RequestError, type AccessErrorCode } from './connection'
 import { errorText, type Transport } from './transport'
 
@@ -47,12 +48,30 @@ function describe(screen: Screen, failure: unknown): Problem {
     const problem = copy[screen][failure.code] ?? generic[failure.code]
     const retry =
       failure.code === 'rate_limited' && failure.retryAt
-        ? `Try again at ${new Date(failure.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+        ? `Try again at ${clock(failure.retryAt)}.`
         : undefined
     return { ...problem, message: retry ?? problem.message, code: failure.code }
   }
   return { lead: errorText(failure) }
 }
+const entries = {
+  join: {
+    title: (server: string) => `Join ${server}`,
+    description: 'Create your account. It lives on this server.',
+    submit: 'Create account',
+    password: 'new-password',
+    switchPrompt: 'Already have an account?',
+    switchAction: 'Sign in',
+  },
+  signin: {
+    title: (server: string) => `Sign in to ${server}`,
+    description: 'Your account lives on this server.',
+    submit: 'Sign in',
+    password: 'current-password',
+    switchPrompt: 'Need an account?',
+    switchAction: 'Create one',
+  },
+} as const
 function ProblemAlert({ problem }: { problem: Problem | null }) {
   return problem ? <Alert lead={problem.lead} message={problem.message} /> : null
 }
@@ -72,6 +91,11 @@ export function Access({
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ screen: Screen; error: unknown } | null>(null)
   const [retryAt, setRetryAt] = useState(0)
+  const joinCodeKey = `huddle.join-code:${client.origin}`
+  const [joinCode] = useState(() =>
+    typeof localStorage === 'undefined' ? null : localStorage.getItem(joinCodeKey),
+  )
+  const [joining, setJoining] = useState(joinCode !== null)
   const now = useNow()
   const working = busy || retryAt > now
   const lifetime = useRef(new AbortController())
@@ -91,6 +115,9 @@ export function Access({
     setFailure(null)
     setRetryAt(0)
     void act(next, signal)
+      .then(() => {
+        if (!signal.aborted) localStorage.removeItem(joinCodeKey)
+      })
       .catch((error: unknown) => {
         if (signal.aborted || !client.active) return
         setFailure({ screen, error })
@@ -114,7 +141,7 @@ export function Access({
       const codeProblem =
         problem?.code === 'invalid' || problem?.code === 'expired' ? problem : null
       return (
-        <Frame server={server} onServer={onServer}>
+        <Frame>
           <ServerCard
             server={server}
             label="New server"
@@ -123,7 +150,7 @@ export function Access({
           />
           <Heading
             title="Set up this server"
-            description="Name this server and create the first account. The setup code is in the server log. Friends join later with the invite you copy from Huddle."
+            description="Name this server and create the first account. Friends join later with the invite you copy from Huddle."
           />
           <form
             onSubmit={(event) =>
@@ -182,73 +209,33 @@ export function Access({
             </Primary>
           </form>
           {!codeProblem && <ProblemAlert problem={problem} />}
-          <p className="access-footer">
-            The setup code is in the server log. It works once and changes each time the server
-            restarts.
-          </p>
+          {!codeProblem && (
+            <p className="access-footer">
+              The setup code is in the server log. It works once and changes each time the server
+              restarts.
+            </p>
+          )}
         </Frame>
       )
     }
     case 'signin': {
-      const joinCode =
-        typeof localStorage === 'undefined'
-          ? null
-          : localStorage.getItem(`huddle.join-code:${client.origin}`)
+      const invite = joining ? joinCode : null
+      const entry = entries[invite ? 'join' : 'signin']
       return (
-        <Frame server={server} onServer={onServer}>
+        <Frame>
           <ServerCard server={server} onServer={onServer} />
-          <Heading
-            title={`Sign in to ${info.name}`}
-            description="Your account lives on this server."
-          />
-          {joinCode && (
-            <>
-              <form
-                onSubmit={(event) =>
-                  submit('signin', event, (form) => ({
-                    kind: 'account.join',
-                    code: joinCode,
-                    username: z.string().parse(form.get('username')),
-                    password: z.string().parse(form.get('password')),
-                  }))
-                }
-              >
-                <label className="access-label">
-                  Username
-                  <input
-                    name="username"
-                    required
-                    minLength={2}
-                    maxLength={32}
-                    autoComplete="username"
-                    spellCheck={false}
-                  />
-                </label>
-                <label className="access-label">
-                  Password
-                  <input
-                    name="password"
-                    type="password"
-                    required
-                    minLength={8}
-                    maxLength={200}
-                    autoComplete="new-password"
-                  />
-                </label>
-                <Primary busy={busy} disabled={working}>
-                  Create account
-                </Primary>
-              </form>
-              <div className="access-divider">or</div>
-            </>
-          )}
+          <Heading title={entry.title(info.name)} description={entry.description} />
           <form
             onSubmit={(event) =>
-              submit('signin', event, (form) => ({
-                kind: 'account.signin',
-                username: z.string().parse(form.get('username')),
-                password: z.string().parse(form.get('password')),
-              }))
+              submit('signin', event, (form) => {
+                const credentials = {
+                  username: z.string().parse(form.get('username')),
+                  password: z.string().parse(form.get('password')),
+                }
+                return invite
+                  ? { kind: 'account.join', code: invite, ...credentials }
+                  : { kind: 'account.signin', ...credentials }
+              })
             }
           >
             <label className="access-label">
@@ -270,17 +257,31 @@ export function Access({
                 required
                 minLength={8}
                 maxLength={200}
-                autoComplete="current-password"
+                autoComplete={entry.password}
               />
             </label>
             <Primary busy={busy} disabled={working}>
-              Sign in
+              {entry.submit}
             </Primary>
           </form>
           <ProblemAlert problem={problemOn('signin')} />
-          <div className="access-footer">
-            <p>Need access? Ask an admin of this server for an invite.</p>
-          </div>
+          {joinCode ? (
+            <p className="access-footer">
+              {entry.switchPrompt}{' '}
+              <button
+                type="button"
+                className="access-link"
+                onClick={() => {
+                  setJoining(!joining)
+                  setFailure(null)
+                }}
+              >
+                {entry.switchAction}
+              </button>
+            </p>
+          ) : (
+            <p className="access-footer">Need access? Ask an admin of this server for an invite.</p>
+          )}
         </Frame>
       )
     }

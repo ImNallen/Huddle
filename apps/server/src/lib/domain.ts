@@ -4,7 +4,8 @@ import { z } from 'zod'
 import {
   Avatar,
   Channel,
-  Home,
+  DirectConversation,
+  DirectMessage,
   Members,
   Message,
   Room,
@@ -13,10 +14,14 @@ import {
   ServerEvent,
   UserId,
   type ChannelId,
+  type ConversationId,
   type SendMessage,
+  type SendDirectMessage,
   type CreateChannel,
   type CreateRoom,
   type MarkRead,
+  type MarkDirectRead,
+  type OpenDirect,
 } from '@huddle/contracts'
 import { db } from './db'
 
@@ -28,11 +33,22 @@ export class DomainError extends Error {
     super(message)
   }
 }
-const channelColumns = 'id, room_id AS "roomId", name'
-const messageColumns =
-  'm.id, m.channel_id AS "channelId", m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
-const unreadMessages =
-  'message m LEFT JOIN channel_read r ON r.channel_id = m.channel_id AND r.user_id = $1 WHERE m.cursor > coalesce(r.cursor, 0)'
+const channelColumns = 'id, room_id AS "roomId", name, kind'
+const authoredColumns =
+  'm.id, m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
+const messageColumns = `m.channel_id AS "channelId", ${authoredColumns}`
+const directColumns = `m.conversation_id AS "conversationId", ${authoredColumns}`
+const conversationRows = `SELECT c.id, CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END AS "peerId",
+    to_jsonb(latest) AS latest,
+    (SELECT count(*)::integer FROM direct_message u
+      WHERE u.conversation_id = c.id AND u.author_id <> $1 AND u.cursor > coalesce(
+        (SELECT r.cursor FROM direct_read r WHERE r.user_id = $1 AND r.conversation_id = c.id), 0)
+    ) AS unread
+  FROM direct_conversation c
+  LEFT JOIN LATERAL (
+    SELECT ${directColumns} FROM direct_message m WHERE m.conversation_id = c.id ORDER BY m.cursor DESC LIMIT 1
+  ) latest ON true
+  WHERE $1 IN (c.user_a, c.user_b)`
 
 export async function transaction<T>(
   operation: (sql: PoolClient) => Promise<T>,
@@ -76,13 +92,18 @@ async function lockServer(sql: PoolClient) {
 async function appendEvent<T extends z.infer<typeof ServerEvent>>(
   sql: PoolClient,
   makeEvent: (cursor: string) => T,
+  audience: UserId[] | 'everyone',
 ) {
   const result = await sql.query<Record<string, unknown>>(
     'UPDATE server SET cursor = cursor + 1 RETURNING cursor::text',
   )
   const { cursor } = z.object({ cursor: z.string() }).parse(result.rows[0])
   const event = makeEvent(cursor)
-  await sql.query('INSERT INTO event(cursor, event) VALUES ($1, $2)', [cursor, event])
+  await sql.query('INSERT INTO event(cursor, event, audience) VALUES ($1, $2, $3)', [
+    cursor,
+    event,
+    audience === 'everyone' ? null : audience,
+  ])
   await sql.query("SELECT pg_notify('huddle_commit', '')")
   return event
 }
@@ -96,7 +117,15 @@ export async function snapshot(userId: UserId) {
       `SELECT ${channelColumns} FROM channel ORDER BY name, id`,
     )
     const unread = await sql.query<Record<string, unknown>>(
-      `SELECT m.channel_id AS "channelId", count(*)::integer AS count FROM ${unreadMessages} AND m.author_id <> $1 GROUP BY m.channel_id ORDER BY m.channel_id`,
+      `SELECT m.channel_id AS "channelId", count(*)::integer AS count,
+        (count(*) FILTER (WHERE EXISTS (SELECT 1 FROM message_mention mm WHERE mm.message_id = m.id AND mm.user_id = $1)))::integer AS mentions
+      FROM message m LEFT JOIN channel_read r ON r.channel_id = m.channel_id AND r.user_id = $1
+      WHERE m.cursor > coalesce(r.cursor, 0) AND m.author_id <> $1
+      GROUP BY m.channel_id ORDER BY m.channel_id`,
+      [userId],
+    )
+    const directs = await sql.query<Record<string, unknown>>(
+      `${conversationRows} AND latest.id IS NOT NULL ORDER BY latest.cursor::bigint DESC`,
       [userId],
     )
     const cursorRows = await sql.query<Record<string, unknown>>('SELECT cursor::text FROM server')
@@ -106,6 +135,7 @@ export async function snapshot(userId: UserId) {
       rooms: Room.array().parse(rooms.rows),
       channels: Channel.array().parse(channels.rows),
       unread: Unread.array().parse(unread.rows),
+      directs: DirectConversation.array().parse(directs.rows),
       cursor,
     }
   }, true)
@@ -116,7 +146,7 @@ export async function createRoom(userId: UserId, input: z.infer<typeof CreateRoo
     await requireMember(sql, userId, 'admin')
     const room = Room.parse({ id: randomUUID(), ...input })
     await sql.query('INSERT INTO room(id, name) VALUES ($1, $2)', [room.id, room.name])
-    await appendEvent(sql, (cursor) => ({ kind: 'room.created', room, cursor }))
+    await appendEvent(sql, (cursor) => ({ kind: 'room.created', room, cursor }), 'everyone')
     return room
   })
 }
@@ -127,16 +157,21 @@ export async function createChannel(userId: UserId, input: z.infer<typeof Create
     const channel = Channel.parse({ id: randomUUID(), ...input })
     await lockServer(sql)
     await requireMember(sql, userId, 'admin')
-    await sql.query('INSERT INTO channel(id, room_id, name) VALUES ($1, $2, $3)', [
+    await sql.query('INSERT INTO channel(id, room_id, name, kind) VALUES ($1, $2, $3, $4)', [
       channel.id,
       channel.roomId,
       channel.name,
+      channel.kind,
     ])
-    await appendEvent(sql, (cursor) => ({
-      kind: 'channel.created',
-      channel,
-      cursor,
-    }))
+    await appendEvent(
+      sql,
+      (cursor) => ({
+        kind: 'channel.created',
+        channel,
+        cursor,
+      }),
+      'everyone',
+    )
     return channel
   })
 }
@@ -157,9 +192,10 @@ export async function sendMessage(
 ) {
   return transaction(async (sql) => {
     await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [user.id])
-    await findChannel(sql, input.channelId)
+    const channel = await findChannel(sql, input.channelId)
     await lockServer(sql)
     await requireMember(sql, user.id)
+    if (channel.kind === 'voice') throw new DomainError(409, 'Voice channels do not hold messages.')
     const duplicate = await sql.query<Record<string, unknown>>(
       `SELECT ${messageColumns} FROM message m WHERE m.author_id = $1 AND m.retry_id = $2`,
       [user.id, input.retryId],
@@ -170,19 +206,32 @@ export async function sendMessage(
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return message
     }
-    const { message } = await appendEvent(sql, (cursor) => ({
-      kind: 'message.created',
-      cursor,
-      message: {
-        id: randomUUID(),
-        ...input,
-        authorId: user.id,
-        authorName: user.name,
-        authorAvatar: user.avatar,
+    const members = await sql.query<Record<string, unknown>>(
+      'SELECT u.id, u.name FROM member m JOIN "user" u ON u.id = m.user_id',
+    )
+    const mentioned = mentionedUsers(
+      input.body,
+      z.object({ id: UserId, name: z.string() }).array().parse(members.rows),
+      user.id,
+    )
+    const { message } = await appendEvent(
+      sql,
+      (cursor) => ({
+        kind: 'message.created',
         cursor,
-        createdAt: new Date().toISOString(),
-      },
-    }))
+        mentions: mentioned,
+        message: {
+          id: randomUUID(),
+          ...input,
+          authorId: user.id,
+          authorName: user.name,
+          authorAvatar: user.avatar,
+          cursor,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+      'everyone',
+    )
     await sql.query(
       'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
       [
@@ -196,14 +245,6 @@ export async function sendMessage(
         message.createdAt,
         JSON.stringify(message.authorAvatar),
       ],
-    )
-    const members = await sql.query<Record<string, unknown>>(
-      'SELECT u.id, u.name FROM member m JOIN "user" u ON u.id = m.user_id',
-    )
-    const mentioned = mentionedUsers(
-      message.body,
-      z.object({ id: UserId, name: z.string() }).array().parse(members.rows),
-      user.id,
     )
     if (mentioned.length)
       await sql.query(
@@ -234,37 +275,124 @@ export function mentionedUsers(
 }
 export async function markRead(userId: UserId, input: z.infer<typeof MarkRead>) {
   await transaction(async (sql) => {
-    if (input.kind === 'channel') await findChannel(sql, input.channelId)
+    await findChannel(sql, input.channelId)
     await requireMember(sql, userId)
     await sql.query(
-      'INSERT INTO channel_read(user_id, channel_id, cursor) SELECT $1, c.id, LEAST($3::numeric, s.cursor) FROM channel c CROSS JOIN server s WHERE ($2::uuid IS NULL OR c.id = $2) ON CONFLICT (user_id, channel_id) DO UPDATE SET cursor = GREATEST(channel_read.cursor, excluded.cursor)',
-      [userId, input.kind === 'channel' ? input.channelId : null, input.cursor],
+      'INSERT INTO channel_read(user_id, channel_id, cursor) SELECT $1, $2::uuid, LEAST($3::numeric, s.cursor) FROM server s ON CONFLICT (user_id, channel_id) DO UPDATE SET cursor = GREATEST(channel_read.cursor, excluded.cursor)',
+      [userId, input.channelId, input.cursor],
     )
   })
 }
-export async function home(userId: UserId) {
+export async function requireConversation(
+  sql: Pick<PoolClient, 'query'>,
+  conversationId: ConversationId,
+  userId: UserId,
+) {
+  const rows = await sql.query<Record<string, unknown>>(
+    'SELECT CASE WHEN user_a = $2 THEN user_b ELSE user_a END AS "peerId" FROM direct_conversation WHERE id = $1 AND $2 IN (user_a, user_b)',
+    [conversationId, userId],
+  )
+  if (!rows.rowCount) throw new DomainError(404, 'Conversation not found.')
+  return z.object({ peerId: UserId }).parse(rows.rows[0])
+}
+export async function openDirect(userId: UserId, input: z.infer<typeof OpenDirect>) {
   return transaction(async (sql) => {
     await requireMember(sql, userId)
-    const mentions = await sql.query<Record<string, unknown>>(
-      `SELECT ${messageColumns} FROM ${unreadMessages} AND EXISTS (SELECT 1 FROM message_mention mm WHERE mm.message_id = m.id AND mm.user_id = $1) ORDER BY m.cursor DESC LIMIT 50`,
-      [userId],
+    if (input.userId === userId) throw new DomainError(400, 'You cannot message yourself.')
+    const peer = await sql.query('SELECT 1 FROM member WHERE user_id = $1', [input.userId])
+    if (!peer.rowCount) throw new DomainError(404, 'That person is not a member of this server.')
+    // Sorted in SQL because the CHECK compares with the database collation, which orders mixed-case
+    // IDs differently from JavaScript.
+    await sql.query(
+      'INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, LEAST($2::text, $3::text), GREATEST($2::text, $3::text)) ON CONFLICT (user_a, user_b) DO NOTHING',
+      [randomUUID(), userId, input.userId],
     )
-    const channels = await sql.query<Record<string, unknown>>(
-      `WITH unread AS (SELECT m.*, count(*) OVER (PARTITION BY m.channel_id) AS count, row_number() OVER (PARTITION BY m.channel_id ORDER BY m.cursor DESC) AS rank FROM ${unreadMessages} AND m.author_id <> $1) SELECT ${messageColumns}, m.count::integer AS count FROM unread m WHERE m.rank = 1 ORDER BY m.cursor DESC LIMIT 50`,
-      [userId],
+    const rows = await sql.query<Record<string, unknown>>(
+      `${conversationRows} AND $2 IN (c.user_a, c.user_b)`,
+      [userId, input.userId],
     )
-    return Home.parse({
-      items: [
-        ...mentions.rows.map((row) => ({ kind: 'mention', message: row })),
-        ...channels.rows.map((row) => ({
-          kind: 'channel',
-          channelId: row.channelId,
-          count: row.count,
-          latest: row,
-        })),
-      ],
-    })
+    return DirectConversation.parse(rows.rows[0])
+  })
+}
+export async function directHistory(
+  userId: UserId,
+  conversationId: ConversationId,
+  before?: string,
+) {
+  return transaction(async (sql) => {
+    await requireMember(sql, userId)
+    await requireConversation(sql, conversationId, userId)
+    const messages = await sql.query<Record<string, unknown>>(
+      `SELECT ${directColumns} FROM direct_message m WHERE m.conversation_id = $1 AND ($2::numeric IS NULL OR m.cursor < $2::numeric) ORDER BY m.cursor DESC LIMIT 100`,
+      [conversationId, before ?? null],
+    )
+    return DirectMessage.array().parse(messages.rows).reverse()
   }, true)
+}
+export async function sendDirectMessage(
+  user: { id: UserId; name: string; avatar: z.infer<typeof Avatar> },
+  input: z.infer<typeof SendDirectMessage>,
+) {
+  return transaction(async (sql) => {
+    await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [user.id])
+    await lockServer(sql)
+    await requireMember(sql, user.id)
+    const { peerId } = await requireConversation(sql, input.conversationId, user.id)
+    const duplicate = await sql.query<Record<string, unknown>>(
+      `SELECT ${directColumns} FROM direct_message m WHERE m.author_id = $1 AND m.retry_id = $2`,
+      [user.id, input.retryId],
+    )
+    if (duplicate.rowCount) {
+      const message = DirectMessage.parse(duplicate.rows[0])
+      if (message.body !== input.body || message.conversationId !== input.conversationId)
+        throw new DomainError(409, 'This retry ID was already used for a different message.')
+      return message
+    }
+    const participants: [UserId, UserId] = [user.id, peerId]
+    const { message } = await appendEvent(
+      sql,
+      (cursor) => ({
+        kind: 'direct.message.created',
+        cursor,
+        participants,
+        message: {
+          id: randomUUID(),
+          ...input,
+          authorId: user.id,
+          authorName: user.name,
+          authorAvatar: user.avatar,
+          cursor,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+      participants,
+    )
+    await sql.query(
+      'INSERT INTO direct_message(id, conversation_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [
+        message.id,
+        message.conversationId,
+        message.authorId,
+        message.authorName,
+        message.retryId,
+        message.body,
+        message.cursor,
+        message.createdAt,
+        JSON.stringify(message.authorAvatar),
+      ],
+    )
+    return message
+  })
+}
+export async function markDirectRead(userId: UserId, input: z.infer<typeof MarkDirectRead>) {
+  await transaction(async (sql) => {
+    await requireMember(sql, userId)
+    await requireConversation(sql, input.conversationId, userId)
+    await sql.query(
+      'INSERT INTO direct_read(user_id, conversation_id, cursor) SELECT $1, $2::uuid, LEAST($3::numeric, s.cursor) FROM server s ON CONFLICT (user_id, conversation_id) DO UPDATE SET cursor = GREATEST(direct_read.cursor, excluded.cursor)',
+      [userId, input.conversationId, input.cursor],
+    )
+  })
 }
 export async function members(userId: UserId) {
   return transaction(async (sql) => {
@@ -288,14 +416,20 @@ async function findChannel(sql: PoolClient, channelId: ChannelId) {
   return Channel.parse(rows.rows[0])
 }
 const hash = (code: string) => createHash('sha256').update(code).digest('hex')
+const replayPage = 100
 export async function replay(userId: UserId, after: string) {
   return transaction(async (sql) => {
     await requireMember(sql, userId)
     const rows = await sql.query<Record<string, unknown>>(
-      'SELECT event FROM event WHERE cursor > $1 ORDER BY cursor LIMIT 100',
-      [after],
+      `SELECT event FROM event WHERE cursor > $1 AND (audience IS NULL OR $2 = ANY(audience)) ORDER BY cursor LIMIT ${replayPage}`,
+      [after, userId],
     )
-    return rows.rows.map((row) => ServerEvent.parse(row.event))
+    const events = rows.rows.map((row) => ServerEvent.parse(row.event))
+    const last = events.at(-1)
+    if (last && events.length === replayPage) return { events, scanned: last.cursor }
+    const head = await sql.query<Record<string, unknown>>('SELECT cursor::text FROM server')
+    const { cursor } = z.object({ cursor: z.string() }).parse(head.rows[0])
+    return { events, scanned: BigInt(cursor) > BigInt(after) ? cursor : after }
   }, true)
 }
 

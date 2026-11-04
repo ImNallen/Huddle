@@ -19,6 +19,7 @@ export const Avatar = z.discriminatedUnion('kind', [
 
 export const RoomId = z.uuid().brand<'RoomId'>()
 export const ChannelId = z.uuid().brand<'ChannelId'>()
+export const ConversationId = z.uuid().brand<'ConversationId'>()
 export const UserId = z.string().min(1).brand<'UserId'>()
 export const Cursor = z.string().regex(/^(0|[1-9][0-9]{0,18})$/)
 export const MemberRole = z.enum(['admin', 'member'])
@@ -29,7 +30,13 @@ export const Server = z.object({
   channelCount: z.number().int().nonnegative(),
 })
 export const Room = z.object({ id: RoomId, name: z.string() })
-export const Channel = z.object({ id: ChannelId, roomId: RoomId, name: z.string() })
+export const ChannelKind = z.enum(['text', 'voice'])
+export const Channel = z.object({
+  id: ChannelId,
+  roomId: RoomId,
+  name: z.string(),
+  kind: ChannelKind,
+})
 export const Message = z.object({
   id: z.uuid(),
   channelId: ChannelId,
@@ -41,10 +48,30 @@ export const Message = z.object({
   cursor: Cursor,
   createdAt: z.string(),
 })
+export const DirectMessage = Message.omit({ channelId: true }).extend({
+  conversationId: ConversationId,
+})
+export const DirectConversation = z.object({
+  id: ConversationId,
+  peerId: UserId,
+  latest: DirectMessage.nullable(),
+  unread: z.number().int().nonnegative(),
+})
 export const ServerEvent = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('room.created'), cursor: Cursor, room: Room }),
   z.object({ kind: z.literal('channel.created'), cursor: Cursor, channel: Channel }),
-  z.object({ kind: z.literal('message.created'), cursor: Cursor, message: Message }),
+  z.object({
+    kind: z.literal('message.created'),
+    cursor: Cursor,
+    message: Message,
+    mentions: z.array(UserId).default([]),
+  }),
+  z.object({
+    kind: z.literal('direct.message.created'),
+    cursor: Cursor,
+    message: DirectMessage,
+    participants: z.tuple([UserId, UserId]),
+  }),
 ])
 export const WatchFrame = z
   .object({
@@ -55,31 +82,29 @@ export const WatchFrame = z
   })
   .strict()
 export const EventPage = z.object({ kind: z.literal('events'), events: z.array(ServerEvent) })
-export const Unread = z.object({ channelId: ChannelId, count: z.number().int().positive() })
+export const Unread = z.object({
+  channelId: ChannelId,
+  count: z.number().int().positive(),
+  mentions: z.number().int().nonnegative(),
+})
 export const Snapshot = z.object({
   server: Server,
   rooms: z.array(Room),
   channels: z.array(Channel),
   unread: z.array(Unread),
+  directs: z.array(DirectConversation),
   cursor: Cursor,
 })
-export const HomeItem = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('mention'), message: Message }),
-  z.object({
-    kind: z.literal('channel'),
-    channelId: ChannelId,
-    count: z.number().int().positive(),
-    latest: Message,
-  }),
-])
-export const Home = z.object({ items: z.array(HomeItem) })
-export const MarkRead = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('channel'), channelId: ChannelId, cursor: Cursor }).strict(),
-  z.object({ kind: z.literal('all'), cursor: Cursor }).strict(),
-])
+export const MarkRead = z.object({ channelId: ChannelId, cursor: Cursor }).strict()
+const MessageBody = z.string().trim().min(1).max(8000)
 export const SendMessage = z
-  .object({ channelId: ChannelId, retryId: z.uuid(), body: z.string().trim().min(1).max(8000) })
+  .object({ channelId: ChannelId, retryId: z.uuid(), body: MessageBody })
   .strict()
+export const OpenDirect = z.object({ userId: UserId }).strict()
+export const SendDirectMessage = z
+  .object({ conversationId: ConversationId, retryId: z.uuid(), body: MessageBody })
+  .strict()
+export const MarkDirectRead = z.object({ conversationId: ConversationId, cursor: Cursor }).strict()
 export const CreateRoom = z.object({ name: z.string().trim().min(1).max(40) }).strict()
 export const CreateChannel = z
   .object({
@@ -89,6 +114,7 @@ export const CreateChannel = z
       .trim()
       .toLowerCase()
       .regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
+    kind: ChannelKind,
   })
   .strict()
 export const Member = z.object({
@@ -117,19 +143,28 @@ export type Server = z.infer<typeof Server>
 export type Member = z.infer<typeof Member>
 export type MemberRole = z.infer<typeof MemberRole>
 export type Room = z.infer<typeof Room>
+export type ChannelKind = z.infer<typeof ChannelKind>
 export type Channel = z.infer<typeof Channel>
 export type Unread = z.infer<typeof Unread>
-export type HomeItem = z.infer<typeof HomeItem>
-export type Home = z.infer<typeof Home>
 export type MarkRead = z.infer<typeof MarkRead>
 export type Message = z.infer<typeof Message>
+export type DirectMessage = z.infer<typeof DirectMessage>
+export type DirectConversation = z.infer<typeof DirectConversation>
 export type ServerEvent = z.infer<typeof ServerEvent>
 export type Snapshot = z.infer<typeof Snapshot>
 export type Session = z.infer<typeof Session>
 export type RoomId = z.infer<typeof RoomId>
 export type ChannelId = z.infer<typeof ChannelId>
+export type ConversationId = z.infer<typeof ConversationId>
 export type UserId = z.infer<typeof UserId>
 
+export const desktopUserAgent = 'Huddle desktop'
+export function defaultMascot(userId: string): Avatar {
+  let hash = 0
+  for (const char of userId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  const color = MascotColor.options[hash % MascotColor.options.length] ?? 'indigo'
+  return { kind: 'mascot', shape: 'circle', color }
+}
 export function serverInitials(name: string) {
   return name
     .split(/\s+/)

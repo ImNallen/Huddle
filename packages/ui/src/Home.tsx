@@ -1,82 +1,16 @@
-import { useState, type ReactNode } from 'react'
-import { Check, CircleCheck, UserPlus } from 'lucide-react'
-import type { Channel, ChannelId, HomeItem, Member, Room, Session, Server } from '@huddle/contracts'
-import { errorText, type Transport } from './transport'
-import type { Dialog, HomeState, View } from './ServerView'
+import { Check, MessageSquarePlus, UserPlus } from 'lucide-react'
+import type { Channel, ConversationId, Member, Room, Session, Server } from '@huddle/contracts'
+import type { Transport } from './transport'
+import type { Dialog, DirectRow } from './ServerView'
 import { Avatar } from './Avatar'
-import { Badge, Mentions, clock, sentence } from './Badges'
+import { clock, sentence } from './Badges'
+import { MemberToggle, shortDate } from './Members'
 
-const categories = { mentions: 'Mentions', messages: 'Messages' } as const
-type Category = keyof typeof categories
-type Kind = HomeItem['kind']
-type ItemOf<K extends Kind> = Extract<HomeItem, { kind: K }>
-type Place = { channel: Channel; room: Room }
-type Row = {
-  key: string
-  place: Place
-  badge: ReactNode
-  title: string
-  meta: string
-  body: ReactNode
-  tag: { label: string; accent: boolean }
-}
-type Entry<K extends Kind> = {
-  category: Category
-  channel: (item: ItemOf<K>) => ChannelId
-  row: (item: ItemOf<K>, place: Place, client: Transport) => Row
-}
-type Registry = { [K in Kind]: Entry<K> }
-const feed = {
-  mention: {
-    category: 'mentions',
-    channel: (item) => item.message.channelId,
-    row: ({ message }, place, client) => ({
-      key: `mention:${message.id}`,
-      place,
-      badge: (
-        <Avatar
-          avatar={message.authorAvatar}
-          name={message.authorName}
-          photo={client.photo?.bind(client)}
-          size={30}
-        />
-      ),
-      title: message.authorName,
-      meta: `${place.room.name} › #${place.channel.name} · ${clock(message.createdAt)}`,
-      body: <Mentions text={message.body} />,
-      tag: { label: 'Mention', accent: true },
-    }),
-  },
-  channel: {
-    category: 'messages',
-    channel: (item) => item.channelId,
-    row: ({ channelId, count, latest }, place) => ({
-      key: `channel:${channelId}`,
-      place,
-      badge: <Badge id={place.room.id} name={place.room.name} size={30} />,
-      title: `#${place.channel.name}`,
-      meta: `${place.room.name} · ${count} new ${count === 1 ? 'message' : 'messages'}`,
-      body: `${latest.authorName}: ${latest.body}`,
-      tag: { label: `${count} new`, accent: false },
-    }),
-  },
-} satisfies Registry
-const registry: Registry = feed
-function project<K extends Kind>(
-  kind: K,
-  item: ItemOf<K>,
-  place: (id: ChannelId) => Place | undefined,
-  client: Transport,
-) {
-  const entry: Entry<K> = registry[kind]
-  const found = place(entry.channel(item))
-  return found ? [{ category: entry.category, row: entry.row(item, found, client) }] : []
-}
-const tabs = (Object.keys(categories) as Category[]).filter((category) =>
-  Object.values(feed).some((entry) => entry.category === category),
-)
 function greeting(hour: number) {
   return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+}
+function when(iso: string) {
+  return new Date(iso).toDateString() === new Date().toDateString() ? clock(iso) : shortDate(iso)
 }
 export function Home({
   client,
@@ -85,10 +19,11 @@ export function Home({
   rooms,
   channels,
   members,
-  home,
-  onView,
+  directs,
+  onDirect,
   onDialog,
-  onMarkAll,
+  memberList,
+  onMemberList,
 }: {
   client: Transport
   session: Session
@@ -96,46 +31,42 @@ export function Home({
   rooms: Room[]
   channels: Channel[]
   members: Member[] | null
-  home: HomeState
-  onView: (view: View) => void
+  directs: DirectRow[]
+  onDirect: (conversationId: ConversationId) => void
   onDialog: (dialog: Dialog) => void
-  onMarkAll: () => Promise<void>
+  memberList: boolean
+  onMemberList: () => void
 }) {
-  const [filter, setFilter] = useState<Category | 'all'>('all')
-  const [error, setError] = useState('')
   const now = new Date()
   const admin = server.role === 'admin'
   const firstName = session.user.name.split(/\s+/)[0]
-  const steps = admin
-    ? adminSteps(rooms, channels, members?.length ?? server.memberCount)
-    : memberSteps(rooms, channels)
-  const place = (id: ChannelId): Place | undefined => {
-    const channel = channels.find((channel) => channel.id === id)
-    const room = rooms.find((room) => room.id === channel?.roomId)
-    return channel && room ? { channel, room } : undefined
-  }
-  const rows = (home.kind === 'ready' ? home.items : []).flatMap((item) =>
-    project(item.kind, item, place, client),
+  const memberCount = members?.length ?? server.memberCount
+  const steps = admin ? adminSteps(rooms, channels, memberCount) : memberSteps(rooms, channels)
+  const started = directs.flatMap((direct) =>
+    direct.latest ? [{ ...direct, latest: direct.latest }] : [],
   )
-  const visible = rows.filter((row) => filter === 'all' || row.category === filter)
+  const topbar = (
+    <header className="topbar">
+      <strong>Home</strong>
+      {admin && (
+        <button className="button small topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
+          <UserPlus size={16} />
+          Share invite
+        </button>
+      )}
+      <MemberToggle pressed={memberList} onToggle={onMemberList} />
+    </header>
+  )
   if (steps.some((step) => !step.done))
     return (
       <main className="main">
-        <header className="topbar">
-          <strong>Home</strong>
-          {admin && (
-            <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
-              <UserPlus size={15} />
-              Share invite
-            </button>
-          )}
-        </header>
+        {topbar}
         <div className="scroll">
           <div className="home setup-home">
-            <p className="home-date">Welcome, {firstName}</p>
             <h1 className="home-greeting">
               {admin ? 'Your server is ready' : `You’re in ${sentence(server.name)}`}
             </h1>
+            <p className="home-date">Welcome, {firstName}</p>
             <Setup server={server} steps={steps} admin={admin} onDialog={onDialog} />
           </div>
         </div>
@@ -143,99 +74,70 @@ export function Home({
     )
   return (
     <main className="main">
-      <header className="topbar">
-        <strong>Home</strong>
-        {admin && (
-          <button className="button topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
-            <UserPlus size={15} />
-            Share invite
-          </button>
-        )}
-      </header>
+      {topbar}
       <div className="scroll">
         <div className="home">
-          <p className="home-date">
-            {now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
           <h1 className="home-greeting">
             {greeting(now.getHours())}, {firstName}
           </h1>
-          {home.kind === 'failed' ? (
-            <p className="form-error" role="alert">
-              {home.message}
-            </p>
-          ) : home.kind === 'ready' && !rows.length ? (
-            <section className="card caught-up">
-              <CircleCheck size={22} />
-              <h2>You’re all caught up</h2>
-              <p>New mentions and messages from your rooms will show up here.</p>
-            </section>
-          ) : (
-            <section aria-labelledby="feed-title">
-              <div className="feed-head">
-                <h2 id="feed-title">New for you</h2>
-                <div className="tabs" role="tablist" aria-label="Filter">
-                  {(['all', ...tabs] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      role="tab"
-                      aria-selected={filter === tab}
-                      onClick={() => setFilter(tab)}
-                    >
-                      {tab === 'all' ? 'All' : categories[tab]}
-                      <span>
-                        {tab === 'all'
-                          ? rows.length
-                          : rows.filter((row) => row.category === tab).length}
+          <p className="home-date">
+            {now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+          {started.length ? (
+            <section aria-labelledby="directs-title">
+              <h2 id="directs-title" className="feed-heading">
+                Direct messages
+              </h2>
+              <ul className="feed">
+                {started.map((direct) => (
+                  <li key={direct.id}>
+                    <button className="feed-row" onClick={() => onDirect(direct.id)}>
+                      <span className="feed-badge" aria-hidden="true">
+                        <Avatar
+                          avatar={direct.peer.avatar}
+                          name={direct.peer.name}
+                          photo={client.photo?.bind(client)}
+                          size={32}
+                        />
                       </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <ul className="card feed">
-                {visible.map(({ row }) => (
-                  <li key={row.key}>
-                    <button
-                      className="feed-row"
-                      onClick={() =>
-                        onView({
-                          kind: 'room',
-                          roomId: row.place.room.id,
-                          channelId: row.place.channel.id,
-                        })
-                      }
-                    >
-                      <span className="feed-badge">{row.badge}</span>
                       <span className="feed-main">
                         <span className="feed-title">
-                          <strong>{row.title}</strong>
-                          <span>{row.meta}</span>
+                          <strong>{direct.peer.name}</strong>
+                          <span>{when(direct.latest.createdAt)}</span>
                         </span>
-                        <span className="feed-body">{row.body}</span>
+                        <span className="feed-body">
+                          {direct.latest.authorId === session.user.id && 'You: '}
+                          {direct.latest.body}
+                        </span>
                       </span>
-                      <span className={`tag ${row.tag.accent ? 'accent' : ''}`}>
-                        {row.tag.label}
-                      </span>
+                      {direct.unread > 0 && <span className="tag accent">{direct.unread} new</span>}
                     </button>
                   </li>
                 ))}
-                {!visible.length && <li className="feed-empty">Nothing in this filter.</li>}
               </ul>
-              {error && (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
+            </section>
+          ) : (
+            <section className="home-empty">
+              <h2>No messages yet</h2>
+              {memberCount > 1 ? (
+                <>
+                  <p>Start a conversation with anyone on {server.name}.</p>
+                  <button className="button primary" onClick={() => onDialog({ kind: 'direct' })}>
+                    <MessageSquarePlus size={16} />
+                    New message
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>You’re the only one here. Invite a friend so you have someone to message.</p>
+                  {admin && (
+                    <button className="button primary" onClick={() => onDialog({ kind: 'invite' })}>
+                      <UserPlus size={16} />
+                      Share invite
+                    </button>
+                  )}
+                </>
               )}
-              <button
-                className="link mark-all"
-                disabled={!rows.length}
-                onClick={() => {
-                  setError('')
-                  onMarkAll().catch((failure: unknown) => setError(errorText(failure)))
-                }}
-              >
-                Mark all as read
-              </button>
             </section>
           )}
         </div>
@@ -251,9 +153,10 @@ type Step = {
 }
 const channelPurpose = 'Channels are where a room’s conversations happen.'
 function placed(rooms: Room[], channels: Channel[]) {
-  const channel = channels[0]
+  const channel = channels.find((channel) => channel.kind === 'text') ?? channels[0]
   const room = rooms.find((room) => room.id === channel?.roomId)
-  return channel && room ? `#${channel.name} in ${room.name}` : null
+  if (!channel || !room) return null
+  return `${channel.kind === 'text' ? '#' : ''}${channel.name} in ${room.name}`
 }
 function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): Step[] {
   const room = rooms[0]
@@ -270,7 +173,10 @@ function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): St
       title: 'Add a channel',
       detail: channel ?? (room ? channelPurpose : `${channelPurpose} Create a room first.`),
       done: Boolean(channel),
-      action: { label: 'Add channel', dialog: room ? { kind: 'channel', roomId: room.id } : null },
+      action: {
+        label: 'Add channel',
+        dialog: room ? { kind: 'channel', roomId: room.id, channelKind: 'text' } : null,
+      },
     },
     {
       title: 'Share Huddle',
@@ -321,7 +227,7 @@ function Setup({
   const next = steps.findIndex((step) => !step.done)
   return (
     <>
-      <section className="card setup" aria-labelledby="setup-title">
+      <section className="setup" aria-labelledby="setup-title">
         <div className="setup-head">
           <h2 id="setup-title">Set up {server.name}</h2>
           <span className="setup-count">
@@ -332,11 +238,6 @@ function Setup({
               ? 'A few steps and your friends have a place to talk.'
               : 'An admin is still setting things up. Rooms appear here as soon as they’re created.'}
           </p>
-          <span className="setup-progress" aria-hidden="true">
-            {steps.map((step, index) => (
-              <i key={step.title} className={index < done ? 'filled' : ''} />
-            ))}
-          </span>
         </div>
         <ol>
           {steps.map((step, index) => (
@@ -344,17 +245,17 @@ function Setup({
               <span
                 className={`step-mark ${step.done ? 'done' : !admin ? 'waiting' : index === next ? 'next' : ''}`}
               >
-                {step.done ? <Check size={13} /> : admin ? index + 1 : null}
+                {step.done ? <Check size={14} strokeWidth={3} /> : admin ? index + 1 : null}
               </span>
               <span className="step-text">
                 <strong>{step.title}</strong>
                 <span>{step.detail}</span>
               </span>
               {step.done ? (
-                <span className="step-state done">Done</span>
+                <span className="step-state">Done</span>
               ) : step.action ? (
                 <button
-                  className={`button ${index === next ? 'primary' : ''}`}
+                  className={`button small ${index === next ? 'primary' : ''}`}
                   disabled={!step.action.dialog}
                   onClick={() => step.action?.dialog && onDialog(step.action.dialog)}
                 >

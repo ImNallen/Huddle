@@ -51,6 +51,8 @@ export async function join(
   await page.addInitScript(
     ({ origin, code }) => {
       localStorage.setItem('huddle.server', origin)
+      if (sessionStorage.getItem('huddle.test.invited')) return
+      sessionStorage.setItem('huddle.test.invited', 'true')
       localStorage.setItem(`huddle.join-code:${origin}`, code)
     },
     { origin: serverURL, code },
@@ -73,6 +75,9 @@ export async function member(admin: Client, page: Page, username: string, path =
   if (!line) throw new Error('The server shared no invite.')
   return join(page, username, parseInvite(line).code, path)
 }
+export const rail = (page: Page) => page.getByRole('navigation', { name: 'Rooms', exact: true })
+export const railTile = (page: Page, name: string) =>
+  rail(page).getByRole('button', { name, exact: true })
 export async function signIn(page: Page, username: string, password: string) {
   const form = page.locator('form').filter({
     has: page.getByRole('button', { name: 'Sign in', exact: true }),
@@ -83,7 +88,7 @@ export async function signIn(page: Page, username: string, password: string) {
   await expectHome(page)
 }
 export async function signOut(page: Page, name = serverName) {
-  await page.getByRole('button', { name: name, exact: true }).click()
+  await page.getByRole('button', { name: `${name} menu`, exact: true }).click()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
 }
 export async function expectHome(page: Page) {

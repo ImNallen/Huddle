@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { inviteOrigin, parseInvite, type FriendInvite } from '@huddle/contracts'
 import { Application, Connect, readSavedServers, savedInvite, saveServer } from '@huddle/ui'
-import { Client, openInvite } from './client'
+import { Client, native, openInvite } from './client'
+import { WindowBar } from './WindowBar'
 
 export function App() {
   const [client, setClient] = useState(
@@ -60,21 +61,24 @@ export function App() {
       throw failure
     }
   }
-  if (editingServer)
-    return (
-      <Connect
-        initialOrigin={localStorage.getItem('huddle.server') ? client.origin : ''}
-        connect={changeServer}
-        connectInvite={connectInvite}
-        close={localStorage.getItem('huddle.server') ? () => setEditingServer(false) : undefined}
-      />
-    )
   return (
-    <Application
-      key={client.origin}
-      client={client}
-      serverName={saved?.name}
-      onServer={() => setEditingServer(true)}
-    />
+    <>
+      {native && <WindowBar title={(!editingServer && saved?.name) || 'Huddle'} />}
+      {editingServer ? (
+        <Connect
+          initialOrigin={localStorage.getItem('huddle.server') ? client.origin : ''}
+          connect={changeServer}
+          connectInvite={connectInvite}
+          close={localStorage.getItem('huddle.server') ? () => setEditingServer(false) : undefined}
+        />
+      ) : (
+        <Application
+          key={client.origin}
+          client={client}
+          serverName={saved?.name}
+          onServer={() => setEditingServer(true)}
+        />
+      )}
+    </>
   )
 }

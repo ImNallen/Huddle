@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react'
+import { Hash, Volume2 } from 'lucide-react'
+import type { ChannelKind } from '@huddle/contracts'
 
 const hues = [330, 85, 190, 285, 25, 220, 160, 255]
 export function initials(name: string) {
@@ -24,6 +26,10 @@ export function Badge({ id, name, size = 22 }: { id: string; name: string; size?
       {initials(name)}
     </span>
   )
+}
+export function ChannelIcon({ kind, size }: { kind: ChannelKind; size: number }) {
+  const Icon = kind === 'voice' ? Volume2 : Hash
+  return <Icon size={size} />
 }
 export function Mentions({ text }: { text: string }) {
   return text.split(/(@[\p{L}\p{N}_-]+)/u).map((part, index) =>

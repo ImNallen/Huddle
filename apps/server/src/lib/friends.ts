@@ -8,6 +8,7 @@ import { generateId } from 'better-auth'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
+  defaultMascot,
   formatInvite,
   FriendInvites,
   Password,
@@ -72,7 +73,10 @@ async function insertLogin(sql: PoolClient, username: string, password: string):
       'INSERT INTO "user"(id, name, email, "emailVerified") VALUES ($1, $2, $3, true)',
       [id, username, email],
     )
-    await sql.query('INSERT INTO account_security(user_id) VALUES ($1)', [id])
+    await sql.query('INSERT INTO account_security(user_id, avatar) VALUES ($1, $2)', [
+      id,
+      JSON.stringify(defaultMascot(id)),
+    ])
     await sql.query('INSERT INTO login(user_id, username, password_hash) VALUES ($1, $2, $3)', [
       id,
       username,

@@ -249,7 +249,7 @@ async function accounts() {
           origin,
           method: 'POST',
           token: ada.bearerToken,
-          body: JSON.stringify({ roomId: room.id, name: 'general' }),
+          body: JSON.stringify({ roomId: room.id, name: 'general', kind: 'text' }),
         })
       ).json,
     )

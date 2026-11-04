@@ -12,8 +12,12 @@ export async function accountRequest(request: Request) {
   if (path.startsWith('/api/account/photo/')) {
     const id = z.uuid().parse(path.slice('/api/account/photo/'.length))
     const result = await db.query(
-      `SELECT p.bytes FROM account_photo p WHERE p.id=$1 AND (p.user_id=$2 OR EXISTS(
-      SELECT 1 FROM member mine, member theirs WHERE mine.user_id=$2 AND theirs.user_id=p.user_id))`,
+      `SELECT p.bytes FROM account_photo p WHERE p.id=$1 AND (p.user_id=$2 OR (EXISTS(
+      SELECT 1 FROM member mine, member theirs WHERE mine.user_id=$2 AND theirs.user_id=p.user_id)
+      AND (EXISTS(SELECT 1 FROM account_security a WHERE a.avatar->>'uploadId'=p.id::text)
+      OR EXISTS(SELECT 1 FROM message m WHERE m.author_avatar->>'uploadId'=p.id::text)
+      OR EXISTS(SELECT 1 FROM direct_message d JOIN direct_conversation c ON c.id=d.conversation_id
+        WHERE d.author_avatar->>'uploadId'=p.id::text AND $2 IN (c.user_a, c.user_b)))))`,
       [id, actor.user.id],
     )
     if (!result.rows[0]) throw new AccessFailure('invalid')

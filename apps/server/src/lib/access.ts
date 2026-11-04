@@ -1,4 +1,11 @@
-import { AccessCommand, AccessView, type AccessStage, Avatar, PublicUser } from '@huddle/contracts'
+import {
+  AccessCommand,
+  AccessView,
+  type AccessStage,
+  Avatar,
+  desktopUserAgent,
+  PublicUser,
+} from '@huddle/contracts'
 import { auth } from './auth'
 import { delivery } from './auth-bridge'
 import { config } from './config'
@@ -48,8 +55,10 @@ async function issueSession(userId: string, request: Request) {
   const ctx = await auth.$context
   const user = await ctx.internalAdapter.findUserById(userId)
   if (!user) throw new AccessFailure('invalid')
+  const agent = request.headers.get('user-agent') ?? ''
+  const native = request.headers.get('x-huddle-client') === 'native'
   const session = await ctx.internalAdapter.createSession(userId, false, {
-    userAgent: request.headers.get('user-agent') ?? '',
+    userAgent: native ? `${desktopUserAgent} ${agent}` : agent,
   })
   if (!session) throw new AccessFailure('unavailable')
   return { user, session }

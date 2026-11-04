@@ -6,6 +6,7 @@ import {
   type Avatar as AvatarValue,
   type Profile,
 } from '@huddle/contracts'
+import { clock } from './Badges'
 import { Alert, Primary, useNow } from './primitives'
 import { errorText } from './transport'
 
@@ -46,7 +47,11 @@ export function Avatar({
     return <img className="access-avatar-photo" src={src} alt={name} width={size} height={size} />
   if (!avatar || avatar.kind === 'photo')
     return (
-      <span className="avatar" style={{ width: size, height: size }} aria-label={name}>
+      <span
+        className="avatar"
+        style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
+        aria-label={name}
+      >
         {name.slice(0, 2).toUpperCase()}
       </span>
     )
@@ -242,9 +247,7 @@ export function ProfileEditor({
         <Avatar avatar={profile.avatar} name={name} photo={photo} size={28} />
         <div>
           <strong>{name}</strong>
-          <time>
-            {new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </time>
+          <time>{clock(new Date(now).toISOString())}</time>
           <p>Hi everyone, glad to be here.</p>
         </div>
       </div>

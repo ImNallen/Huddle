@@ -1,593 +1,484 @@
 .access-shell {
-  --access-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, sans-serif;
-  --access-mono: ui-monospace, 'SF Mono', Menlo, monospace;
-  --access-bg: #fcfcfc;
-  --access-surface: #ffffff;
-  --access-sunken: #f5f5f5;
-  --access-line: #e7e7e7;
-  --access-line-strong: #dcdcdc;
-  --access-text: #171717;
-  --access-muted: #7a7a7a;
-  --access-faint: #a3a3a3;
-  --access-accent: #1d4ed8;
-  --access-accent-ring: rgb(29 78 216 / 0.16);
-  --access-on-accent: #ffffff;
-  --access-green: #16a34a;
-  --access-danger: #c2410c;
-  --access-danger-tint: #faf0eb;
-  --access-disabled: #efefef;
-  --access-tile: #171717;
-  --access-on-tile: #ffffff;
-  min-height: 100dvh;
-  color-scheme: light;
-  background: var(--access-bg);
-  color: var(--access-text);
-  font-family: var(--access-font);
-  font-size: 14px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
-@media (prefers-color-scheme: dark) {
-  .access-shell {
-    --access-bg: #111111;
-    --access-surface: #161616;
-    --access-sunken: #0d0d0d;
-    --access-line: #242424;
-    --access-line-strong: #2e2e2e;
-    --access-text: #ededed;
-    --access-muted: #8b8b8b;
-    --access-faint: #5f5f5f;
-    --access-accent: #3b82f6;
-    --access-accent-ring: rgb(59 130 246 / 0.22);
-    --access-green: #22c55e;
-    --access-danger: #f97316;
-    --access-danger-tint: #2a1a12;
-    --access-disabled: #1c1c1c;
-    --access-tile: #ededed;
-    --access-on-tile: #111111;
-    color-scheme: dark;
-  }
-}
-.access-shell *,
-.access-shell *::before,
-.access-shell *::after {
-  box-sizing: border-box;
-}
-:where(.access-shell) :is(button, input) {
-  font: inherit;
-  color: inherit;
-}
-.access-shell button {
-  cursor: pointer;
-}
-.access-shell button:disabled {
-  cursor: default;
-}
-.access-shell code {
-  font-family: var(--access-mono);
-}
-:where(.access-shell) p {
-  margin: 0;
-  color: inherit;
-  line-height: inherit;
-}
-:where(.access-shell) label {
-  display: block;
-  margin: 0;
-  color: inherit;
-  font-size: inherit;
-  font-weight: inherit;
-}
-:where(.access-shell) button:disabled {
-  opacity: 1;
-}
-:where(.access-shell) strong {
-  font-weight: 600;
-}
-
-.access-header {
-  height: 56px;
-  padding: 0 20px;
   display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--window-bar-height));
+  padding-bottom: 40px;
+  background: var(--access-field);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.375;
+}
+.access-shell code,
+.settings code {
+  font-family: var(--mono);
+}
+.access-header {
+  display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 24px;
+  height: 72px;
+  padding: 0 32px;
+  color: var(--on-accent);
 }
-.access-crumbs {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+.access-header :focus-visible {
+  outline-color: var(--on-accent);
 }
 .access-brand {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--access-text);
-  text-decoration: none;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-.access-crumb-slash {
-  color: var(--access-faint);
-}
-.access-crumb {
-  display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-  font-size: 13px;
-  white-space: nowrap;
-}
-.access-crumb code {
-  color: var(--access-muted);
-  font-size: 12px;
+  color: var(--on-accent);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
 }
 .access-header-right {
   display: flex;
+  flex: none;
   align-items: center;
-  gap: 14px;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--access-muted);
+  gap: 16px;
 }
-.access-header-right button {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--access-muted);
+.access-header-right > * {
+  color: var(--on-accent);
+  font-size: 14px;
+  font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 2px;
-  text-decoration-color: var(--access-faint);
   white-space: nowrap;
 }
-.access-header-right button:hover {
-  color: var(--access-text);
+.access-foot {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 24px 32px 0;
+  color: var(--on-accent);
+  font-size: 12px;
+}
+.access-foot a {
+  color: inherit;
+  text-underline-offset: 2px;
+}
+.access-foot :focus-visible {
+  outline-color: var(--on-accent);
 }
 
 .access-main {
-  width: min(360px, calc(100% - 40px));
-  margin: 44px auto 0;
-  padding-bottom: 64px;
+  width: min(480px, calc(100% - 32px));
+  margin: auto;
+  padding: 32px;
+  border-radius: 8px;
+  background: var(--access-card);
+  box-shadow: var(--shadow-card);
 }
-.access-wide {
-  width: min(420px, calc(100% - 40px));
+.access-main h1,
+.settings-content h1 {
+  margin: 0 0 8px;
+  color: var(--strong);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 .access-main h1 {
-  margin: 0 0 6px;
-  font-size: 22px;
-  line-height: 1.25;
+  font-size: 24px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  text-align: center;
 }
-.access-main h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+.settings-content h1 {
+  font-size: 24px;
+  font-weight: 700;
 }
 .access-description {
-  margin: 0 0 22px;
-  color: var(--access-muted);
-  line-height: 1.55;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 16px;
 }
-.access-description strong {
-  color: var(--access-text);
-}
-.access-eyebrow {
-  margin: 0 0 4px;
-  font-size: 12.5px;
-  color: var(--access-muted);
+.access-main .access-description {
+  text-align: center;
 }
 .access-symbol {
-  width: 32px;
-  height: 32px;
   display: grid;
   place-items: center;
-  margin-bottom: 14px;
-  border: 1px solid var(--access-line);
-  border-radius: 8px;
-  background: var(--access-surface);
-  color: var(--access-text);
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--tile);
+  color: var(--strong);
 }
 .access-back {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin: 0 0 20px -2px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--access-muted);
-  font-size: 12.5px;
+  margin-bottom: 16px;
+  color: var(--link);
+  font-size: 14px;
 }
 .access-back:hover {
-  color: var(--access-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .access-label {
-  display: block;
-  margin: 16px 0 0;
-}
-.access-label-row,
-.access-label {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 7px;
-  font-size: 13px;
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  color: var(--strong);
+  font-size: 14px;
   font-weight: 500;
 }
-.access-label {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 7px;
-}
-.access-shell input:where(:not([type='checkbox'], [type='file'])) {
-  width: 100%;
-  height: 36px;
-  padding: 0 11px;
-  border: 1px solid var(--access-line-strong);
-  border-radius: 7px;
-  background: var(--access-surface);
-  color: var(--access-text);
+.access-label-row {
+  color: var(--strong);
   font-size: 14px;
-  font-weight: 400;
-  outline: none;
+  font-weight: 500;
 }
-.access-shell input:focus {
-  border-color: var(--access-accent);
-  box-shadow: 0 0 0 3px var(--access-accent-ring);
+.access-main .access-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
-.access-shell input::placeholder {
-  color: var(--access-faint);
+.access-main input:where(:not([type='checkbox'], [type='file'])) {
+  border-color: transparent;
+  background: var(--access-input);
+  color: var(--text);
+  font-size: 16px;
 }
-.access-shell input:disabled {
-  background: var(--access-disabled);
-  color: var(--access-faint);
+.access-main input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
-.access-shell input[aria-invalid='true'] {
-  border-color: var(--access-danger);
+.access-main input:user-invalid,
+.access-main input[aria-invalid='true'] {
+  border-color: var(--danger);
 }
-.access-shell input[aria-invalid='true']:focus {
-  box-shadow: 0 0 0 3px var(--access-danger-tint);
+.access-main input[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 1px var(--danger);
 }
-.access-shell input.access-mono {
-  font-family: var(--access-mono);
-  font-size: 13px;
+.access-main input.access-mono {
+  font-family: var(--mono);
+  font-size: 14px;
 }
 .access-field-error {
   display: flex;
   gap: 6px;
-  margin: 7px 0 0;
-  color: var(--access-danger);
-  font-size: 12.5px;
-  line-height: 1.45;
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: 14px;
 }
 .access-field-error svg {
   flex: none;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .access-primary,
 .access-secondary {
-  width: 100%;
-  height: 36px;
-  margin-top: 14px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  border-radius: 7px;
+  gap: 8px;
+  height: 38px;
+  margin-top: 16px;
+  padding: 0 16px;
+  border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
+  text-decoration: none;
+  transition: background-color 120ms;
 }
 .access-primary {
-  border: 1px solid var(--access-accent);
-  background: var(--access-accent);
-  color: var(--access-on-accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .access-primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: var(--accent-hover);
 }
-.access-primary:disabled {
-  border-color: var(--access-disabled);
-  background: var(--access-disabled);
-  color: var(--access-faint);
-}
-.access-primary[aria-busy='true'] {
-  border-color: var(--access-accent);
-  background: var(--access-accent);
-  color: var(--access-on-accent);
-  opacity: 0.75;
+.access-primary:disabled,
+.access-secondary:disabled {
+  opacity: 0.5;
 }
 .access-secondary {
-  border: 1px solid var(--access-line-strong);
-  background: var(--access-surface);
-  color: var(--access-text);
+  background: var(--secondary);
+  color: var(--text);
 }
 .access-secondary:hover:not(:disabled) {
-  background: var(--access-sunken);
+  background: var(--secondary-hover);
 }
-.access-secondary:disabled {
-  color: var(--access-faint);
-}
-.access-danger {
-  color: var(--access-danger) !important;
-}
-.access-text-button {
+.access-main .access-primary,
+.access-main .access-secondary {
   width: 100%;
-  margin-top: 10px;
-  padding: 8px;
-  border: 0;
-  background: none;
-  color: var(--access-muted);
-  font-size: 14px;
+  height: 44px;
+  margin-top: 20px;
+  font-size: 16px;
 }
-.access-text-button:hover:not(:disabled) {
-  color: var(--access-text);
+.access-main .access-secondary {
+  margin-top: 8px;
+}
+.access-main > .access-link {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 12px;
 }
 .access-link {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--access-accent);
-  font-size: 13px;
-  text-decoration: none;
+  color: var(--link);
+  font-size: 14px;
 }
 .access-link:hover:not(:disabled) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .access-link:disabled {
-  color: var(--access-faint);
+  opacity: 0.5;
 }
-.access-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 14px 0;
-  color: var(--access-faint);
-  font-size: 12px;
+.access-link.access-danger {
+  color: var(--danger);
 }
-.access-divider::before,
-.access-divider::after {
-  content: '';
-  height: 1px;
-  flex: 1;
-  background: var(--access-line);
+.access-text-button {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 14px;
 }
-
+.access-text-button:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .access-alert {
   display: flex;
-  gap: 9px;
-  margin-top: 12px;
-  padding: 9px 12px;
-  border-radius: 7px;
-  background: var(--access-danger-tint);
-  font-size: 13px;
-  line-height: 1.45;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--text);
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .access-alert-icon {
   display: flex;
   flex: none;
   padding-top: 2px;
-  color: var(--access-danger);
+  color: var(--danger);
 }
 .access-alert strong {
-  font-weight: 500;
-  color: var(--access-danger);
+  color: var(--strong);
+  font-weight: 600;
 }
 
 .access-card {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--access-line);
-  border-radius: 9px;
-  background: var(--access-surface);
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
 }
 .access-card h2 {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13.5px;
+  color: var(--strong);
+  font-size: 16px;
   font-weight: 600;
 }
 .access-card p {
-  color: var(--access-muted);
-  font-size: 13px;
-  margin: 4px 0 0;
-}
-.access-card > .access-link {
-  margin-top: 10px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 14px;
 }
 .access-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
+}
+.access-row > svg {
+  flex: none;
+  color: var(--muted);
+}
+.access-security-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.access-security-detail {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.access-security-detail strong {
+  color: var(--strong);
+  font-weight: 500;
 }
 .access-footer {
-  margin-top: 22px;
-  color: var(--access-muted);
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-.access-footer p + p {
-  margin-top: 2px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
 }
 .access-note {
-  margin: 16px 0 0;
-  font-size: 12.5px;
-  color: var(--access-muted);
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .access-server-tile {
   position: relative;
-  flex: none;
   display: grid;
+  flex: none;
   place-items: center;
-  background: var(--access-tile);
-  color: var(--access-on-tile);
-  font-family: var(--access-mono);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--tile);
+  color: var(--strong);
+  font-size: 12px;
   font-style: normal;
   font-weight: 700;
-  letter-spacing: -0.02em;
 }
 .access-server-tile.is-unknown {
+  border: 1px solid var(--line-strong);
   background: transparent;
-  border: 1px solid var(--access-line-strong);
-  color: var(--access-muted);
-  font-family: var(--access-font);
+  color: var(--muted);
   font-weight: 500;
-}
-.access-server-tile-small {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  font-size: 7.5px;
-}
-.access-server-tile-medium {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  font-size: 10px;
-}
-.access-server-tile-large {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
-  font-size: 16px;
 }
 .access-server-card {
   display: flex;
   align-items: center;
-  gap: 11px;
-  margin-bottom: 22px;
-  padding: 10px 12px;
-  border: 1px solid var(--access-line);
-  border-radius: 9px;
-  background: var(--access-surface);
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--access-input);
 }
 .access-server-card > div {
+  display: grid;
   flex: 1;
   min-width: 0;
-  display: grid;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 .access-server-card strong {
-  font-size: 13.5px;
-  font-weight: 500;
+  overflow: hidden;
+  color: var(--strong);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .access-server-card code {
   overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--access-muted);
 }
 
 .access-tool {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--access-line-strong);
-  border-radius: 6px;
-  background: var(--access-surface);
-  color: var(--access-text);
-  font-size: 12.5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--secondary);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
 }
 .access-tool:hover {
-  background: var(--access-sunken);
+  background: var(--secondary-hover);
 }
 .access-tool.is-icon {
-  width: 26px;
-  height: 26px;
-  padding: 0;
   justify-content: center;
-  border-color: transparent;
+  width: 32px;
+  padding: 0;
   background: none;
-  color: var(--access-muted);
+  color: var(--muted);
 }
 .access-tool.is-copied {
-  color: var(--access-green);
+  color: var(--green);
 }
 
 .access-saved {
-  margin-top: 22px;
+  margin-top: 24px;
 }
 .access-saved > p {
-  margin-bottom: 7px;
-  font-size: 12.5px;
-  color: var(--access-muted);
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 .access-saved ul {
+  display: grid;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--access-line);
-  border-radius: 9px;
-  background: var(--access-surface);
 }
 .access-saved li {
   display: flex;
   align-items: center;
   gap: 4px;
   padding-right: 8px;
-}
-.access-saved li + li {
-  border-top: 1px solid var(--access-line);
+  border-radius: 8px;
+  background: var(--access-input);
 }
 .access-saved-server {
-  flex: 1;
-  min-width: 0;
   display: flex;
+  flex: 1;
   align-items: center;
-  gap: 11px;
-  padding: 10px 6px 10px 12px;
-  border: 0;
-  background: none;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 4px 8px 12px;
   text-align: left;
 }
 .access-saved-server > span:nth-child(2) {
+  display: grid;
   flex: 1;
   min-width: 0;
-  display: grid;
-  line-height: 1.35;
-  font-size: 13.5px;
+  color: var(--strong);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
 }
 .access-saved-server small {
   overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--access-mono);
-  font-size: 11.5px;
-  color: var(--access-muted);
 }
 .access-saved-server time {
+  flex: none;
+  color: var(--muted);
   font-size: 12px;
-  color: var(--access-muted);
 }
 .access-saved-remove {
-  width: 26px;
-  height: 26px;
   display: grid;
+  flex: none;
   place-items: center;
-  border: 0;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
-  background: none;
-  color: var(--access-muted);
+  color: var(--muted);
 }
 .access-saved-remove:hover {
-  background: var(--access-sunken);
-  color: var(--access-text);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .access-spinner {
@@ -604,76 +495,69 @@
   }
 }
 .access-connecting {
-  margin-top: 18vh;
   text-align: center;
 }
-.access-connecting .access-symbol {
-  width: 40px;
-  height: 40px;
-  margin: 0 auto 16px;
-  border-radius: 10px;
-  color: var(--access-accent);
-}
-.access-connecting h1 {
-  font-size: 16px;
-  letter-spacing: 0;
-}
 .access-connecting p {
-  color: var(--access-muted);
+  color: var(--muted);
+  font-size: 16px;
+  overflow-wrap: anywhere;
 }
 .access-connecting code {
-  color: var(--access-text);
+  color: var(--text);
+  font-size: 14px;
 }
 
 .access-segmented {
   display: inline-flex;
+  gap: 2px;
   padding: 2px;
-  border: 1px solid var(--access-line);
   border-radius: 8px;
-  background: var(--access-sunken);
+  background: var(--input);
 }
 .access-segmented button {
   height: 28px;
   padding: 0 12px;
-  border: 0;
   border-radius: 6px;
-  background: none;
-  color: var(--access-muted);
-  font-size: 13px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+.access-segmented button:hover {
+  color: var(--text);
 }
 .access-segmented button[aria-pressed='true'] {
-  background: var(--access-surface);
-  color: var(--access-text);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  background: var(--selected);
+  color: var(--strong);
 }
 .access-avatar-panel {
   display: flex;
   gap: 16px;
-  margin-top: 10px;
-  padding: 14px;
-  border: 1px solid var(--access-line);
-  border-radius: 9px;
-  background: var(--access-surface);
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
 }
 .access-avatar-stage {
-  flex: none;
-  width: 76px;
-  height: 76px;
   display: grid;
+  flex: none;
   place-items: center;
-  border-radius: 10px;
-  background: var(--access-sunken);
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
 }
 .access-avatar-panel > div:last-child {
   flex: 1;
   min-width: 0;
 }
 .access-avatar-panel p {
-  font-size: 12.5px;
-  color: var(--access-muted);
+  color: var(--muted);
+  font-size: 13px;
 }
 .access-avatar-panel p strong {
-  color: var(--access-text);
+  color: var(--text);
   font-weight: 500;
 }
 .access-avatar-options {
@@ -689,102 +573,181 @@
   display: grid;
   place-items: center;
   width: 38px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid var(--access-line);
-  border-radius: 7px;
-  background: var(--access-surface);
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+.access-avatar-options button:hover {
+  background: var(--hover);
 }
 .access-avatar-options button[aria-pressed='true'] {
-  border: 1.5px solid var(--access-text);
+  border: 2px solid var(--accent);
 }
 .access-avatar-options.is-colors button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 50%;
-  background: none;
 }
 .access-avatar-options.is-colors button[aria-pressed='true'] {
   box-shadow:
-    0 0 0 2px var(--access-surface),
-    0 0 0 3.5px var(--access-text);
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--strong);
 }
 .access-color {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
 }
 .access-photo-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   margin: 8px 0;
-}
-.access-photo-actions label {
-  cursor: pointer;
 }
 .access-preview {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--access-line);
-  border-radius: 9px;
-  background: var(--access-surface);
-}
-.access-preview time {
-  margin-left: 6px;
-  font-size: 12px;
-  color: var(--access-muted);
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
 }
 .access-preview strong {
+  color: var(--strong);
   font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.access-preview time {
+  margin-left: 8px;
+  color: var(--faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.access-preview > div {
+  min-width: 0;
+}
+.access-profile-label {
+  margin: 20px 0 8px;
+}
+.access-profile-label.is-muted {
+  color: var(--muted);
 }
 
-.access-security {
-  width: 100%;
+.settings {
+  display: flex;
+  height: calc(100dvh - var(--window-bar-height));
+  overflow: hidden;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.375;
 }
-.access-main:has(.access-security) {
-  width: min(940px, calc(100% - 40px));
-  margin-top: 24px;
+.settings-side {
+  display: flex;
+  flex: 1 0 280px;
+  justify-content: flex-end;
+  padding: 60px 8px 24px;
+  overflow-y: auto;
+  background: var(--sidebar);
 }
-.access-security-layout {
+.settings-nav {
   display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 36px;
-  margin-top: 24px;
+  align-content: start;
+  gap: 2px;
+  width: 200px;
 }
-.access-security-nav button {
-  display: block;
-  padding: 7px 0;
-  border: 0;
-  background: none;
-  color: var(--access-muted);
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
   text-align: left;
 }
-.access-security-nav button[aria-current] {
-  color: var(--access-text);
-  font-weight: 500;
+.settings-nav button:hover {
+  background: var(--hover);
+  color: var(--text);
 }
-.access-security .access-card {
-  margin: 0 0 16px;
+.settings-nav button[aria-current] {
+  background: var(--selected);
+  color: var(--strong);
 }
-.access-security-row {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--access-line);
+.settings-nav hr {
+  width: calc(100% - 20px);
+  height: 1px;
+  margin: 8px 10px;
+  border: 0;
+  background: var(--line);
 }
-.access-avatar {
-  width: 54px;
-  height: 54px;
+.settings-nav .settings-signout {
+  color: var(--danger);
+}
+.settings-nav .settings-signout:hover {
+  color: var(--danger);
+}
+.settings-main {
+  display: flex;
+  flex: 1 1 calc(680px + 136px);
+  gap: 24px;
+  min-width: 0;
+  padding: 60px 40px 80px;
+  overflow-y: auto;
+}
+.settings-content {
+  flex: 0 1 680px;
+  min-width: 0;
+}
+.settings-content .access-description {
+  margin-bottom: 24px;
+}
+.settings-content > form {
+  display: block;
+}
+.settings-close {
+  position: sticky;
+  top: 0;
+  display: grid;
   flex: none;
+  justify-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.settings-close button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+  color: var(--muted);
+}
+.settings-close button:hover {
+  background: var(--hover);
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.access-avatar {
   position: relative;
   display: inline-grid;
+  flex: none;
   place-items: center;
-  background: var(--mascot-color, #818cf8);
+  width: 54px;
+  height: 54px;
   border-radius: 28%;
+  background: var(--mascot-color, #818cf8);
 }
 .access-avatar::before,
 .access-avatar::after {
@@ -852,50 +815,56 @@
   border-radius: 50%;
 }
 
-@media (max-width: 650px) {
+@media (max-width: 760px) {
+  .settings-side {
+    flex: 0 0 180px;
+  }
+  .settings-nav {
+    width: 100%;
+  }
+  .settings-main {
+    padding: 32px 16px 48px;
+    gap: 12px;
+  }
+}
+@media (max-width: 560px) {
+  .access-header {
+    height: 56px;
+    padding: 0 16px;
+  }
+  .access-foot {
+    padding: 16px 16px 0;
+  }
+  .access-shell {
+    padding-bottom: 16px;
+  }
   .access-main {
-    margin-top: 28px;
+    padding: 24px;
   }
-  .access-security-layout {
-    grid-template-columns: 1fr;
-    gap: 16px;
+  .settings {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100dvh - var(--window-bar-height));
+    overflow: visible;
   }
-  .access-security-nav {
-    display: flex;
-    gap: 20px;
+  .settings-side {
+    flex: none;
+    padding: 12px 16px;
   }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .access-main {
-    animation: access-appear 0.18s ease-out;
+  .settings-nav {
+    grid-auto-flow: column;
+    grid-auto-columns: auto;
+    justify-content: start;
+    overflow-x: auto;
   }
-  @keyframes access-appear {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
+  .settings-nav hr {
+    display: none;
   }
-}
-.access-profile-label {
-  margin: 18px 0 7px;
-}
-.access-profile-label.is-muted {
-  font-weight: 400;
-  color: var(--access-muted);
-}
-.access-text-button.is-inline {
-  width: auto;
-  margin: 0;
-  padding: 0 4px;
-  font-size: 13px;
-}
-.access-preview > div {
-  line-height: 1.4;
-}
-a.access-secondary {
-  text-decoration: none;
+  .settings-main {
+    flex: 1;
+    padding: 24px 16px 48px;
+  }
+  .settings-close span {
+    display: none;
+  }
 }

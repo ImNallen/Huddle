@@ -5,7 +5,7 @@ import { Access } from './Access'
 import { ServerView } from './ServerView'
 import { Security } from './Security'
 import { WifiOff } from 'lucide-react'
-import { Frame, Alert, Heading, Spinner, hostOf } from './primitives'
+import { Frame, Alert, Heading, ServerCard, Spinner, hostOf } from './primitives'
 import { NetworkError, type Connection } from './connection'
 import { errorText } from './transport'
 
@@ -71,7 +71,8 @@ export function Application({
     return <Connecting origin={client.origin} server={hint} onServer={onServer} />
   if (state.kind === 'failed')
     return (
-      <Frame server={hint} onServer={onServer}>
+      <Frame>
+        {onServer && <ServerCard server={hint ?? { origin: client.origin }} onServer={onServer} />}
         <Heading
           title="Could not connect"
           icon={<WifiOff size={16} />}
@@ -133,8 +134,10 @@ export function Connecting({
   server?: { name: string; origin: string }
   onServer?: () => void
 }) {
+  const target = server ?? (origin ? { origin } : undefined)
   return (
-    <Frame server={server} onServer={onServer}>
+    <Frame>
+      {onServer && target && <ServerCard server={target} onServer={onServer} />}
       <div className="access-connecting" role="status">
         <div className="access-symbol">
           <Spinner size={16} />
