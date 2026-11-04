@@ -6,11 +6,14 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { WebSocket } from 'ws'
 import pg from 'pg'
+import sharp from 'sharp'
 import {
   AccessError,
+  type Avatar,
   Channel,
+  DirectConversation,
+  DirectMessage,
   EventPage,
-  Home,
   Members,
   Message,
   Room,
@@ -68,6 +71,18 @@ async function call<T>(path: string, schema: z.ZodType<T>, token?: string, body?
   assert.equal(response.status, 200, `${path}: ${JSON.stringify(data)}`)
   return schema.parse(data)
 }
+async function rawText(path: string, token: string, body?: unknown) {
+  const response = await fetch(origin + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: origin,
+      Authorization: `Bearer ${token}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  return { status: response.status, text: await response.text() }
+}
 function account(client: Client, user: Awaited<ReturnType<typeof setupFriend>>) {
   return { token: client.sessionToken(), cookie: client.cookie(), user }
 }
@@ -76,11 +91,13 @@ function watch(token: string, after: string, ticket?: string) {
   const socket = new WebSocket(wsURL, { origin })
   sockets.add(socket)
   const events: ServerEvent[] = []
+  const frames: string[] = []
   let ready = false
   socket.on('open', () =>
     socket.send(JSON.stringify({ kind: 'watch', after, ...(ticket ? { ticket } : { token }) })),
   )
   socket.on('message', (data) => {
+    frames.push(data.toString())
     events.push(...EventPage.parse(JSON.parse(data.toString())).events)
     ready = true
   })
@@ -89,6 +106,7 @@ function watch(token: string, after: string, ticket?: string) {
   return {
     socket,
     events,
+    frames,
     get ready() {
       return ready
     },
@@ -356,12 +374,13 @@ try {
   const channel = await call('/api/channels', Channel, owner.token, {
     roomId: studio.id,
     name: 'general',
+    kind: 'text',
   })
   assert.equal(
     (
       await request('/api/channels', {
         token: member.token,
-        body: { roomId: studio.id, name: 'forbidden' },
+        body: { roomId: studio.id, name: 'forbidden', kind: 'text' },
       })
     ).response.status,
     403,
@@ -406,6 +425,7 @@ try {
   const anotherChannel = await call('/api/channels', Channel, owner.token, {
     roomId: studio.id,
     name: 'design',
+    kind: 'text',
   })
   assert.equal(
     (
@@ -473,6 +493,15 @@ try {
       ),
     'Connected watches recover a committed message without a notification',
   )
+  const storedWithoutMentions = first.events.find(
+    (event) => event.kind === 'message.created' && event.message.id === silentMessage.id,
+  )
+  assert.equal(storedWithoutMentions?.kind, 'message.created')
+  assert.deepEqual(
+    storedWithoutMentions?.kind === 'message.created' && storedWithoutMentions.mentions,
+    [],
+    'a stored message.created event without mentions still parses',
+  )
   pass('database polling recovers an intentionally omitted notification without reconnecting')
 
   const cursor = message.cursor
@@ -485,6 +514,7 @@ try {
   const offlineChannel = await call('/api/channels', Channel, owner.token, {
     roomId: studio.id,
     name: 'replay',
+    kind: 'text',
   })
   const reconnected = watch(member.token, cursor)
   await eventually(
@@ -575,7 +605,6 @@ try {
   )
   pass('malformed frames, invalid sessions, unauthorized watches, and untrusted origins reject')
   const snapshotOf = (token: string) => call('/api/snapshot', Snapshot, token)
-  const homeOf = (token: string) => call('/api/home', Home, token)
   const beforeRooms = await snapshotOf(owner.token)
   assert.deepEqual(beforeRooms.rooms, [studio])
   assert.equal(
@@ -610,14 +639,15 @@ try {
   const lobby = await call('/api/channels', Channel, owner.token, {
     roomId: lounge.id,
     name: 'general',
+    kind: 'text',
   })
-  assert.deepEqual(lobby, { id: lobby.id, roomId: lounge.id, name: 'general' })
+  assert.deepEqual(lobby, { id: lobby.id, roomId: lounge.id, name: 'general', kind: 'text' })
   assert.notEqual(lobby.id, channel.id)
   assert.equal(
     (
       await request('/api/channels', {
         token: owner.token,
-        body: { roomId: lounge.id, name: 'General' },
+        body: { roomId: lounge.id, name: 'General', kind: 'text' },
       })
     ).response.status,
     409,
@@ -626,7 +656,7 @@ try {
     (
       await request('/api/channels', {
         token: owner.token,
-        body: { roomId: randomUUID(), name: 'nowhere' },
+        body: { roomId: randomUUID(), name: 'nowhere', kind: 'text' },
       })
     ).response.status,
     404,
@@ -653,6 +683,77 @@ try {
   ])
   pass('admins create rooms with unique names; channel names are unique per room; rooms replay')
 
+  const beforeVoice = await snapshotOf(owner.token)
+  assert.equal(
+    (
+      await request('/api/channels', {
+        token: owner.token,
+        body: { roomId: lounge.id, name: 'nokind' },
+      })
+    ).response.status,
+    400,
+    'a channel must state its kind',
+  )
+  assert.equal(
+    (
+      await request('/api/channels', {
+        token: owner.token,
+        body: { roomId: lounge.id, name: 'video', kind: 'video' },
+      })
+    ).response.status,
+    400,
+    'a channel kind is text or voice',
+  )
+  assert.equal(
+    (
+      await request('/api/channels', {
+        token: owner.token,
+        body: { roomId: lounge.id, name: 'general', kind: 'voice' },
+      })
+    ).response.status,
+    409,
+    'text and voice channels share one namespace in a room',
+  )
+  const hangout = await call('/api/channels', Channel, owner.token, {
+    roomId: lounge.id,
+    name: 'hangout',
+    kind: 'voice',
+  })
+  assert.deepEqual(hangout, { id: hangout.id, roomId: lounge.id, name: 'hangout', kind: 'voice' })
+  const voiceReplay = watch(member.token, beforeVoice.cursor)
+  await eventually(() => voiceReplay.events.length >= 1, 'The voice channel replays')
+  assert.deepEqual(voiceReplay.events, [
+    {
+      kind: 'channel.created',
+      cursor: String(BigInt(beforeVoice.cursor) + 1n),
+      channel: hangout,
+    },
+  ])
+  const voicePost = await request('/api/messages', {
+    token: member.token,
+    body: { channelId: hangout.id, retryId: randomUUID(), body: 'Anyone here?' },
+  })
+  assert.equal(voicePost.response.status, 409)
+  assert.deepEqual(voicePost.data, { message: 'Voice channels do not hold messages.' })
+  assert.deepEqual(
+    await call(`/api/messages?channelId=${hangout.id}`, Message.array(), owner.token),
+    [],
+    'a rejected voice post leaves no message',
+  )
+  const afterVoice = await snapshotOf(owner.token)
+  assert.equal(
+    afterVoice.cursor,
+    voiceReplay.events[0]?.cursor,
+    'a rejected voice post advances no cursor',
+  )
+  assert.deepEqual(
+    afterVoice.channels.find((item) => item.id === hangout.id),
+    hangout,
+  )
+  pass(
+    'voice channels list and replay with their kind, share the room namespace, and reject messages',
+  )
+
   const sent: Message[] = []
   for (const body of ['First unread', 'Second unread', '@integration OWNER, can you look?'])
     sent.push(
@@ -664,79 +765,471 @@ try {
     )
   const [firstUnread, , mention] = sent
   assert(firstUnread && mention)
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [{ channelId: lobby.id, count: 3 }])
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [
+    { channelId: lobby.id, count: 3, mentions: 1 },
+  ])
   assert.equal(
     (await snapshotOf(member.token)).unread.some((item) => item.channelId === lobby.id),
     false,
   )
-  assert.deepEqual(await homeOf(owner.token), {
-    items: [
-      { kind: 'mention', message: mention },
-      { kind: 'channel', channelId: lobby.id, count: 3, latest: mention },
-    ],
-  })
-  const memberHome = await homeOf(member.token)
-  assert.deepEqual(
-    memberHome.items.filter((item) => item.kind === 'mention'),
-    [],
+  await eventually(
+    () =>
+      first.events.some(
+        (event) => event.kind === 'message.created' && event.message.id === mention.id,
+      ),
+    'the mention reaches a live watch',
   )
-  assert.equal(
-    memberHome.items.some((item) => item.kind === 'channel' && item.channelId === lobby.id),
-    false,
+  const mentionsOf = (id: string) =>
+    first.events.flatMap((event) =>
+      event.kind === 'message.created' && event.message.id === id ? event.mentions : [],
+    )
+  assert.deepEqual(mentionsOf(mention.id), [owner.user.id])
+  assert.deepEqual(mentionsOf(firstUnread.id), [])
+  pass(
+    'unread counts skip your own messages, the snapshot counts unread mentions, and the event names who was mentioned',
   )
-  pass('unread counts skip your own messages and an @Name mention reaches only that home')
 
   const markRead = (token: string, body: unknown) => request('/api/read', { token, body })
-  const cleared = await markRead(owner.token, {
-    kind: 'channel',
-    channelId: lobby.id,
-    cursor: mention.cursor,
-  })
+  const cleared = await markRead(owner.token, { channelId: lobby.id, cursor: firstUnread.cursor })
   assert.equal(cleared.response.status, 200)
   assert.deepEqual(cleared.data, {})
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [])
-  assert.deepEqual(await homeOf(owner.token), { items: [] })
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [
+    { channelId: lobby.id, count: 2, mentions: 1 },
+  ])
   assert.equal(
-    (
-      await markRead(owner.token, {
-        kind: 'channel',
-        channelId: lobby.id,
-        cursor: firstUnread.cursor,
-      })
-    ).response.status,
+    (await markRead(owner.token, { channelId: lobby.id, cursor: mention.cursor })).response.status,
     200,
   )
   assert.deepEqual((await snapshotOf(owner.token)).unread, [])
-  assert.deepEqual(await homeOf(owner.token), { items: [] })
+  assert.equal(
+    (await markRead(owner.token, { channelId: lobby.id, cursor: firstUnread.cursor })).response
+      .status,
+    200,
+  )
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [])
   for (const cursor of ['9000000000000000000', '9999999999999999999'])
     assert.equal(
-      (await markRead(owner.token, { kind: 'channel', channelId: lobby.id, cursor })).response
-        .status,
+      (await markRead(owner.token, { channelId: lobby.id, cursor })).response.status,
       200,
     )
-  const late = await call('/api/messages', Message, member.token, {
+  await call('/api/messages', Message, member.token, {
     channelId: lobby.id,
     retryId: randomUUID(),
     body: 'Fourth unread',
   })
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [{ channelId: lobby.id, count: 1 }])
-  assert.deepEqual(await homeOf(owner.token), {
-    items: [{ kind: 'channel', channelId: lobby.id, count: 1, latest: late }],
-  })
+  assert.deepEqual((await snapshotOf(owner.token)).unread, [
+    { channelId: lobby.id, count: 1, mentions: 0 },
+  ])
   const memberBefore = await snapshotOf(member.token)
-  assert.deepEqual(memberBefore.unread, [{ channelId: channel.id, count: 16 }])
-  const all = await markRead(member.token, { kind: 'all', cursor: memberBefore.cursor })
-  assert.equal(all.response.status, 200)
+  assert.deepEqual(memberBefore.unread, [{ channelId: channel.id, count: 16, mentions: 0 }])
+  assert.equal(
+    (await markRead(member.token, { channelId: channel.id, cursor: memberBefore.cursor })).response
+      .status,
+    200,
+  )
   assert.deepEqual((await snapshotOf(member.token)).unread, [])
-  assert.deepEqual(await homeOf(member.token), { items: [] })
-  pass('read markers clear unread and home, never regress, and stop at the server cursor')
+  pass('read markers clear unread and mentions, never regress, and stop at the server cursor')
 
   assert.equal(
-    (await markRead(owner.token, { kind: 'channel', channelId: randomUUID(), cursor: '1' }))
-      .response.status,
+    (await markRead(owner.token, { channelId: randomUUID(), cursor: '1' })).response.status,
     404,
   )
-  pass('read markers reject unknown channels')
+  assert.equal(
+    (await markRead(owner.token, { kind: 'all', cursor: '1' })).response.status,
+    400,
+    'the all-channels read marker is gone',
+  )
+  assert.equal(
+    (await request('/api/home', { token: owner.token })).response.status,
+    404,
+    'the home feed endpoint is gone',
+  )
+  pass('read markers reject unknown channels and the removed feed endpoints are gone')
+
+  const thirdClient = new Client(origin)
+  const thirdUser = await joinFriend(
+    thirdClient,
+    code,
+    'thirdparty',
+    'third-secret-1',
+    'Third party',
+  )
+  const third = account(thirdClient, thirdUser)
+  const secret = `direct-secret-${randomUUID()}`
+  const open = (token: string, userId: string) =>
+    call('/api/direct/conversations', DirectConversation, token, { userId })
+  const beforeDirect = await snapshotOf(owner.token)
+  const conversation = await open(owner.token, member.user.id)
+  assert.deepEqual(conversation, {
+    id: conversation.id,
+    peerId: member.user.id,
+    latest: null,
+    unread: 0,
+  })
+  assert.equal((await open(owner.token, member.user.id)).id, conversation.id)
+  const fromPeer = await open(member.token, owner.user.id)
+  assert.equal(fromPeer.id, conversation.id, 'find-or-create finds one row from either direction')
+  assert.equal(fromPeer.peerId, owner.user.id)
+  const afterOpen = await snapshotOf(owner.token)
+  assert.equal(afterOpen.cursor, beforeDirect.cursor, 'opening a conversation emits no event')
+  assert.deepEqual(afterOpen.directs, [])
+  assert.deepEqual(
+    (await snapshotOf(member.token)).directs,
+    [],
+    'an empty conversation does not appear for the peer',
+  )
+  const toSelf = await request('/api/direct/conversations', {
+    token: owner.token,
+    body: { userId: owner.user.id },
+  })
+  assert.equal(toSelf.response.status, 400)
+  assert.deepEqual(toSelf.data, { message: 'You cannot message yourself.' })
+  assert.equal(
+    (
+      await request('/api/direct/conversations', {
+        token: owner.token,
+        body: { userId: 'nobody-here' },
+      })
+    ).response.status,
+    404,
+  )
+  assert.equal(
+    (
+      await request('/api/direct/conversations', {
+        token: owner.token,
+        body: { userId: member.user.id, extra: true },
+      })
+    ).response.status,
+    400,
+    'direct inputs are strict',
+  )
+  pass('find-or-create is idempotent both ways, silent, and rejects self and non-members')
+
+  const bystander = watch(third.token, afterOpen.cursor)
+  const ownerLive = watch(owner.token, afterOpen.cursor)
+  const memberLive = watch(member.token, afterOpen.cursor)
+  await eventually(
+    () => bystander.ready && ownerLive.ready && memberLive.ready,
+    'all three members watch',
+  )
+  const directInput = {
+    conversationId: conversation.id,
+    retryId: randomUUID(),
+    body: `${secret} from the owner`,
+  }
+  const [dm, dmDuplicate] = await Promise.all([
+    call('/api/direct/messages', DirectMessage, owner.token, directInput),
+    call('/api/direct/messages', DirectMessage, owner.token, directInput),
+  ])
+  assert.deepEqual(dm, dmDuplicate, 'an exact retry returns the stored message')
+  assert.equal(dm.conversationId, conversation.id)
+  assert.equal(dm.authorId, owner.user.id)
+  const reply = await call('/api/direct/messages', DirectMessage, member.token, {
+    conversationId: conversation.id,
+    retryId: randomUUID(),
+    body: `${secret} from the member`,
+  })
+  const sawDirect = (events: ServerEvent[], id: string) =>
+    events.some((event) => event.kind === 'direct.message.created' && event.message.id === id)
+  await eventually(
+    () =>
+      sawDirect(ownerLive.events, dm.id) &&
+      sawDirect(ownerLive.events, reply.id) &&
+      sawDirect(memberLive.events, dm.id) &&
+      sawDirect(memberLive.events, reply.id),
+    'both participants receive both messages live',
+  )
+  const delivered = memberLive.events.find(
+    (event) => event.kind === 'direct.message.created' && event.message.id === dm.id,
+  )
+  assert.deepEqual(
+    delivered?.kind === 'direct.message.created' && [...delivered.participants].sort(),
+    [owner.user.id, member.user.id].sort(),
+    'the event alone tells a recipient who is in the conversation',
+  )
+  const ownerDirects = (await snapshotOf(owner.token)).directs
+  assert.deepEqual(ownerDirects, [
+    { id: conversation.id, peerId: member.user.id, latest: reply, unread: 1 },
+  ])
+  const memberDirects = (await snapshotOf(member.token)).directs
+  assert.deepEqual(memberDirects, [
+    { id: conversation.id, peerId: owner.user.id, latest: reply, unread: 1 },
+  ])
+  const directPath = `/api/direct/messages?conversationId=${conversation.id}`
+  assert.deepEqual(await call(directPath, DirectMessage.array(), member.token), [dm, reply])
+  pass('participants exchange messages live, with retry deduplication and per-reader unread')
+
+  const roomAfterDirect = await call('/api/messages', Message, member.token, {
+    channelId: channel.id,
+    retryId: randomUUID(),
+    body: 'Room message that follows the private ones.',
+  })
+  await eventually(
+    () =>
+      bystander.events.some(
+        (event) => event.kind === 'message.created' && event.message.id === roomAfterDirect.id,
+      ),
+    'the bystander watch is live and past the private cursors',
+  )
+  const privateToOthers = [secret, conversation.id, dm.id, reply.id]
+  const leaks = (text: string) =>
+    [...privateToOthers, 'direct.message.created'].filter((needle) => text.includes(needle))
+  assert.deepEqual(
+    bystander.events.filter((event) => event.kind === 'direct.message.created'),
+    [],
+  )
+  assert.deepEqual(leaks(bystander.frames.join('\n')), [], 'nothing private on a live watch')
+  const fromZero = watch(third.token, '0')
+  await eventually(
+    () =>
+      fromZero.events.some(
+        (event) => event.kind === 'message.created' && event.message.id === roomAfterDirect.id,
+      ),
+    'a replay from cursor 0 reaches the end of the log',
+  )
+  assert.deepEqual(leaks(fromZero.frames.join('\n')), [], 'nothing private in replay from 0')
+  const participantReplay = watch(member.token, '0')
+  await eventually(
+    () => sawDirect(participantReplay.events, reply.id),
+    'the same replay does carry the messages to a participant',
+  )
+  fromZero.socket.terminate()
+  participantReplay.socket.terminate()
+
+  const thirdSnapshot = await rawText('/api/snapshot', third.token)
+  assert.equal(thirdSnapshot.status, 200)
+  assert.deepEqual(leaks(thirdSnapshot.text), [], 'nothing private in the snapshot')
+  assert.deepEqual(Snapshot.parse(JSON.parse(thirdSnapshot.text)).directs, [])
+  const notFound = JSON.stringify({ message: 'Conversation not found.' })
+  const probes = (id: string) => [
+    rawText(`/api/direct/messages?conversationId=${id}`, third.token),
+    rawText('/api/direct/messages', third.token, {
+      conversationId: id,
+      retryId: randomUUID(),
+      body: 'Let me in',
+    }),
+    rawText('/api/direct/read', third.token, { conversationId: id, cursor: '1' }),
+  ]
+  for (const answer of await Promise.all([...probes(conversation.id), ...probes(randomUUID())])) {
+    assert.equal(answer.status, 404)
+    assert.equal(
+      answer.text,
+      notFound,
+      'a stranger gets the same answer as for an ID that does not exist',
+    )
+  }
+  assert.equal(
+    (await rawText(`/api/messages?channelId=${conversation.id}`, third.token)).status,
+    404,
+    'a conversation ID is not a channel',
+  )
+  for (const path of ['/api/snapshot', '/api/members', `/api/messages?channelId=${channel.id}`])
+    assert.deepEqual(
+      leaks((await rawText(path, third.token)).text),
+      [],
+      `nothing private in ${path}`,
+    )
+  assert.deepEqual(
+    (await snapshotOf(owner.token)).directs,
+    ownerDirects,
+    'the stranger changed nothing',
+  )
+  pass(
+    'a third member finds nothing in snapshot, replay, or a live watch, and gets the same 404 as for a random ID',
+  )
+
+  const conflict = JSON.stringify({
+    message: 'This retry ID was already used for a different message.',
+  })
+  const changedBody = await rawText('/api/direct/messages', owner.token, {
+    ...directInput,
+    body: 'Changed',
+  })
+  assert.equal(changedBody.status, 409)
+  assert.equal(changedBody.text, conflict)
+  const elsewhere = await open(owner.token, third.user.id)
+  assert.notEqual(elsewhere.id, conversation.id)
+  const otherConversation = await rawText('/api/direct/messages', owner.token, {
+    ...directInput,
+    conversationId: elsewhere.id,
+  })
+  assert.equal(otherConversation.status, 409)
+  assert.equal(otherConversation.text, conflict, 'a conflict returns no body')
+  assert.deepEqual(
+    await call(
+      `/api/direct/messages?conversationId=${elsewhere.id}`,
+      DirectMessage.array(),
+      owner.token,
+    ),
+    [],
+  )
+  assert.deepEqual(
+    (await snapshotOf(third.token)).directs,
+    [],
+    'a failed retry leaves the peer with nothing to see',
+  )
+  assert.equal(
+    (
+      await request('/api/direct/messages', {
+        token: owner.token,
+        body: { ...directInput, retryId: randomUUID(), body: '   ' },
+      })
+    ).response.status,
+    400,
+  )
+  assert.equal(
+    (await request('/api/direct/messages?conversationId=not-a-uuid', { token: owner.token }))
+      .response.status,
+    400,
+  )
+  pass('a reused retry ID is a conflict that returns no body, and input is validated')
+
+  const readDirect = (token: string, cursor: string) =>
+    request('/api/direct/read', { token, body: { conversationId: conversation.id, cursor } })
+  const unreadOf = async (token: string) =>
+    (await snapshotOf(token)).directs.find((item) => item.id === conversation.id)?.unread
+  const clearedDirect = await readDirect(member.token, dm.cursor)
+  assert.equal(clearedDirect.response.status, 200)
+  assert.deepEqual(clearedDirect.data, {})
+  assert.equal(await unreadOf(member.token), 0, 'your own reply is never unread')
+  assert.equal(await unreadOf(owner.token), 1, 'reading is private to each participant')
+  assert.equal((await readDirect(owner.token, reply.cursor)).response.status, 200)
+  assert.equal(await unreadOf(owner.token), 0)
+  assert.equal((await readDirect(owner.token, dm.cursor)).response.status, 200)
+  assert.equal(await unreadOf(owner.token), 0, 'a read marker never moves back')
+  assert.equal((await readDirect(owner.token, '9999999999999999999')).response.status, 200)
+  const afterCap = await call('/api/direct/messages', DirectMessage, member.token, {
+    conversationId: conversation.id,
+    retryId: randomUUID(),
+    body: 'After the capped read marker',
+  })
+  assert.equal(await unreadOf(owner.token), 1, 'a read marker stops at the server cursor')
+  pass('direct read markers clear unread per reader, never regress, and stop at the server cursor')
+
+  const paged = await open(third.token, member.user.id)
+  const sentPages: DirectMessage[] = []
+  for (let index = 0; index < 101; index++)
+    sentPages.push(
+      await call('/api/direct/messages', DirectMessage, third.token, {
+        conversationId: paged.id,
+        retryId: randomUUID(),
+        body: `Page line ${index}`,
+      }),
+    )
+  const pagedPath = `/api/direct/messages?conversationId=${paged.id}`
+  const newestPage = await call(pagedPath, DirectMessage.array(), member.token)
+  assert.deepEqual(newestPage, sentPages.slice(1))
+  assert.deepEqual(
+    await call(`${pagedPath}&before=${newestPage[0]?.cursor}`, DirectMessage.array(), member.token),
+    sentPages.slice(0, 1),
+  )
+  assert.deepEqual(
+    await call(`${pagedPath}&before=9999999999999999999`, DirectMessage.array(), member.token),
+    sentPages.slice(1),
+  )
+  assert.deepEqual(
+    (await snapshotOf(member.token)).directs.map((item) => item.id),
+    [paged.id, conversation.id],
+    'the snapshot lists the most recent conversation first',
+  )
+  pass('direct history pages 100 at a time, oldest first, and takes any valid before cursor')
+
+  const photoStatus = async (id: string, token: string) =>
+    (
+      await fetch(`${origin}/api/account/photo/${id}`, {
+        headers: { Origin: origin, Authorization: `Bearer ${token}` },
+      })
+    ).status
+  const uploadPhoto = async (background: { r: number; g: number; b: number }) => {
+    const png = await sharp({ create: { width: 16, height: 16, channels: 3, background } })
+      .png()
+      .toBuffer()
+    const form = new FormData()
+    form.set('photo', new File([new Uint8Array(png)], 'a.png', { type: 'image/png' }))
+    const uploaded = await fetch(`${origin}/api/account/photo`, {
+      method: 'POST',
+      headers: { Origin: origin, Authorization: `Bearer ${third.token}` },
+      body: form,
+    })
+    assert.equal(uploaded.status, 200)
+    return z.object({ uploadId: z.uuid() }).parse(await uploaded.json()).uploadId
+  }
+  const privatePhoto = await uploadPhoto({ r: 200, g: 40, b: 40 })
+  const unusedPhoto = await uploadPhoto({ r: 40, g: 40, b: 200 })
+  const saveAvatar = (avatar: Avatar) =>
+    thirdClient.act({ kind: 'profile.save', profile: { name: 'Third party', avatar } })
+  await saveAvatar({ kind: 'photo', uploadId: privatePhoto })
+  assert.equal(await photoStatus(privatePhoto, member.token), 200, 'a current avatar is visible')
+  const withOwner = await open(third.token, owner.user.id)
+  const withPhoto = await call('/api/direct/messages', DirectMessage, third.token, {
+    conversationId: withOwner.id,
+    retryId: randomUUID(),
+    body: 'Sent with a photo avatar.',
+  })
+  assert.deepEqual(withPhoto.authorAvatar, { kind: 'photo', uploadId: privatePhoto })
+  await saveAvatar({ kind: 'mascot', shape: 'circle', color: 'teal' })
+  assert.equal(await photoStatus(privatePhoto, owner.token), 200, 'the peer still sees it')
+  assert.equal(await photoStatus(privatePhoto, third.token), 200, 'the author still sees it')
+  assert.equal(
+    await photoStatus(privatePhoto, member.token),
+    await photoStatus(unusedPhoto, member.token),
+    'a photo only a direct message uses looks like any unreachable photo to a third member',
+  )
+  assert.equal(await photoStatus(privatePhoto, member.token), 400)
+  for (const path of ['/api/snapshot', directPath])
+    assert.equal(
+      (await request(path, { token: owner.token })).response.headers.get('cache-control'),
+      'no-store',
+    )
+  pass(
+    'a photo used only in a direct message reveals nothing to a third member, and data responses are not cacheable',
+  )
+
+  const removedClient = new Client(origin)
+  await removedClient.act({
+    kind: 'account.signin',
+    username: 'latefriend',
+    password: 'late-secret-2',
+  })
+  const scratch = new pg.Client({ connectionString: database.url })
+  await scratch.connect()
+  try {
+    await scratch.query('DELETE FROM member WHERE user_id = $1', [lateUser.id])
+  } finally {
+    await scratch.end()
+  }
+  const formerToken = removedClient.sessionToken()
+  const notMember = { message: 'You are not a member of this server. Ask an admin for an invite.' }
+  for (const answer of await Promise.all([
+    request(directPath, { token: formerToken }),
+    request('/api/direct/conversations', {
+      token: formerToken,
+      body: { userId: owner.user.id },
+    }),
+    request('/api/direct/messages', {
+      token: formerToken,
+      body: { conversationId: conversation.id, retryId: randomUUID(), body: 'Hello?' },
+    }),
+    request('/api/direct/read', {
+      token: formerToken,
+      body: { conversationId: conversation.id, cursor: '1' },
+    }),
+  ])) {
+    assert.equal(answer.response.status, 403)
+    assert.deepEqual(answer.data, notMember)
+  }
+  assert.equal(
+    (
+      await request('/api/direct/conversations', {
+        token: owner.token,
+        body: { userId: lateUser.id },
+      })
+    ).response.status,
+    404,
+    'an account that is not a member cannot be messaged',
+  )
+  pass('every direct operation requires membership, and non-member targets are rejected')
+
   await call('/api/auth/sign-out', z.unknown(), member.token, {})
   await eventually(
     () => reconnected.socket.readyState === WebSocket.CLOSED,
@@ -753,6 +1246,32 @@ try {
     owner.token,
   )
   assert.ok(persisted.some((item) => item.id === offline.id))
+  assert.deepEqual(await call(directPath, DirectMessage.array(), owner.token), [
+    dm,
+    reply,
+    afterCap,
+  ])
+  const thirdAfterRestart = watch(third.token, '0')
+  await eventually(
+    () =>
+      thirdAfterRestart.events.some(
+        (event) => event.kind === 'message.created' && event.message.id === roomAfterDirect.id,
+      ),
+    'replay after a restart reaches the room message',
+  )
+  const replayedText = thirdAfterRestart.frames.join('\n')
+  assert.deepEqual(
+    privateToOthers.filter((needle) => replayedText.includes(needle)),
+    [],
+    'still nothing from a conversation the caller is not in',
+  )
+  assert.ok(
+    thirdAfterRestart.events.some(
+      (event) =>
+        event.kind === 'direct.message.created' && event.message.conversationId === paged.id,
+    ),
+    'the caller still replays its own conversation',
+  )
   const restarted = watch(owner.token, cursor)
   await eventually(
     () =>
@@ -761,7 +1280,7 @@ try {
       ),
     'Events survive a server restart',
   )
-  pass('messages, sessions, and durable replay survive an actual server restart')
+  pass('messages, direct messages, sessions, and filtered replay survive an actual server restart')
 } catch (error) {
   process.stderr.write(server.logs())
   throw error

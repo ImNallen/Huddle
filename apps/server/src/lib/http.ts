@@ -1,11 +1,15 @@
 import { z } from 'zod'
 import {
   ChannelId,
+  ConversationId,
   CreateChannel,
   CreateRoom,
   Cursor,
+  MarkDirectRead,
   MarkRead,
+  OpenDirect,
   Password,
+  SendDirectMessage,
   SendMessage,
   UserId,
 } from '@huddle/contracts'
@@ -25,6 +29,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
   if (origin && !origins.has(origin))
     return Response.json({ message: 'Origin is not allowed.' }, { status: 403 })
   const headers = new Headers({
+    'Cache-Control': 'no-store',
     Vary: 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Huddle-Client',
@@ -84,13 +89,18 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
     let result: unknown
     if (request.method === 'GET') {
       if (path === '/api/snapshot') result = await domain.snapshot(userId)
-      else if (path === '/api/home') result = await domain.home(userId)
       else if (path === '/api/members') result = await domain.members(userId)
       else if (path === '/api/friend-invite') result = await friendInvites(userId)
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
           ChannelId.parse(url.searchParams.get('channelId')),
+          Cursor.optional().parse(url.searchParams.get('before') ?? undefined),
+        )
+      else if (path === '/api/direct/messages')
+        result = await domain.directHistory(
+          userId,
+          ConversationId.parse(url.searchParams.get('conversationId')),
           Cursor.optional().parse(url.searchParams.get('before') ?? undefined),
         )
       else throw new domain.DomainError(404, 'Endpoint not found.')
@@ -111,7 +121,17 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
           { id: userId, name: session.user.name, avatar: session.user.avatar },
           SendMessage.parse(body),
         )
-      else if (path === '/api/members/password') {
+      else if (path === '/api/direct/conversations')
+        result = await domain.openDirect(userId, OpenDirect.parse(body))
+      else if (path === '/api/direct/messages')
+        result = await domain.sendDirectMessage(
+          { id: userId, name: session.user.name, avatar: session.user.avatar },
+          SendDirectMessage.parse(body),
+        )
+      else if (path === '/api/direct/read') {
+        await domain.markDirectRead(userId, MarkDirectRead.parse(body))
+        result = {}
+      } else if (path === '/api/members/password') {
         const input = z.object({ userId: UserId, password: Password }).strict().parse(body)
         await resetMemberPassword(userId, input.userId, input.password)
         result = {}

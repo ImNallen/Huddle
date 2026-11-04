@@ -12,6 +12,7 @@ try {
   const { auth } = await import('../src/lib/auth')
   const { db } = await import('../src/lib/db')
   const domain = await import('../src/lib/domain')
+  const { pruneAccess } = await import('../src/lib/access-maintenance')
   closeDomain = () => db.end()
   const { getMigrations } = await import('better-auth/db/migration')
   await (await getMigrations(auth.options)).runMigrations()
@@ -123,6 +124,33 @@ try {
       message.id,
       owner,
     ])
+    const studio = randomUUID()
+    const studioGeneral = randomUUID()
+    await scratch.query("INSERT INTO room(id, workspace_id, name) VALUES ($1, $2, 'Studio')", [
+      studio,
+      legacy,
+    ])
+    await scratch.query(
+      "INSERT INTO channel(id, workspace_id, room_id, name) VALUES ($1, $2, $3, 'general')",
+      [studioGeneral, legacy, studio],
+    )
+    await scratch.query('UPDATE workspace SET cursor = 5 WHERE id = $1', [legacy])
+    for (const event of [
+      {
+        kind: 'room.created',
+        cursor: '4',
+        room: { id: studio, workspaceId: legacy, name: 'Studio' },
+      },
+      {
+        kind: 'channel.created',
+        cursor: '5',
+        channel: { id: studioGeneral, workspaceId: legacy, roomId: studio, name: 'general' },
+      },
+    ])
+      await scratch.query(
+        'INSERT INTO workspace_event(workspace_id, cursor, event) VALUES ($1, $2, $3)',
+        [legacy, event.cursor, event],
+      )
 
     const kept = {
       rooms: 'SELECT id, name FROM room ORDER BY id',
@@ -160,11 +188,9 @@ try {
     assert.equal((await rows("SELECT 1 FROM membership WHERE role = 'owner'")).length, 2)
 
     await scratch.query('DELETE FROM workspace WHERE id = $1', [empty])
-    const accepted = await migrate(database.url)
-    assert.equal(accepted.code, 0, accepted.output)
-    assert.match(accepted.output, /Huddle migrations applied/)
+    await applyThrough('010_session_rows.sql')
     assert.deepEqual(await rows('SELECT singleton, name, cursor::text FROM server'), [
-      { singleton: true, name: 'Legacy', cursor: '3' },
+      { singleton: true, name: 'Legacy', cursor: '5' },
     ])
     assert.deepEqual(await rows('SELECT user_id, role FROM member ORDER BY role'), [
       { user_id: owner, role: 'admin' },
@@ -199,36 +225,190 @@ try {
       'room names stay unique on the server, ignoring case',
     )
 
-    const events = eventsBefore.map((row) => ServerEvent.parse(row.event))
+    assert.equal(
+      ServerEvent.safeParse(eventsBefore[0].event).success,
+      false,
+      'a channel.created event without a kind fails the current schema before 011',
+    )
+    const accepted = await migrate(database.url)
+    assert.equal(accepted.code, 0, accepted.output)
+    assert.match(accepted.output, /Huddle migrations applied/)
+    assert.deepEqual(
+      await rows('SELECT id, room_id, name FROM channel ORDER BY id'),
+      before.channels,
+      '011 keeps every channel in its room, including same-named channels in different rooms',
+    )
+    assert.deepEqual(
+      await rows(
+        'SELECT r.name AS room, c.name, c.kind FROM channel c JOIN room r ON r.id = c.room_id ORDER BY r.name, c.name',
+      ),
+      [
+        { room: 'General', name: 'general', kind: 'text' },
+        { room: 'General', name: 'random', kind: 'text' },
+        { room: 'Studio', name: 'general', kind: 'text' },
+      ],
+      '011 backfills existing channels to text',
+    )
+    assert.deepEqual(
+      await rows(
+        "SELECT is_nullable, column_default FROM information_schema.columns WHERE table_name = 'channel' AND column_name = 'kind'",
+      ),
+      [{ is_nullable: 'NO', column_default: null }],
+      'every insert must state its kind',
+    )
+    await assert.rejects(
+      scratch.query("INSERT INTO channel(id, room_id, name) VALUES ($1, $2, 'nokind')", [
+        randomUUID(),
+        studio,
+      ]),
+      /null value in column "kind"/,
+    )
+    await assert.rejects(
+      scratch.query(
+        "INSERT INTO channel(id, room_id, name, kind) VALUES ($1, $2, 'cam', 'video')",
+        [randomUUID(), studio],
+      ),
+      /channel_kind_check/,
+    )
+    await assert.rejects(
+      scratch.query(
+        "INSERT INTO channel(id, room_id, name, kind) VALUES ($1, $2, 'general', 'voice')",
+        [randomUUID(), studio],
+      ),
+      /channel_room_id_name_key/,
+      'text and voice channels share one namespace in a room',
+    )
+    const stored = await rows('SELECT cursor::text, event FROM event ORDER BY cursor')
+    assert.deepEqual(
+      stored,
+      eventsBefore.map(({ cursor, event }) => ({
+        cursor,
+        event:
+          event.kind === 'channel.created'
+            ? { ...event, channel: { ...event.channel, kind: 'text' } }
+            : event,
+      })),
+      '011 adds kind to stored channel.created JSON and changes nothing else',
+    )
+    assert.deepEqual(
+      stored
+        .filter(({ event }) => event.kind === 'channel.created')
+        .map(({ event }) => event.channel.kind),
+      ['text', 'text', 'text'],
+    )
+
+    assert.deepEqual(
+      await rows('SELECT DISTINCT audience FROM event'),
+      [{ audience: null }],
+      '012 leaves every existing event open to every member',
+    )
+    const events = stored.map((row) => ServerEvent.parse(row.event))
+    assert.deepEqual(
+      events.flatMap((event) => (event.kind === 'message.created' ? event.mentions : [])),
+      [],
+      'a stored message.created event without mentions parses to none',
+    )
     assert.deepEqual(await domain.replay(owner, '0'), events)
+    assert.deepEqual(
+      await domain.replay(colleague, '0'),
+      events,
+      'after 012 existing events stay visible to everyone',
+    )
+    const { low, high } = (
+      await scratch.query(
+        'SELECT LEAST($1::text, $2::text) AS low, GREATEST($1::text, $2::text) AS high',
+        [owner, colleague],
+      )
+    ).rows[0]
+    const conversation = randomUUID()
+    await assert.rejects(
+      scratch.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $3)', [
+        randomUUID(),
+        high,
+        low,
+      ]),
+      /direct_conversation_check/,
+      'a conversation stores its pair in one order',
+    )
+    await assert.rejects(
+      scratch.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $2)', [
+        randomUUID(),
+        owner,
+      ]),
+      /direct_conversation_check/,
+      'nobody has a conversation with themselves',
+    )
+    await scratch.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $3)', [
+      conversation,
+      low,
+      high,
+    ])
+    await assert.rejects(
+      scratch.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $3)', [
+        randomUUID(),
+        low,
+        high,
+      ]),
+      /direct_conversation_user_a_user_b_key/,
+      'a pair has one conversation',
+    )
+    const [keptPhoto, prunedPhoto] = [randomUUID(), randomUUID()]
+    await scratch.query('INSERT INTO account_security(user_id) VALUES ($1)', [owner])
+    await scratch.query(
+      "INSERT INTO account_photo(id, user_id, bytes, created_at) VALUES ($1, $3, '\\x00', now() - interval '2 days'), ($2, $3, '\\x00', now() - interval '2 days')",
+      [keptPhoto, prunedPhoto, owner],
+    )
+    await scratch.query(
+      "INSERT INTO direct_message(id, conversation_id, author_id, author_name, author_avatar, retry_id, body, cursor) VALUES ($1, $2, $3, 'Legacy owner', $4, $5, 'Private', 6)",
+      [
+        randomUUID(),
+        conversation,
+        owner,
+        JSON.stringify({ kind: 'photo', uploadId: keptPhoto }),
+        randomUUID(),
+      ],
+    )
+    await pruneAccess()
+    assert.deepEqual(
+      await rows('SELECT id FROM account_photo ORDER BY id'),
+      [{ id: keptPhoto }],
+      'pruning keeps a photo a direct message still shows and drops an unreferenced one',
+    )
+    await scratch.query('DELETE FROM direct_conversation WHERE id = $1', [conversation])
     const snapshot = await domain.snapshot(owner)
     assert.deepEqual(snapshot.server, {
       name: 'Legacy',
       role: 'admin',
       memberCount: 2,
-      channelCount: 2,
+      channelCount: 3,
     })
-    assert.deepEqual(snapshot.rooms, [{ id: roomId, name: 'General' }])
+    assert.deepEqual(snapshot.rooms, [
+      { id: roomId, name: 'General' },
+      { id: studio, name: 'Studio' },
+    ])
     assert.deepEqual(
-      snapshot.channels.map((channel) => [channel.name, channel.roomId]),
+      snapshot.channels
+        .map((channel) => [channel.name, channel.roomId, channel.kind])
+        .sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`)),
       [
-        ['general', roomId],
-        ['random', roomId],
-      ],
+        ['general', roomId, 'text'],
+        ['general', studio, 'text'],
+        ['random', roomId, 'text'],
+      ].sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`)),
     )
-    assert.deepEqual(snapshot.unread, [{ channelId: general, count: 1 }])
-    assert.equal(snapshot.cursor, '3')
     assert.deepEqual(
-      (await domain.home(owner)).items.map((item) => item.kind),
-      ['mention', 'channel'],
-      'the migrated read marker and mention still drive Home',
+      snapshot.unread,
+      [{ channelId: general, count: 1, mentions: 1 }],
+      'the migrated read marker and mention still drive unread counts',
     )
+    assert.deepEqual(snapshot.directs, [])
+    assert.equal(snapshot.cursor, '5')
     assert.equal((await domain.snapshot(colleague)).server.role, 'member')
   } finally {
     await scratch.end()
   }
   process.stdout.write(
-    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, a second server row is impossible, and snapshot, replay and Home work on the result.\n',
+    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages, and snapshot and replay work on the result.\n',
   )
 } finally {
   await closeDomain()

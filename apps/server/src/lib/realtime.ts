@@ -64,7 +64,7 @@ export async function startRealtime(friend?: Server) {
     let busy = false
     let closed = false
     const deadline = setTimeout(() => socket.close(1008, 'Authenticate within five seconds.'), 5000)
-    async function pump() {
+    async function pump(sendEmpty = true) {
       if (!watch || busy || closed) return
       busy = true
       try {
@@ -78,7 +78,7 @@ export async function startRealtime(friend?: Server) {
           socket.close(1013, 'Reconnect to catch up.')
           return
         }
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket.readyState === WebSocket.OPEN && (sendEmpty || events.length)) {
           socket.send(JSON.stringify({ kind: 'events', events }))
           const last = events.at(-1)
           if (last) watch.after = last.cursor
@@ -108,7 +108,7 @@ export async function startRealtime(friend?: Server) {
       }
     })
     const interval = setInterval(() => void pump(), 1000)
-    const onCommit = () => void pump()
+    const onCommit = () => void pump(false)
     wakeups.add(onCommit)
     socket.on('error', () => socket.close())
     socket.on('close', () => {

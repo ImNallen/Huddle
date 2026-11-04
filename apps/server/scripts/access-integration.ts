@@ -94,7 +94,12 @@ const sockets = new Set<WebSocket>()
 try {
   const anonymous = new Client(base)
   assert.deepEqual(stage(await anonymous.call('/api/access')), { kind: 'setup' })
-  for (const path of ['/api/snapshot', '/api/home', '/api/account'])
+  for (const path of [
+    '/api/snapshot',
+    '/api/members',
+    `/api/direct/messages?conversationId=${randomUUID()}`,
+    '/api/account',
+  ])
     failed(await anonymous.call(path), 401, 'reauth_required', `anonymous ${path}`)
   for (const path of [
     '/sign-in/email',
