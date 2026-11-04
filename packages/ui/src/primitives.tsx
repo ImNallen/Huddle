@@ -1,47 +1,28 @@
-import { Check, ChevronLeft, CircleAlert, Copy } from 'lucide-react'
+import { Check, ChevronLeft, CircleAlert, Copy, Server } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { serverInitials } from '@huddle/contracts'
 
 export type FrameServer = { name?: string; origin: string }
 export function Frame({
-  server,
-  onServer,
-  onSignOut,
+  actions,
+  footer,
   children,
-  wide = false,
 }: {
-  server?: FrameServer
-  onServer?: () => void
-  onSignOut?: () => void
+  actions?: ReactNode
+  footer?: ReactNode
   children: ReactNode
-  wide?: boolean
 }) {
   return (
     <div className="access-shell">
       <header className="access-header">
-        <nav className="access-crumbs" aria-label="Location">
-          <a className="access-brand" href="/">
-            <Logo size={20} />
-            <span>huddle</span>
-          </a>
-          {server && (
-            <>
-              <span className="access-crumb-slash" aria-hidden="true">
-                /
-              </span>
-              <span className="access-crumb" title={hostOf(server.origin)}>
-                <ServerTile name={server.name} size="small" />
-                {server.name ?? <code>{hostOf(server.origin)}</code>}
-              </span>
-            </>
-          )}
-        </nav>
-        <div className="access-header-right">
-          {onServer && <button onClick={onServer}>Change server</button>}
-          {onSignOut && <button onClick={onSignOut}>Sign out</button>}
-        </div>
+        <a className="access-brand" href="/">
+          <Logo size={20} />
+          <span>huddle</span>
+        </a>
+        {actions && <div className="access-header-right">{actions}</div>}
       </header>
-      <main className={`access-main ${wide ? 'access-wide' : ''}`}>{children}</main>
+      <main className="access-main">{children}</main>
+      {footer && <footer className="access-foot">{footer}</footer>}
     </div>
   )
 }
@@ -62,19 +43,10 @@ export function Logo({ size = 22 }: { size?: number }) {
 export function hostOf(origin: string) {
   return new URL(origin).host
 }
-export function ServerTile({
-  name,
-  size = 'medium',
-  children,
-}: {
-  name?: string
-  size?: 'small' | 'medium' | 'large'
-  children?: ReactNode
-}) {
+export function ServerTile({ name }: { name?: string }) {
   return (
-    <i className={`access-server-tile access-server-tile-${size} ${name ? '' : 'is-unknown'}`}>
-      {name ? serverInitials(name) : '?'}
-      {children}
+    <i className={`access-server-tile ${name ? '' : 'is-unknown'}`}>
+      {name ? serverInitials(name) : <Server size={16} aria-hidden="true" />}
     </i>
   )
 }
@@ -83,17 +55,19 @@ export function ServerCard({
   label,
   onServer,
   serverLabel = 'Change',
+  children,
 }: {
   server: FrameServer
   label?: string
   onServer?: () => void
   serverLabel?: string
+  children?: ReactNode
 }) {
   return (
     <div className="access-server-card">
       <ServerTile name={server.name} />
       <div>
-        <strong>{label ?? server.name}</strong>
+        <strong>{label ?? server.name ?? 'Server'}</strong>
         <code>{hostOf(server.origin)}</code>
       </div>
       {onServer && (
@@ -101,6 +75,7 @@ export function ServerCard({
           {serverLabel}
         </button>
       )}
+      {children}
     </div>
   )
 }
@@ -108,13 +83,11 @@ export function Heading({
   title,
   description,
   icon,
-  eyebrow,
   back,
 }: {
   title: string
   description?: ReactNode
   icon?: ReactNode
-  eyebrow?: string
   back?: () => void
 }) {
   return (
@@ -126,7 +99,6 @@ export function Heading({
         </button>
       )}
       {icon && <div className="access-symbol">{icon}</div>}
-      {eyebrow && <p className="access-eyebrow">{eyebrow}</p>}
       <h1>{title}</h1>
       {description && <p className="access-description">{description}</p>}
     </>

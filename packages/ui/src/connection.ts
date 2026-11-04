@@ -130,7 +130,27 @@ export class Connection implements Transport {
     try {
       await this.act({ kind: 'signout' })
     } finally {
+      this.forgetDirectDrafts()
       await this.forget()
+    }
+  }
+  private forgetDirectDrafts() {
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith(`huddle.outbox:${this.origin}:`)) continue
+        const rows: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
+        if (!Array.isArray(rows)) continue
+        const kept = z
+          .looseObject({ thread: z.object({ kind: z.string() }).optional() })
+          .array()
+          .parse(rows)
+        localStorage.setItem(
+          key,
+          JSON.stringify(kept.filter((row) => row.thread?.kind !== 'direct')),
+        )
+      }
+    } catch {
+      return
     }
   }
   async upload(file: File) {

@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
-import { ShieldCheck } from 'lucide-react'
+import { LogOut, ShieldCheck, X } from 'lucide-react'
 import {
   AccountSecurity,
   type AccessCommand,
   type AccessView,
   type Profile,
 } from '@huddle/contracts'
-import { Alert, Frame, Heading, Primary } from './primitives'
+import { Alert, Heading, Primary } from './primitives'
 import { ProfileEditor } from './Avatar'
+import { clock } from './Badges'
 import { RequestError, type Connection } from './connection'
+import { sessionLabel } from './sessionLabel'
 import { errorText } from './transport'
 
 export function Security({
@@ -65,112 +67,127 @@ export function Security({
       if (!signal.aborted) setBusy(false)
     }
   }
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [close])
   const others = inventory?.sessions.some((session) => !session.current) ?? false
   return (
-    <Frame onSignOut={signOut} wide>
-      <div className="access-security">
-        <button className="access-link" onClick={close}>
-          ← Back to chat
-        </button>
-        <div className="access-security-layout">
-          <nav className="access-security-nav" aria-label="Account settings">
-            <button
-              aria-current={tab === 'profile' ? 'page' : undefined}
-              onClick={() => setTab('profile')}
-            >
-              Profile
-            </button>
-            <button
-              aria-current={tab === 'security' ? 'page' : undefined}
-              onClick={() => setTab('security')}
-            >
-              Account security
-            </button>
-          </nav>
-          <div>
-            <Heading
-              title={tab === 'security' ? 'Account security' : 'Your profile'}
-              description={
-                tab === 'security'
-                  ? 'Sign out sessions you don’t recognize and change your password.'
-                  : 'Your name and avatar are shared across this server.'
-              }
-            />
-            {!inventory ? (
-              <>
-                <p role="status">Loading your account…</p>
-                <Alert message={error} />
-                <button
-                  className="access-link"
-                  onClick={() => void reload().catch((failure) => setError(errorText(failure)))}
-                >
-                  Try again
-                </button>
-              </>
-            ) : tab === 'profile' ? (
-              <>
-                <ProfileEditor
-                  initial={{ name: inventory.user.name, avatar: inventory.user.avatar }}
-                  save={(profile: Profile) => apply({ kind: 'profile.save', profile })}
-                  busy={busy}
-                  upload={(file) => client.upload(file)}
-                  photo={(id, signal) => client.photo(id, signal)}
-                  submitLabel="Save profile"
-                />
-                <Alert message={error} />
-              </>
-            ) : (
-              <>
-                <section className="access-card">
-                  <div className="access-row">
-                    <div>
-                      <h2>Active sessions</h2>
-                      <p>Where you're signed in to this server.</p>
+    <div className="settings">
+      <aside className="settings-side">
+        <nav className="settings-nav" aria-label="Account settings">
+          <button
+            aria-current={tab === 'profile' ? 'page' : undefined}
+            onClick={() => setTab('profile')}
+          >
+            Profile
+          </button>
+          <button
+            aria-current={tab === 'security' ? 'page' : undefined}
+            onClick={() => setTab('security')}
+          >
+            Account security
+          </button>
+          <hr />
+          <button className="settings-signout" onClick={signOut}>
+            Sign out
+            <LogOut size={16} />
+          </button>
+        </nav>
+      </aside>
+      <main className="settings-main">
+        <div className="settings-content">
+          <Heading
+            title={tab === 'security' ? 'Account security' : 'Your profile'}
+            description={
+              tab === 'security'
+                ? 'Sign out sessions you don’t recognize and change your password.'
+                : 'Your name and avatar are shared across this server.'
+            }
+          />
+          {!inventory ? (
+            <>
+              <p role="status">Loading your account…</p>
+              <Alert message={error} />
+              <button
+                className="access-link"
+                onClick={() => void reload().catch((failure) => setError(errorText(failure)))}
+              >
+                Try again
+              </button>
+            </>
+          ) : tab === 'profile' ? (
+            <>
+              <ProfileEditor
+                initial={{ name: inventory.user.name, avatar: inventory.user.avatar }}
+                save={(profile: Profile) => apply({ kind: 'profile.save', profile })}
+                busy={busy}
+                upload={(file) => client.upload(file)}
+                photo={(id, signal) => client.photo(id, signal)}
+                submitLabel="Save profile"
+              />
+              <Alert message={error} />
+            </>
+          ) : (
+            <>
+              <section className="access-card">
+                <div className="access-row">
+                  <div>
+                    <h2>Active sessions</h2>
+                    <p>Where you're signed in to this server.</p>
+                  </div>
+                  {others && (
+                    <button
+                      className="access-link access-danger"
+                      disabled={busy}
+                      onClick={() => void apply({ kind: 'sessions.revoke-others' })}
+                    >
+                      Sign out all other sessions
+                    </button>
+                  )}
+                </div>
+                {inventory.sessions.map((session) => (
+                  <div className="access-row access-security-row" key={session.id}>
+                    <ShieldCheck size={18} />
+                    <div className="access-security-detail">
+                      <strong>
+                        {sessionLabel(session.userAgent)}
+                        {session.current ? ' · This device' : ''}
+                      </strong>
+                      <p>
+                        Signed in {date(session.createdAt)}. Expires {date(session.expiresAt)}.
+                      </p>
                     </div>
-                    {others && (
+                    {!session.current && (
                       <button
-                        className="access-link access-danger"
+                        className="access-link"
                         disabled={busy}
-                        onClick={() => void apply({ kind: 'sessions.revoke-others' })}
+                        onClick={() => void apply({ kind: 'session.revoke', id: session.id })}
                       >
-                        Sign out all other sessions
+                        Sign out
                       </button>
                     )}
                   </div>
-                  {inventory.sessions.map((session) => (
-                    <div className="access-row access-security-row" key={session.id}>
-                      <ShieldCheck size={18} />
-                      <div style={{ flex: 1 }}>
-                        <strong>
-                          {session.userAgent || 'Session'}
-                          {session.current ? ' · This device' : ''}
-                        </strong>
-                        <p>
-                          Signed in {date(session.createdAt)}. Expires {date(session.expiresAt)}.
-                        </p>
-                      </div>
-                      {!session.current && (
-                        <button
-                          className="access-link"
-                          disabled={busy}
-                          onClick={() => void apply({ kind: 'session.revoke', id: session.id })}
-                        >
-                          Sign out
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </section>
-                <Alert message={error} />
-                <PasswordForm
-                  change={(current, next) => send({ kind: 'password.change', current, next })}
-                />
-              </>
-            )}
-          </div>
+                ))}
+              </section>
+              <Alert message={error} />
+              <PasswordForm
+                change={(current, next) => send({ kind: 'password.change', current, next })}
+              />
+            </>
+          )}
         </div>
-      </div>
-    </Frame>
+        <div className="settings-close">
+          <button aria-label="Back to chat" title="Back to chat" onClick={close}>
+            <X size={18} />
+          </button>
+          <span aria-hidden="true">ESC</span>
+        </div>
+      </main>
+    </div>
   )
 }
 
@@ -250,13 +267,10 @@ function passwordError(failure: unknown) {
   if (failure.code === 'invalid') return 'Your current password is incorrect.'
   if (failure.code === 'rate_limited')
     return failure.retryAt
-      ? `Too many password attempts. Try again after ${time(failure.retryAt)}.`
+      ? `Too many password attempts. Try again after ${clock(failure.retryAt)}.`
       : 'Too many password attempts. Try again later.'
   return errorText(failure)
 }
 function date(value: string) {
   return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-}
-function time(value: string) {
-  return new Date(value).toLocaleTimeString(undefined, { timeStyle: 'short' })
 }

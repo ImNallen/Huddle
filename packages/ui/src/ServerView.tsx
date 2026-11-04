@@ -1,33 +1,51 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
-  Home as HomeFeed,
+  DirectConversation as DirectConversationSchema,
+  type Avatar as AvatarValue,
   type ChannelId,
-  type HomeItem,
+  type ChannelKind,
+  type ConversationId,
+  type Member,
   type RoomId,
   type Session,
+  type UserId,
 } from '@huddle/contracts'
-import { errorText, type Transport } from './transport'
-import { useServer } from './useServer'
+import type { Transport } from './transport'
+import { useServer, type DirectThread, type Thread, type ThreadMessage } from './useServer'
 import { Sidebar } from './Sidebar'
 import { Home } from './Home'
-import { Conversation } from './Conversation'
-import { ChannelDialog, InviteDialog, RoomDialog } from './Dialogs'
-import { MembersPage, useMembers } from './Members'
-import { Frame } from './primitives'
+import { ChannelConversation, DirectConversation } from './Conversation'
+import { EmptyRoom, VoiceChannel } from './RoomViews'
+import { ChannelDialog, InviteDialog, NewMessageDialog, RoomDialog } from './Dialogs'
+import { MemberList, MembersPage, useMembers } from './Members'
+import { Badge } from './Badges'
+import { Frame, ServerCard } from './primitives'
 
 export type View =
   | { kind: 'home' }
   | { kind: 'members' }
   | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null }
+  | { kind: 'direct'; conversationId: ConversationId }
 export type Dialog =
   | { kind: 'none' }
   | { kind: 'room' }
-  | { kind: 'channel'; roomId: RoomId }
+  | { kind: 'channel'; roomId: RoomId; channelKind: ChannelKind }
   | { kind: 'invite' }
-export type HomeState =
-  | { kind: 'loading' }
-  | { kind: 'failed'; message: string }
-  | { kind: 'ready'; items: HomeItem[] }
+  | { kind: 'direct' }
+type Peer = { name: string; avatar: AvatarValue | null | undefined }
+export type DirectRow = DirectThread & { peer: Peer }
+function peerOf(direct: DirectThread, roster: Member[] | null, messages: ThreadMessage[]): Peer {
+  const member = roster?.find((person) => person.id === direct.peerId)
+  if (member) return member
+  const wrote = [direct.latest, ...messages].find((message) => message?.authorId === direct.peerId)
+  return wrote
+    ? { name: wrote.authorName, avatar: wrote.authorAvatar }
+    : { name: 'Friend', avatar: null }
+}
+function threadOf(view: View): Thread | null {
+  if (view.kind === 'direct') return { kind: 'direct', id: view.conversationId }
+  return view.kind === 'room' && view.channelId ? { kind: 'channel', id: view.channelId } : null
+}
 export function ServerView({
   client,
   session,
@@ -42,61 +60,44 @@ export function ServerView({
   onServer?: () => void
 }) {
   const [view, setView] = useState<View>({ kind: 'home' })
+  const [remembered, setRemembered] = useState<ReadonlyMap<RoomId, ChannelId>>(new Map())
+  const [memberList, setMemberList] = useState(true)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
-  const [home, setHome] = useState<HomeState>({ kind: 'loading' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [revision, setRevision] = useState(0)
   const changed = () => setRevision((value) => value + 1)
 
-  const sync = useServer(client, session.user.id, view.kind === 'room' ? view.channelId : null)
-  const members = useMembers(client, `${revision}:${view.kind}:${sync.changes}`)
+  const sync = useServer(client, session.user.id, threadOf(view))
+  const members = useMembers(client, `${revision}:${view.kind}:${dialog.kind}:${sync.changes}`)
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
   const rooms = snapshot?.rooms ?? []
   const channels = snapshot?.channels ?? []
-  if (view.kind === 'room' && !view.channelId) {
-    const first = channels.find((channel) => channel.roomId === view.roomId)
-    if (first) setView({ ...view, channelId: first.id })
+  function open(next: View) {
+    if (next.kind === 'room' && next.channelId) {
+      const { roomId, channelId } = next
+      setRemembered((current) => new Map(current).set(roomId, channelId))
+    }
+    setView(next)
+  }
+  function landing(roomId: RoomId) {
+    const inRoom = channels.filter((channel) => channel.roomId === roomId)
+    return (
+      inRoom.find((channel) => channel.id === remembered.get(roomId)) ??
+      inRoom.find((channel) => channel.kind === 'text') ??
+      inRoom[0]
+    )
   }
   function openRoom(roomId: RoomId) {
-    setView({
-      kind: 'room',
-      roomId,
-      channelId: channels.find((channel) => channel.roomId === roomId)?.id ?? null,
-    })
+    open({ kind: 'room', roomId, channelId: landing(roomId)?.id ?? null })
   }
-  async function loadHome(signal: AbortSignal) {
-    try {
-      await sync.settled()
-      const result = await client.request('/api/home', HomeFeed, undefined, signal)
-      if (!signal.aborted) setHome({ kind: 'ready', items: result.items })
-    } catch (error) {
-      if (!signal.aborted)
-        setHome((current) =>
-          current.kind === 'ready' ? current : { kind: 'failed', message: errorText(error) },
-        )
-    }
-  }
-  useEffect(() => {
-    if (view.kind !== 'home') return
-    const abort = new AbortController()
-    void loadHome(abort.signal)
-    return () => abort.abort()
-  }, [view.kind])
-  useEffect(() => {
-    if (!sync.changes) return
-    const abort = new AbortController()
-    const timer = setTimeout(() => void loadHome(abort.signal), 300)
-    return () => {
-      clearTimeout(timer)
-      abort.abort()
-    }
-  }, [sync.changes])
+  if (view.kind === 'room' && !view.channelId && landing(view.roomId)) openRoom(view.roomId)
   const room = view.kind === 'room' ? rooms.find((room) => room.id === view.roomId) : undefined
   const channel =
     view.kind === 'room' ? channels.find((channel) => channel.id === view.channelId) : undefined
   if (!snapshot)
     return (
-      <Frame onSignOut={onLogout} onServer={onServer}>
+      <Frame actions={<button onClick={onLogout}>Sign out</button>}>
+        {onServer && <ServerCard server={{ origin: client.origin }} onServer={onServer} />}
         {sync.state.kind === 'failed' ? (
           <>
             <h1>We could not open this server.</h1>
@@ -115,20 +116,43 @@ export function ServerView({
     )
   const server = snapshot.server
   const roster = members.kind === 'ready' ? members.value : null
+  const directs: DirectRow[] = sync.directs.map((direct) => ({
+    ...direct,
+    peer: peerOf(direct, roster, sync.messages),
+  }))
+  const direct =
+    view.kind === 'direct' ? directs.find((item) => item.id === view.conversationId) : undefined
+  const openDirect = (conversationId: ConversationId) => open({ kind: 'direct', conversationId })
+  async function messageMember(userId: UserId) {
+    const conversation = await client.request(
+      '/api/direct/conversations',
+      DirectConversationSchema,
+      {
+        userId,
+      },
+    )
+    sync.include({ kind: 'direct.opened', conversation })
+    setDialog({ kind: 'none' })
+    openDirect(conversation.id)
+  }
   return (
     <div className="app">
+      <header className="titlebar">
+        <Badge id={server.name} name={server.name} size={16} />
+        <span>{server.name}</span>
+      </header>
       <Sidebar
         client={client}
         session={session}
         server={server}
         rooms={rooms}
         channels={channels}
-        members={members}
         unread={sync.unread}
-        homeCount={home.kind === 'ready' ? home.items.length : 0}
+        directs={directs}
         view={view}
         connection={sync.connection}
-        onView={setView}
+        onView={open}
+        onDirect={openDirect}
         onRoom={openRoom}
         onDialog={setDialog}
         onSecurity={onSecurity}
@@ -145,7 +169,43 @@ export function ServerView({
           onInvite={() => setDialog({ kind: 'invite' })}
           onChange={changed}
         />
-      ) : view.kind !== 'room' || !room ? (
+      ) : channel?.kind === 'voice' ? (
+        <VoiceChannel
+          channel={channel}
+          memberList={memberList}
+          onMemberList={() => setMemberList((value) => !value)}
+        />
+      ) : direct ? (
+        <DirectConversation
+          key={direct.id}
+          client={client}
+          session={session}
+          direct={direct}
+          sync={sync}
+          draft={drafts[direct.id] ?? ''}
+          onDraft={(value) => setDrafts((current) => ({ ...current, [direct.id]: value }))}
+        />
+      ) : channel ? (
+        <ChannelConversation
+          key={channel.id}
+          client={client}
+          session={session}
+          channel={channel}
+          sync={sync}
+          draft={drafts[channel.id] ?? ''}
+          onDraft={(value) => setDrafts((current) => ({ ...current, [channel.id]: value }))}
+          memberList={memberList}
+          onMemberList={() => setMemberList((value) => !value)}
+        />
+      ) : room ? (
+        <EmptyRoom
+          room={room}
+          admin={server.role === 'admin'}
+          onDialog={setDialog}
+          memberList={memberList}
+          onMemberList={() => setMemberList((value) => !value)}
+        />
+      ) : (
         <Home
           client={client}
           session={session}
@@ -153,26 +213,15 @@ export function ServerView({
           rooms={rooms}
           channels={channels}
           members={roster}
-          home={home}
-          onView={setView}
+          directs={directs}
+          onDirect={openDirect}
           onDialog={setDialog}
-          onMarkAll={sync.markAllRead}
+          memberList={memberList}
+          onMemberList={() => setMemberList((value) => !value)}
         />
-      ) : (
-        <Conversation
-          key={room.id}
-          client={client}
-          session={session}
-          server={server}
-          room={room}
-          channel={channel}
-          sync={sync}
-          draft={channel ? (drafts[channel.id] ?? '') : ''}
-          onDraft={(value) => {
-            if (channel) setDrafts((current) => ({ ...current, [channel.id]: value }))
-          }}
-          onDialog={setDialog}
-        />
+      )}
+      {memberList && view.kind !== 'members' && !direct && (
+        <MemberList client={client} session={session} members={members} onMessage={messageMember} />
       )}
       {dialog.kind === 'room' && (
         <RoomDialog
@@ -181,7 +230,7 @@ export function ServerView({
           onDone={(room) => {
             sync.include({ kind: 'room.created', room })
             setDialog({ kind: 'none' })
-            setView({ kind: 'room', roomId: room.id, channelId: null })
+            open({ kind: 'room', roomId: room.id, channelId: null })
           }}
         />
       )}
@@ -189,12 +238,23 @@ export function ServerView({
         <ChannelDialog
           client={client}
           room={rooms.find((room) => room.id === dialog.roomId) ?? { id: dialog.roomId, name: '' }}
+          initialKind={dialog.channelKind}
           onClose={() => setDialog({ kind: 'none' })}
           onDone={(channel) => {
             sync.include({ kind: 'channel.created', channel })
             setDialog({ kind: 'none' })
-            setView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
+            open({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
           }}
+        />
+      )}
+      {dialog.kind === 'direct' && (
+        <NewMessageDialog
+          client={client}
+          session={session}
+          members={members}
+          onClose={() => setDialog({ kind: 'none' })}
+          onChoose={messageMember}
+          onInvite={server.role === 'admin' ? () => setDialog({ kind: 'invite' }) : null}
         />
       )}
       {dialog.kind === 'invite' && (

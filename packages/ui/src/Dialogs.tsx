@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Hash, X } from 'lucide-react'
-import { Channel, FriendInvites, Room, parseInvite, type RoomId } from '@huddle/contracts'
+import { X } from 'lucide-react'
+import {
+  Channel,
+  FriendInvites,
+  Room,
+  parseInvite,
+  type ChannelKind,
+  type Member,
+  type RoomId,
+  type Session,
+  type UserId,
+} from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
+import { Avatar } from './Avatar'
+import { ChannelIcon } from './Badges'
+import type { Resource } from './Members'
 import { CopyButton } from './primitives'
 
 function Modal({
@@ -34,7 +47,7 @@ function Modal({
       aria-labelledby="modal-title"
     >
       <button className="icon-button modal-close" aria-label="Close dialog" onClick={onClose}>
-        <X size={16} />
+        <X size={18} />
       </button>
       {icon}
       <h2 id="modal-title">{title}</h2>
@@ -81,7 +94,7 @@ function FormDialog({
           </p>
         )}
         <div className="modal-actions">
-          <button type="button" className="button" onClick={onClose}>
+          <button type="button" className="button text" onClick={onClose}>
             Cancel
           </button>
           <button className="button primary" disabled={busy}>
@@ -104,7 +117,7 @@ export function RoomDialog({
   return (
     <FormDialog
       title="Create a room"
-      description="A room gathers the people and channels for one area of work, like Development or Support."
+      description="A room gathers the channels for one group or topic, like Gaming or Book Club."
       action="Create room"
       onClose={onClose}
       submit={async (form) =>
@@ -113,22 +126,29 @@ export function RoomDialog({
     >
       <label className="field">
         Room name
-        <input name="name" placeholder="e.g. Development" maxLength={40} required autoFocus />
+        <input name="name" placeholder="e.g. Gaming" maxLength={40} required autoFocus />
       </label>
     </FormDialog>
   )
 }
+const channelKinds: { kind: ChannelKind; label: string; placeholder: string }[] = [
+  { kind: 'text', label: 'Text', placeholder: 'e.g. code-review' },
+  { kind: 'voice', label: 'Voice', placeholder: 'e.g. hangout' },
+]
 export function ChannelDialog({
   client,
   room,
+  initialKind,
   onClose,
   onDone,
 }: {
   client: Transport
   room: { id: RoomId; name: string }
+  initialKind: ChannelKind
   onClose: () => void
   onDone: (channel: Channel) => void
 }) {
+  const [kind, setKind] = useState(initialKind)
   return (
     <FormDialog
       title={`Add a channel to ${room.name}`}
@@ -140,17 +160,34 @@ export function ChannelDialog({
           await client.request('/api/channels', Channel, {
             roomId: room.id,
             name: form.get('name'),
+            kind,
           }),
         )
       }
     >
+      <fieldset className="kind-options">
+        <legend>Channel type</legend>
+        {channelKinds.map((option) => (
+          <label key={option.kind}>
+            <input
+              type="radio"
+              name="kind"
+              value={option.kind}
+              checked={kind === option.kind}
+              onChange={() => setKind(option.kind)}
+            />
+            <ChannelIcon kind={option.kind} size={18} />
+            {option.label}
+          </label>
+        ))}
+      </fieldset>
       <label className="field">
         Channel name
         <span className="input-icon">
-          <Hash size={15} />
+          <ChannelIcon kind={kind} size={16} />
           <input
             name="name"
-            placeholder="e.g. code-review"
+            placeholder={channelKinds.find((option) => option.kind === kind)?.placeholder}
             pattern={'[a-z0-9][a-z0-9\\-]{0,39}'}
             maxLength={40}
             required
@@ -159,6 +196,87 @@ export function ChannelDialog({
         </span>
       </label>
     </FormDialog>
+  )
+}
+export function NewMessageDialog({
+  client,
+  session,
+  members,
+  onClose,
+  onChoose,
+  onInvite,
+}: {
+  client: Transport
+  session: Session
+  members: Resource<Member[]>
+  onClose: () => void
+  onChoose: (userId: UserId) => Promise<void>
+  onInvite: (() => void) | null
+}) {
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const others =
+    members.kind === 'ready' ? members.value.filter((member) => member.id !== session.user.id) : []
+  const alone = members.kind === 'ready' && !others.length
+  return (
+    <Modal
+      title="New message"
+      description={
+        alone
+          ? 'There’s nobody else on this server yet. Once a friend joins, you can message them here.'
+          : 'Choose who to message.'
+      }
+      onClose={onClose}
+    >
+      {members.kind === 'loading' && <p className="people-note">Loading friends…</p>}
+      {members.kind === 'failed' && (
+        <p className="form-error" role="alert">
+          {members.message}
+        </p>
+      )}
+      {others.length > 0 && (
+        <ul className="people-list" aria-label="People">
+          {others.map((member) => (
+            <li key={member.id}>
+              <button
+                className="member-row"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true)
+                  setError('')
+                  onChoose(member.id).catch((failure: unknown) => {
+                    setError(errorText(failure))
+                    setBusy(false)
+                  })
+                }}
+              >
+                <i className="avatar-slot" aria-hidden="true">
+                  <Avatar
+                    avatar={member.avatar}
+                    name={member.name}
+                    photo={client.photo?.bind(client)}
+                    size={32}
+                  />
+                </i>
+                <span>{member.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {alone && onInvite && (
+        <div className="modal-actions">
+          <button type="button" className="button primary" onClick={onInvite}>
+            Share invite
+          </button>
+        </div>
+      )}
+    </Modal>
   )
 }
 function inviteLabel(value: string) {
