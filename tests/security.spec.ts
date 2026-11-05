@@ -201,7 +201,7 @@ test('changing the password signs out other sessions and the new one signs in', 
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true })
 const backdropCorner = { x: 5, y: 5 }
 
-async function friendClient() {
+async function friendClient(username = 'settingsfriend') {
   const { value } = await server.admin.call('/api/friend-invite')
   const line = FriendInvites.parse(value).invites[0]
   if (!line) throw new Error('The server shared no invite.')
@@ -209,7 +209,7 @@ async function friendClient() {
   await friend.act({
     kind: 'account.join',
     code: parseInvite(line).code,
-    username: 'settingsfriend',
+    username,
     password: friendPassword,
   })
   return friend
@@ -294,6 +294,58 @@ test('the Settings window floats over a live chat and returns to it', async ({ p
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(menu).toBeFocused()
+})
+
+test('messages behind a dialog stay unread until it closes', async ({ page }) => {
+  const room = Room.parse((await server.admin.call('/api/rooms', { name: 'Study' })).value)
+  const channel = Channel.parse(
+    (
+      await server.admin.call('/api/channels', {
+        roomId: room.id,
+        name: 'notes',
+        kind: 'text',
+      })
+    ).value,
+  )
+  const friend = await friendClient('readfriend')
+  await page.addInitScript((origin) => localStorage.setItem('huddle.server', origin), serverURL)
+  await page.goto(browserLogin)
+  await signIn(page, 'uiadmin', 'admin-secret')
+  await railTile(page, 'Study').click()
+  await expect(page.getByRole('heading', { name: 'Welcome to #notes' })).toBeVisible()
+
+  const row = page
+    .getByRole('navigation', { name: 'Study channels', exact: true })
+    .getByRole('button', { name: /^notes/ })
+  let reads = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/read') reads += 1
+  })
+  const openers = [
+    page.getByRole('button', { name: 'Account security', exact: true }),
+    page.getByRole('button', { name: 'Create room', exact: true }),
+  ]
+  for (const [index, opener] of openers.entries()) {
+    await opener.click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    const before = reads
+    const body = `sent behind dialog ${index}`
+    await friend.call('/api/messages', { retryId: randomUUID(), channelId: channel.id, body })
+    await expect(page.getByRole('main').getByText(body, { exact: true })).toBeAttached()
+    await expect(row).toHaveAccessibleName('notes unread')
+    // The read would be sent 300ms after the message arrives.
+    await page.waitForTimeout(600)
+    expect(reads).toBe(before)
+    await expect(row).toHaveAccessibleName('notes unread')
+
+    const read = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/read',
+    )
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await read
+    await expect(row).toHaveAccessibleName('notes')
+  }
 })
 
 test('leaving a field or the file picker does not close the Settings window', async ({ page }) => {

@@ -49,12 +49,14 @@ function threadOf(view: View): Thread | null {
 export function ServerView({
   client,
   session,
+  covered,
   onLogout,
   onSecurity,
   onServer,
 }: {
   client: Transport
   session: Session
+  covered: boolean
   onLogout: () => void
   onSecurity: () => void
   onServer?: () => void
@@ -67,7 +69,7 @@ export function ServerView({
   const [revision, setRevision] = useState(0)
   const changed = () => setRevision((value) => value + 1)
 
-  const sync = useServer(client, session.user.id, threadOf(view))
+  const sync = useServer(client, session.user.id, threadOf(view), covered || dialog.kind !== 'none')
   const members = useMembers(
     client,
     `${revision}:${view.kind}:${dialog.kind}:${sync.changes}:${session.user.name}:${JSON.stringify(session.user.avatar)}`,

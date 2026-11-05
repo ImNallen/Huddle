@@ -111,6 +111,7 @@ export function Application({
       <ServerView
         client={client}
         session={session}
+        covered={security}
         onLogout={() => void signOut()}
         onServer={onServer}
         onSecurity={() => setSecurity(true)}

@@ -123,7 +123,12 @@ function newestFirst(a: DirectThread, b: DirectThread) {
 function isVisible() {
   return typeof document === 'undefined' || document.visibilityState === 'visible'
 }
-export function useServer(client: Transport, userId: UserId, selected: Thread | null) {
+export function useServer(
+  client: Transport,
+  userId: UserId,
+  selected: Thread | null,
+  covered: boolean,
+) {
   const storageKey = `huddle.outbox:${client.origin}:${userId}`
   const [state, setState] = useState<SyncState>({ kind: 'loading' })
   const channels = state.kind === 'ready' ? state.snapshot.channels : []
@@ -176,6 +181,8 @@ export function useServer(client: Transport, userId: UserId, selected: Thread | 
   const cursor = useRef('0')
   const openRef = useRef(openKey)
   openRef.current = openKey
+  const coveredRef = useRef(covered)
+  coveredRef.current = covered
   const reads = useRef<Promise<unknown>>(Promise.resolve())
   const marked = useRef(new Map<string, string>())
   const flush = useRef<(() => void) | null>(null)
@@ -307,7 +314,7 @@ export function useServer(client: Transport, userId: UserId, selected: Thread | 
                 }
                 heard = true
                 const key = threadKey(message.thread)
-                if (key !== openRef.current || !isVisible())
+                if (key !== openRef.current || coveredRef.current || !isVisible())
                   setUnread((current) => {
                     const { count, mentions } = current.get(key) ?? { count: 0, mentions: 0 }
                     return new Map(current).set(key, {
@@ -384,7 +391,7 @@ export function useServer(client: Transport, userId: UserId, selected: Thread | 
   const latest = openKey ? newest.get(openKey)?.cursor : undefined
   useEffect(() => {
     flush.current = null
-    if (!open || !openKey || !visible) return
+    if (!open || !openKey || !visible || covered) return
     setUnread((current) => {
       if (!current.has(openKey)) return current
       const next = new Map(current)
@@ -401,7 +408,7 @@ export function useServer(client: Transport, userId: UserId, selected: Thread | 
     const timer = setTimeout(run, 300)
     flush.current = run
     return () => clearTimeout(timer)
-  }, [openKey, latest, visible])
+  }, [openKey, latest, visible, covered])
   useEffect(() => () => flush.current?.(), [openKey])
   const directs = (state.kind === 'ready' ? state.snapshot.directs : [])
     .map(({ id, peerId, latest: stored }): DirectThread => {
