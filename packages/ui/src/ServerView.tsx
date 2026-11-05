@@ -68,7 +68,10 @@ export function ServerView({
   const changed = () => setRevision((value) => value + 1)
 
   const sync = useServer(client, session.user.id, threadOf(view))
-  const members = useMembers(client, `${revision}:${view.kind}:${dialog.kind}:${sync.changes}`)
+  const members = useMembers(
+    client,
+    `${revision}:${view.kind}:${dialog.kind}:${sync.changes}:${session.user.name}:${JSON.stringify(session.user.avatar)}`,
+  )
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
   const rooms = snapshot?.rooms ?? []
   const channels = snapshot?.channels ?? []

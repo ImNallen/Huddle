@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import {
   Channel,
@@ -15,7 +15,7 @@ import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
 import { ChannelIcon } from './Badges'
 import type { Resource } from './Members'
-import { CopyButton } from './primitives'
+import { CopyButton, Overlay } from './primitives'
 
 function Modal({
   title,
@@ -30,22 +30,8 @@ function Modal({
   onClose: () => void
   children: ReactNode
 }) {
-  const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    const dialog = ref.current
-    dialog?.showModal()
-    return () => dialog?.close()
-  }, [])
   return (
-    <dialog
-      ref={ref}
-      className="modal"
-      onCancel={onClose}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-      aria-labelledby="modal-title"
-    >
+    <Overlay className="modal" labelledBy="modal-title" onClose={onClose}>
       <button className="icon-button modal-close" aria-label="Close dialog" onClick={onClose}>
         <X size={18} />
       </button>
@@ -53,7 +39,7 @@ function Modal({
       <h2 id="modal-title">{title}</h2>
       <p className="modal-description">{description}</p>
       {children}
-    </dialog>
+    </Overlay>
   )
 }
 function FormDialog({

@@ -7,12 +7,24 @@ import {
   type AccessView,
   type Profile,
 } from '@huddle/contracts'
-import { Alert, Heading, Primary } from './primitives'
+import { Alert, Overlay, Primary } from './primitives'
 import { ProfileEditor } from './Avatar'
 import { clock } from './Badges'
 import { RequestError, type Connection } from './connection'
 import { sessionLabel } from './sessionLabel'
 import { errorText } from './transport'
+
+const tabs = {
+  profile: {
+    title: 'Profile',
+    description: 'Your name and avatar are shared across this server.',
+  },
+  security: {
+    title: 'Account security',
+    description: 'Sign out sessions you don’t recognize and change your password.',
+  },
+}
+type Tab = keyof typeof tabs
 
 export function Security({
   client,
@@ -26,7 +38,7 @@ export function Security({
   signOut: () => void
 }) {
   const [inventory, setInventory] = useState<z.infer<typeof AccountSecurity> | null>(null)
-  const [tab, setTab] = useState<'security' | 'profile'>('security')
+  const [tab, setTab] = useState<Tab>('security')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const lifetime = useRef(new AbortController())
@@ -52,7 +64,8 @@ export function Security({
   }
   async function send(command: AccessCommand) {
     const signal = lifetime.current.signal
-    await accept(await client.act(command, signal), signal)
+    // Closing Settings must not cancel a change the server may already have applied.
+    await accept(await client.act(command))
     if (!signal.aborted) await reload()
   }
   async function apply(command: AccessCommand) {
@@ -67,127 +80,119 @@ export function Security({
       if (!signal.aborted) setBusy(false)
     }
   }
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') close()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [close])
   const others = inventory?.sessions.some((session) => !session.current) ?? false
   return (
-    <div className="settings">
+    <Overlay className="settings" labelledBy="settings-label" onClose={close}>
       <aside className="settings-side">
+        <span id="settings-label" className="settings-label">
+          Settings
+        </span>
         <nav className="settings-nav" aria-label="Account settings">
-          <button
-            aria-current={tab === 'profile' ? 'page' : undefined}
-            onClick={() => setTab('profile')}
-          >
-            Profile
-          </button>
-          <button
-            aria-current={tab === 'security' ? 'page' : undefined}
-            onClick={() => setTab('security')}
-          >
-            Account security
-          </button>
-          <hr />
+          {(Object.keys(tabs) as Tab[]).map((key) => (
+            <button
+              key={key}
+              aria-current={tab === key ? 'page' : undefined}
+              onClick={() => setTab(key)}
+            >
+              {tabs[key].title}
+            </button>
+          ))}
           <button className="settings-signout" onClick={signOut}>
             Sign out
             <LogOut size={16} />
           </button>
         </nav>
       </aside>
-      <main className="settings-main">
-        <div className="settings-content">
-          <Heading
-            title={tab === 'security' ? 'Account security' : 'Your profile'}
-            description={
-              tab === 'security'
-                ? 'Sign out sessions you don’t recognize and change your password.'
-                : 'Your name and avatar are shared across this server.'
-            }
-          />
-          {!inventory ? (
-            <>
-              <p role="status">Loading your account…</p>
-              <Alert message={error} />
-              <button
-                className="access-link"
-                onClick={() => void reload().catch((failure) => setError(errorText(failure)))}
-              >
-                Try again
-              </button>
-            </>
-          ) : tab === 'profile' ? (
-            <>
-              <ProfileEditor
-                initial={{ name: inventory.user.name, avatar: inventory.user.avatar }}
-                save={(profile: Profile) => apply({ kind: 'profile.save', profile })}
-                busy={busy}
-                upload={(file) => client.upload(file)}
-                photo={(id, signal) => client.photo(id, signal)}
-                submitLabel="Save profile"
-              />
-              <Alert message={error} />
-            </>
-          ) : (
-            <>
-              <section className="access-card">
-                <div className="access-row">
-                  <div>
-                    <h2>Active sessions</h2>
-                    <p>Where you're signed in to this server.</p>
-                  </div>
-                  {others && (
-                    <button
-                      className="access-link access-danger"
-                      disabled={busy}
-                      onClick={() => void apply({ kind: 'sessions.revoke-others' })}
-                    >
-                      Sign out all other sessions
-                    </button>
-                  )}
-                </div>
-                {inventory.sessions.map((session) => (
-                  <div className="access-row access-security-row" key={session.id}>
-                    <ShieldCheck size={18} />
-                    <div className="access-security-detail">
-                      <strong>
-                        {sessionLabel(session.userAgent)}
-                        {session.current ? ' · This device' : ''}
-                      </strong>
-                      <p>
-                        Signed in {date(session.createdAt)}. Expires {date(session.expiresAt)}.
-                      </p>
+      <div className="settings-main">
+        <div className="settings-bar">
+          <h1>{tabs[tab].title}</h1>
+          <button
+            className="icon-button"
+            aria-label="Close settings"
+            title="Close settings"
+            onClick={close}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="settings-scroll">
+          <div className="settings-content">
+            <p className="access-description">{tabs[tab].description}</p>
+            {!inventory ? (
+              <>
+                <p role="status">Loading your account…</p>
+                <Alert message={error} />
+                <button
+                  className="access-link"
+                  onClick={() => void reload().catch((failure) => setError(errorText(failure)))}
+                >
+                  Try again
+                </button>
+              </>
+            ) : tab === 'profile' ? (
+              <>
+                <ProfileEditor
+                  initial={{ name: inventory.user.name, avatar: inventory.user.avatar }}
+                  save={(profile: Profile) => apply({ kind: 'profile.save', profile })}
+                  busy={busy}
+                  upload={(file) => client.upload(file)}
+                  photo={(id, signal) => client.photo(id, signal)}
+                  submitLabel="Save profile"
+                />
+                <Alert message={error} />
+              </>
+            ) : (
+              <>
+                <section className="access-card">
+                  <div className="access-row">
+                    <div>
+                      <h2>Active sessions</h2>
+                      <p>Where you're signed in to this server.</p>
                     </div>
-                    {!session.current && (
+                    {others && (
                       <button
-                        className="access-link"
+                        className="access-link access-danger"
                         disabled={busy}
-                        onClick={() => void apply({ kind: 'session.revoke', id: session.id })}
+                        onClick={() => void apply({ kind: 'sessions.revoke-others' })}
                       >
-                        Sign out
+                        Sign out all other sessions
                       </button>
                     )}
                   </div>
-                ))}
-              </section>
-              <Alert message={error} />
-              <PasswordForm
-                change={(current, next) => send({ kind: 'password.change', current, next })}
-              />
-            </>
-          )}
+                  {inventory.sessions.map((session) => (
+                    <div className="access-row access-security-row" key={session.id}>
+                      <ShieldCheck size={18} />
+                      <div className="access-security-detail">
+                        <strong>
+                          {sessionLabel(session.userAgent)}
+                          {session.current ? ' · This device' : ''}
+                        </strong>
+                        <p>
+                          Signed in {date(session.createdAt)}. Expires {date(session.expiresAt)}.
+                        </p>
+                      </div>
+                      {!session.current && (
+                        <button
+                          className="access-link"
+                          disabled={busy}
+                          onClick={() => void apply({ kind: 'session.revoke', id: session.id })}
+                        >
+                          Sign out
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </section>
+                <Alert message={error} />
+                <PasswordForm
+                  change={(current, next) => send({ kind: 'password.change', current, next })}
+                />
+              </>
+            )}
+          </div>
         </div>
-        <div className="settings-close">
-          <button aria-label="Back to chat" title="Back to chat" onClick={close}>
-            <X size={18} />
-          </button>
-          <span aria-hidden="true">ESC</span>
-        </div>
-      </main>
-    </div>
+      </div>
+    </Overlay>
   )
 }
 

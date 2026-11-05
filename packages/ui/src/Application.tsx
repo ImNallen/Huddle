@@ -105,24 +105,25 @@ export function Application({
         onServer={onServer}
       />
     )
-  if (security)
-    return (
-      <Security
-        client={client}
-        accept={accept}
-        close={() => setSecurity(false)}
-        signOut={() => void signOut()}
-      />
-    )
   const session: Session = { user: state.view.stage.user }
   return (
-    <ServerView
-      client={client}
-      session={session}
-      onLogout={() => void signOut()}
-      onServer={onServer}
-      onSecurity={() => setSecurity(true)}
-    />
+    <>
+      <ServerView
+        client={client}
+        session={session}
+        onLogout={() => void signOut()}
+        onServer={onServer}
+        onSecurity={() => setSecurity(true)}
+      />
+      {security && (
+        <Security
+          client={client}
+          accept={accept}
+          close={() => setSecurity(false)}
+          signOut={() => void signOut()}
+        />
+      )}
+    </>
   )
 }
 export function Connecting({

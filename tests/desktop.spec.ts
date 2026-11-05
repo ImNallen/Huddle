@@ -47,7 +47,7 @@ test('the desktop signs in with a password and keeps its bearer in the keychain'
     )
     await desktop.getByRole('button', { name: 'Account security', exact: true }).click()
     await expect(desktop.getByText('Huddle desktop · This device', { exact: true })).toBeVisible()
-    await desktop.getByRole('button', { name: 'Back to chat', exact: true }).click()
+    await desktop.getByRole('button', { name: 'Close settings', exact: true }).click()
     await desktop.getByRole('button', { name: `${serverName} menu`, exact: true }).click()
     await desktop.getByRole('button', { name: 'Sign out', exact: true }).click()
     await expect(desktop.getByRole('heading', { name: `Sign in to ${serverName}` })).toBeVisible()
