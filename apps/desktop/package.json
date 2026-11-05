@@ -9,7 +9,6 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@huddle/contracts": "workspace:*",
     "@tanstack/react-router": "1.170.41",
     "@tauri-apps/api": "2.12.2",
     "react": "19.3.0",

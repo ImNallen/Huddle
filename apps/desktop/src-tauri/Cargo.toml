@@ -15,9 +15,3 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-url = "2"
-tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt"] }
-tokio-rustls = "0.26"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-sha2 = "0.10"

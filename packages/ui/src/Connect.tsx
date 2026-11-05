@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { CircleAlert, RefreshCw, WifiOff, X } from 'lucide-react'
 import { z } from 'zod'
-import { inviteOrigin, parseInvite, serverOrigin, type FriendInvite } from '@huddle/contracts'
+import { parseInvite, serverOrigin } from '@huddle/contracts'
 import { Alert, Frame, Heading, Primary, ServerTile, hostOf } from './primitives'
 import { NetworkError } from './connection'
+import { saveJoinCode } from './joinCode'
 import { errorText } from './transport'
 
 const SavedServer = z.object({
@@ -28,18 +29,6 @@ export function readSavedServers(): SavedServer[] {
     return []
   }
 }
-export function savedInvite(origin: string) {
-  if (typeof localStorage === 'undefined') return
-  const keyed = localStorage.getItem(`huddle.invite:${origin}`)
-  if (keyed) return keyed
-  const last = localStorage.getItem('huddle.invite')
-  if (!last) return
-  try {
-    return inviteOrigin(parseInvite(last)) === origin ? last : undefined
-  } catch {
-    return
-  }
-}
 export function saveServer(server: Omit<SavedServer, 'lastUsedAt'>) {
   const next = [
     { ...server, lastUsedAt: Date.now() },
@@ -60,7 +49,7 @@ function parseAddress(input: string): { origin: string } | { problem: Problem } 
     url = new URL(withScheme)
   } catch {
     return {
-      problem: { kind: 'address', message: 'Paste the invite from your friend, or use http://localhost:3000 on the host.' },
+      problem: { kind: 'address', message: 'Paste the invite link from your friend.' },
     }
   }
   try {
@@ -78,12 +67,10 @@ function parseAddress(input: string): { origin: string } | { problem: Problem } 
 export function Connect({
   initialOrigin = '',
   connect,
-  connectInvite,
   close,
 }: {
   initialOrigin?: string
   connect: (origin: string) => Promise<void>
-  connectInvite?: (invite: FriendInvite) => Promise<void>
   close?: () => void
 }) {
   const [servers, setServers] = useState<SavedServer[]>([])
@@ -91,52 +78,34 @@ export function Connect({
   const [busy, setBusy] = useState(false)
   const [now] = useState(() => Date.now())
   useEffect(() => setServers(readSavedServers()), [])
-  async function choose(input: string) {
+  function originOf(input: string): string | null {
     const text = input.trim()
-    if (text.startsWith('huddle:')) {
-      let invite: FriendInvite
-      try {
-        invite = parseInvite(text)
-      } catch (failure) {
-        setProblem({
-          kind: 'address',
-          message: failure instanceof Error ? failure.message : 'That invite is incomplete. Ask for a new one.',
-        })
-        return
-      }
-      if (!connectInvite) {
-        setProblem({ kind: 'address', message: 'Paste that invite in the Huddle app.' })
-        return
-      }
-      const origin = inviteOrigin(invite)
-      localStorage.setItem('huddle.invite', text)
-      localStorage.setItem(`huddle.invite:${origin}`, text)
-      localStorage.setItem(`huddle.join-code:${origin}`, invite.code)
-      setBusy(true)
-      setProblem(null)
-      try {
-        await connectInvite(invite)
-      } catch (failure) {
-        setProblem(
-          failure instanceof NetworkError
-            ? { kind: 'unreachable', host: invite.host }
-            : { kind: 'other', message: errorText(failure) },
-        )
-      } finally {
-        setBusy(false)
-      }
-      return
+    if (!text.startsWith('huddle:') && !text.includes('#')) {
+      const parsed = parseAddress(text)
+      if ('origin' in parsed) return parsed.origin
+      setProblem(parsed.problem)
+      return null
     }
-    const parsed = parseAddress(text)
-    if ('problem' in parsed) return setProblem(parsed.problem)
+    try {
+      const invite = parseInvite(text)
+      saveJoinCode(invite.origin, invite.code)
+      return invite.origin
+    } catch (failure) {
+      setProblem({ kind: 'address', message: errorText(failure) })
+      return null
+    }
+  }
+  async function choose(input: string) {
+    const origin = originOf(input)
+    if (!origin) return
     setBusy(true)
     setProblem(null)
     try {
-      await connect(parsed.origin)
+      await connect(origin)
     } catch (failure) {
       setProblem(
         failure instanceof NetworkError
-          ? { kind: 'unreachable', host: hostOf(parsed.origin) }
+          ? { kind: 'unreachable', host: hostOf(origin) }
           : { kind: 'other', message: errorText(failure) },
       )
     } finally {
@@ -151,15 +120,6 @@ export function Connect({
     try {
       const next = servers.filter((item) => item.origin !== origin)
       localStorage.setItem(storageKey, JSON.stringify(next))
-      localStorage.removeItem(`huddle.invite:${origin}`)
-      const last = localStorage.getItem('huddle.invite')
-      if (last) {
-        try {
-          if (inviteOrigin(parseInvite(last)) === origin) localStorage.removeItem('huddle.invite')
-        } catch {
-          localStorage.removeItem('huddle.invite')
-        }
-      }
       setServers(next)
     } catch (failure) {
       setProblem({ kind: 'other', message: errorText(failure) })
@@ -169,19 +129,19 @@ export function Connect({
     <Frame>
       <Heading
         title="Connect to Huddle"
-        description="Paste the invite from the friend who hosts Huddle. On the computer that hosts it, you can also use http://localhost:3000."
+        description="Connect to Tailscale, then paste the invite link from the friend who hosts Huddle, or their server's address."
         back={close}
       />
       <form onSubmit={submit} noValidate>
         <label className="access-label">
-          Invite or server address
+          Invite link or server address
           <input
             className="access-mono"
             name="server"
             type="text"
             required
             defaultValue={initialOrigin}
-            placeholder="Paste an invite, or http://localhost:3000"
+            placeholder="https://huddle.your-tailnet.ts.net"
             autoComplete="url"
             autoCapitalize="off"
             spellCheck={false}
@@ -201,7 +161,7 @@ export function Connect({
           <Alert
             icon={<WifiOff size={14} />}
             lead={`Can't reach ${problem.host}.`}
-            message="Check the invite for typos, then make sure this computer can reach the friend who hosts Huddle."
+            message="Check the address for typos, then make sure Tailscale is connected and your friend shared this machine with you."
           />
         )}
         {problem?.kind === 'other' && <Alert message={problem.message} />}
@@ -226,7 +186,7 @@ export function Connect({
                   type="button"
                   className="access-saved-server"
                   disabled={busy}
-                  onClick={() => void choose(savedInvite(server.origin) ?? server.origin)}
+                  onClick={() => void choose(server.origin)}
                 >
                   <ServerTile name={server.name} />
                   <span>
@@ -253,8 +213,8 @@ export function Connect({
         </div>
       )}
       <p className="access-footer">
-        One friend hosts the server. Everyone else pastes that friend's invite. Messages stay on
-        that server.
+        One friend hosts the server. Everyone else reaches it over Tailscale with that friend's
+        invite link. Messages stay on that server.
       </p>
     </Frame>
   )

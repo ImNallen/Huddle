@@ -565,16 +565,6 @@ textarea::placeholder {
 .menu button:hover {
   background: var(--hover);
 }
-.menu hr {
-  height: 1px;
-  margin: 4px 8px;
-  border: 0;
-  background: var(--line);
-}
-.menu .menu-danger,
-.menu .menu-danger > svg {
-  color: var(--danger);
-}
 .sidebar-nav {
   flex: 1;
   min-height: 0;
@@ -1079,11 +1069,6 @@ button.member-row:hover {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
-.members-notice {
-  margin-bottom: 8px;
-  color: var(--muted);
-  font-size: 14px;
-}
 .members .form-error {
   margin-bottom: 8px;
 }
@@ -1116,11 +1101,6 @@ button.member-row:hover {
 .members-table tbody tr:hover td {
   background: var(--hover);
 }
-.members-table .actions {
-  width: 168px;
-  text-align: right;
-  white-space: nowrap;
-}
 .members-table .role {
   width: 100px;
 }
@@ -1128,22 +1108,6 @@ button.member-row:hover {
   width: 100px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-.members-table .members-reset-row td {
-  height: auto;
-  padding-bottom: 12px;
-  border-top: 0;
-}
-.members-reset {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.members-reset input {
-  width: 220px;
-  height: 32px;
-  font-size: 13px;
 }
 .member-name {
   display: flex;
@@ -1604,20 +1568,11 @@ button.member-row:hover {
   .members-table .role {
     width: 80px;
   }
-  .members-table .actions {
-    width: 148px;
-  }
   .members-table .joined {
     width: 0;
     padding: 0;
     overflow: hidden;
     font-size: 0;
-  }
-  .members-reset {
-    flex-wrap: wrap;
-  }
-  .members-reset input {
-    width: 100%;
   }
   .channel-welcome h1 {
     font-size: 24px;

@@ -35,38 +35,6 @@
   font-weight: 700;
   text-decoration: none;
 }
-.access-header-right {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 16px;
-}
-.access-header-right > * {
-  color: var(--on-accent);
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  white-space: nowrap;
-}
-.access-foot {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  padding: 24px 32px 0;
-  color: var(--on-accent);
-  font-size: 12px;
-}
-.access-foot a {
-  color: inherit;
-  text-underline-offset: 2px;
-}
-.access-foot :focus-visible {
-  outline-color: var(--on-accent);
-}
 
 .access-main {
   width: min(480px, calc(100% - 32px));
@@ -170,8 +138,7 @@
   margin-top: 3px;
 }
 
-.access-primary,
-.access-secondary {
+.access-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -192,27 +159,28 @@
 .access-primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
-.access-primary:disabled,
-.access-secondary:disabled {
-  opacity: 0.5;
-}
-.access-secondary {
+.access-primary:disabled {
   background: var(--secondary);
   color: var(--text);
 }
-.access-secondary:hover:not(:disabled) {
-  background: var(--secondary-hover);
+.access-identity {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.access-had-account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.access-identity code {
+  color: var(--text);
+  font-family: var(--mono);
 }
 .access-main .access-primary,
-.access-main .access-secondary {
-  width: 100%;
-  height: 44px;
-  margin-top: 20px;
-  font-size: 16px;
-}
-.access-main .access-secondary {
-  margin-top: 8px;
-}
 .access-main > .access-link {
   display: flex;
   justify-content: center;
@@ -233,9 +201,6 @@
 }
 .access-link:disabled {
   opacity: 0.5;
-}
-.access-link.access-danger {
-  color: var(--danger);
 }
 .access-text-button {
   padding: 0 4px;
@@ -286,40 +251,11 @@
   color: var(--muted);
   font-size: 14px;
 }
-.access-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.access-row > svg {
-  flex: none;
-  color: var(--muted);
-}
-.access-security-row {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.access-security-detail {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.access-security-detail strong {
-  color: var(--strong);
-  font-weight: 500;
-}
 .access-footer {
   margin-top: 16px;
   color: var(--muted);
   font-size: 14px;
   text-align: center;
-}
-.access-note {
-  margin-top: 16px;
-  color: var(--muted);
-  font-size: 14px;
 }
 
 .access-server-tile {
@@ -390,13 +326,6 @@
 }
 .access-tool:hover {
   background: var(--secondary-hover);
-}
-.access-tool.is-icon {
-  justify-content: center;
-  width: 32px;
-  padding: 0;
-  background: none;
-  color: var(--muted);
 }
 .access-tool.is-copied {
   color: var(--green);
@@ -699,13 +628,6 @@
   background: var(--selected);
   color: var(--strong);
 }
-.settings-nav .settings-signout {
-  margin-top: auto;
-  color: var(--danger);
-}
-.settings-nav .settings-signout:hover {
-  color: var(--danger);
-}
 .settings-main {
   display: flex;
   flex: 1;
@@ -834,9 +756,6 @@
     height: 56px;
     padding: 0 16px;
   }
-  .access-foot {
-    padding: 16px 16px 0;
-  }
   .access-shell {
     padding-bottom: 16px;
   }
@@ -862,9 +781,5 @@
   .settings-nav {
     flex-direction: row;
     overflow-x: auto;
-  }
-  .settings-nav .settings-signout {
-    margin-top: 0;
-    margin-left: auto;
   }
 }

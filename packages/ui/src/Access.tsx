@@ -1,12 +1,28 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { z } from 'zod'
-import { type AccessCommand, type AccessView, type ServerInfo } from '@huddle/contracts'
-import { Alert, Frame, Heading, Primary, ServerCard, useNow, type FrameServer } from './primitives'
+import {
+  parseInvite,
+  type AccessCommand,
+  type AccessStage,
+  type NoIdentityReason,
+  type ServerInfo,
+} from '@huddle/contracts'
+import {
+  Alert,
+  CopyButton,
+  Frame,
+  Heading,
+  Primary,
+  ServerCard,
+  useNow,
+  type FrameServer,
+} from './primitives'
 import { clock } from './Badges'
 import { NetworkError, RequestError, type AccessErrorCode } from './connection'
+import { clearJoinCode, readJoinCode, saveJoinCode } from './joinCode'
 import { errorText, type Transport } from './transport'
 
-type Screen = 'setup' | 'signin'
+type Screen = 'setup' | 'join'
 type Problem = { lead: string; message?: string; code?: AccessErrorCode }
 const copy: Record<Screen, Partial<Record<AccessErrorCode, Problem>>> = {
   setup: {
@@ -21,10 +37,10 @@ const copy: Record<Screen, Partial<Record<AccessErrorCode, Problem>>> = {
         'Copy the newest code from the server log. It changes each time the server restarts.',
     },
   },
-  signin: {
+  join: {
     invalid: {
-      lead: "That username or password isn't right.",
-      message: 'Check both and try again.',
+      lead: "This invite doesn't work.",
+      message: 'Ask your host for a new invite link.',
     },
   },
 }
@@ -36,14 +52,14 @@ const generic: Record<AccessErrorCode, Problem> = {
     lead: "This isn't available right now.",
     message: 'Try again in a few minutes, or ask an admin of this server for help.',
   },
-  reauth_required: {
-    lead: 'Please confirm who you are again.',
-    message: 'For your security, sign in again to continue.',
+  no_access: {
+    lead: 'Tailscale no longer says this is you.',
+    message: 'Check that it is connected, then try again.',
   },
 }
 function describe(screen: Screen, failure: unknown): Problem {
   if (failure instanceof NetworkError)
-    return { lead: `Can't reach ${failure.host}.`, message: 'Check your connection and try again.' }
+    return { lead: `Can't reach ${failure.host}.`, message: 'Check that Tailscale is connected.' }
   if (failure instanceof RequestError && failure.code) {
     const problem = copy[screen][failure.code] ?? generic[failure.code]
     const retry =
@@ -54,48 +70,67 @@ function describe(screen: Screen, failure: unknown): Problem {
   }
   return { lead: errorText(failure) }
 }
-const entries = {
-  join: {
-    title: (server: string) => `Join ${server}`,
-    description: 'Create your account. It lives on this server.',
-    submit: 'Create account',
-    password: 'new-password',
-    switchPrompt: 'Already have an account?',
-    switchAction: 'Sign in',
+const noIdentity: Record<
+  NoIdentityReason,
+  { title: string; message: (info: z.infer<typeof ServerInfo>) => ReactNode }
+> = {
+  'no-user': {
+    title: "Tailscale doesn't say who you are",
+    message: () =>
+      "Tailscale doesn't say who this device belongs to. Tagged devices have no user. Use a device signed in as a person.",
   },
-  signin: {
-    title: (server: string) => `Sign in to ${server}`,
-    description: 'Your account lives on this server.',
-    submit: 'Sign in',
-    password: 'current-password',
-    switchPrompt: 'Need an account?',
-    switchAction: 'Create one',
+  direct: {
+    title: 'Open Huddle through Tailscale',
+    message: (info) => (
+      <>
+        Open <code>{info.serverUrl}</code> with Tailscale connected.
+      </>
+    ),
   },
-} as const
+  funnel: {
+    title: "Huddle isn't available through Funnel",
+    message: () => 'Ask the host to turn Funnel off for this server.',
+  },
+}
 function ProblemAlert({ problem }: { problem: Problem | null }) {
   return problem ? <Alert lead={problem.lead} message={problem.message} /> : null
+}
+function Identity({ login }: { login: string }) {
+  return (
+    <p className="access-identity">
+      Tailscale says you're <code>{login}</code>
+    </p>
+  )
+}
+function HadAccount({ login }: { login: string }) {
+  return (
+    <div className="access-footer access-had-account">
+      <p>Had an account here before? Don't create a new one. Send your admin this login.</p>
+      <CopyButton value={login} label="Copy login" />
+    </div>
+  )
 }
 export function Access({
   client,
   act,
-  view,
+  recheck,
+  stage,
   info,
   onServer,
 }: {
   client: Transport
   act: (command: AccessCommand, signal: AbortSignal) => Promise<void>
-  view: AccessView
+  recheck: () => Promise<void>
+  stage: Exclude<AccessStage, { kind: 'ready' }>
   info: z.infer<typeof ServerInfo>
   onServer?: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ screen: Screen; error: unknown } | null>(null)
   const [retryAt, setRetryAt] = useState(0)
-  const joinCodeKey = `huddle.join-code:${client.origin}`
-  const [joinCode] = useState(() =>
-    typeof localStorage === 'undefined' ? null : localStorage.getItem(joinCodeKey),
-  )
-  const [joining, setJoining] = useState(joinCode !== null)
+  const [joinCode, setJoinCode] = useState(() => readJoinCode(client.origin))
+  const [inviteProblem, setInviteProblem] = useState('')
+  const [checked, setChecked] = useState(false)
   const now = useNow()
   const working = busy || retryAt > now
   const lifetime = useRef(new AbortController())
@@ -115,27 +150,72 @@ export function Access({
     setFailure(null)
     setRetryAt(0)
     void act(next, signal)
-      .then(() => {
-        if (!signal.aborted) localStorage.removeItem(joinCodeKey)
-      })
       .catch((error: unknown) => {
         if (signal.aborted || !client.active) return
         setFailure({ screen, error })
         if (error instanceof RequestError && error.retryAt) setRetryAt(Date.parse(error.retryAt))
+        if (screen === 'join' && error instanceof RequestError && error.code === 'invalid') {
+          clearJoinCode(client.origin)
+          setJoinCode(null)
+        }
       })
       .finally(() => {
         if (!signal.aborted && client.active) setBusy(false)
       })
   }
+  function acceptInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFailure(null)
+    try {
+      const invite = parseInvite(z.string().parse(new FormData(event.currentTarget).get('invite')))
+      if (invite.origin !== client.origin) {
+        setInviteProblem(`That invite is for ${new URL(invite.origin).host}. Open it there.`)
+        return
+      }
+      saveJoinCode(client.origin, invite.code)
+      setJoinCode(invite.code)
+      setInviteProblem('')
+    } catch (error) {
+      setInviteProblem(errorText(error))
+    }
+  }
+  function checkAgain() {
+    setBusy(true)
+    setChecked(false)
+    setFailure(null)
+    void recheck()
+      .then(
+        () => setChecked(true),
+        (error: unknown) => setFailure({ screen: 'join', error }),
+      )
+      .finally(() => setBusy(false))
+  }
   function problemOn(screen: Screen) {
     return failure?.screen === screen ? describe(screen, failure.error) : null
   }
-  const stage = view.stage
   const server: FrameServer =
     info.setup === 'complete'
       ? { name: info.name, origin: client.origin }
       : { origin: client.origin }
   switch (stage.kind) {
+    case 'no-identity': {
+      const { title, message } = noIdentity[stage.reason]
+      return (
+        <Frame>
+          <ServerCard server={server} onServer={onServer} />
+          <Heading title={title} description={message(info)} />
+          <Primary type="button" busy={busy} onClick={checkAgain}>
+            Try again
+          </Primary>
+          <ProblemAlert problem={problemOn('join')} />
+          {checked && !busy && (
+            <p className="access-footer" role="status">
+              Nothing has changed yet.
+            </p>
+          )}
+        </Frame>
+      )
+    }
     case 'setup': {
       const problem = problemOn('setup')
       const codeProblem =
@@ -150,16 +230,16 @@ export function Access({
           />
           <Heading
             title="Set up this server"
-            description="Name this server and create the first account. Friends join later with the invite you copy from Huddle."
+            description="Name this server and create the first account. Friends join later with the invite link you share from Huddle."
           />
+          <Identity login={stage.login} />
           <form
             onSubmit={(event) =>
               submit('setup', event, (form) => ({
                 kind: 'account.setup',
                 code: z.string().parse(form.get('code')),
                 serverName: z.string().parse(form.get('serverName')),
-                username: z.string().parse(form.get('username')),
-                password: z.string().parse(form.get('password')),
+                name: z.string().parse(form.get('name')),
               }))
             }
           >
@@ -182,26 +262,13 @@ export function Access({
               <input name="serverName" required maxLength={60} placeholder="e.g. Saturday crew" />
             </label>
             <label className="access-label">
-              Username
+              Your name
               <input
-                name="username"
+                name="name"
                 required
-                minLength={2}
-                maxLength={32}
-                autoComplete="username"
-                spellCheck={false}
-                placeholder="ada"
-              />
-            </label>
-            <label className="access-label">
-              Password
-              <input
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                maxLength={200}
-                autoComplete="new-password"
+                maxLength={80}
+                autoComplete="name"
+                defaultValue={stage.suggestedName}
               />
             </label>
             <Primary busy={busy} disabled={working}>
@@ -218,74 +285,73 @@ export function Access({
         </Frame>
       )
     }
-    case 'signin': {
-      const invite = joining ? joinCode : null
-      const entry = entries[invite ? 'join' : 'signin']
+    case 'join':
       return (
         <Frame>
           <ServerCard server={server} onServer={onServer} />
-          <Heading title={entry.title(info.name)} description={entry.description} />
-          <form
-            onSubmit={(event) =>
-              submit('signin', event, (form) => {
-                const credentials = {
-                  username: z.string().parse(form.get('username')),
-                  password: z.string().parse(form.get('password')),
-                }
-                return invite
-                  ? { kind: 'account.join', code: invite, ...credentials }
-                  : { kind: 'account.signin', ...credentials }
-              })
+          <Heading
+            title={`Join ${info.name}`}
+            description={
+              joinCode
+                ? 'Check your name, then create your account. It lives on this server.'
+                : 'You need an invite link from an admin of this server to create an account.'
             }
-          >
-            <label className="access-label">
-              Username
-              <input
-                name="username"
-                required
-                minLength={2}
-                maxLength={32}
-                autoComplete="username"
-                spellCheck={false}
-              />
-            </label>
-            <label className="access-label">
-              Password
-              <input
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                maxLength={200}
-                autoComplete={entry.password}
-              />
-            </label>
-            <Primary busy={busy} disabled={working}>
-              {entry.submit}
-            </Primary>
-          </form>
-          <ProblemAlert problem={problemOn('signin')} />
+          />
+          <Identity login={stage.login} />
           {joinCode ? (
-            <p className="access-footer">
-              {entry.switchPrompt}{' '}
-              <button
-                type="button"
-                className="access-link"
-                onClick={() => {
-                  setJoining(!joining)
-                  setFailure(null)
-                }}
-              >
-                {entry.switchAction}
-              </button>
-            </p>
+            <form
+              onSubmit={(event) =>
+                submit('join', event, (form) => ({
+                  kind: 'account.join',
+                  code: joinCode,
+                  name: z.string().parse(form.get('name')),
+                }))
+              }
+            >
+              <label className="access-label">
+                Your name
+                <input
+                  name="name"
+                  required
+                  maxLength={80}
+                  autoComplete="name"
+                  defaultValue={stage.suggestedName}
+                />
+              </label>
+              <Primary busy={busy} disabled={working}>
+                Create account
+              </Primary>
+            </form>
           ) : (
-            <p className="access-footer">Need access? Ask an admin of this server for an invite.</p>
+            <form onSubmit={acceptInvite} noValidate>
+              <label className="access-label">
+                Invite link
+                <input
+                  className="access-mono"
+                  name="invite"
+                  required
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={`${client.origin}/#join=…`}
+                  aria-invalid={inviteProblem ? true : undefined}
+                  onChange={() => setInviteProblem('')}
+                />
+              </label>
+              <Primary disabled={working}>Continue</Primary>
+            </form>
+          )}
+          <Alert message={inviteProblem} />
+          <ProblemAlert problem={problemOn('join')} />
+          <HadAccount login={stage.login} />
+          <button type="button" className="access-link" disabled={working} onClick={checkAgain}>
+            Check again
+          </button>
+          {checked && !busy && (
+            <p className="access-footer" role="status">
+              This login isn't linked to an account yet.
+            </p>
           )}
         </Frame>
       )
-    }
-    case 'ready':
-      return null
   }
 }

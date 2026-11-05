@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import {
+  AccessStage,
   ChannelId,
   ConversationId,
   DirectMessage,
@@ -128,6 +129,7 @@ export function useServer(
   userId: UserId,
   selected: Thread | null,
   covered: boolean,
+  onAccessChanged: () => void,
 ) {
   const storageKey = `huddle.outbox:${client.origin}:${userId}`
   const [state, setState] = useState<SyncState>({ kind: 'loading' })
@@ -259,13 +261,9 @@ export function useServer(
         )
         async function watch() {
           if (stopped) return
-          let ticket: string
+          let stage: AccessStage
           try {
-            ;({ ticket } = await client.request(
-              '/api/watch-ticket',
-              z.object({ ticket: z.string() }),
-              {},
-            ))
+            stage = await client.request('/api/access', AccessStage)
           } catch {
             if (!stopped) {
               setConnection('Offline · reconnecting')
@@ -274,9 +272,14 @@ export function useServer(
             return
           }
           if (stopped) return
+          if (stage.kind !== 'ready' || stage.user.id !== userId) {
+            onAccessChanged()
+            reconnect = setTimeout(() => void watch(), 1800)
+            return
+          }
           socket = new WebSocket(info.websocketUrl)
           socket.onopen = () =>
-            socket?.send(JSON.stringify({ kind: 'watch', after: cursor.current, ticket }))
+            socket?.send(JSON.stringify({ kind: 'watch', after: cursor.current }))
           socket.onmessage = (event) => {
             try {
               const page = EventPage.parse(JSON.parse(String(event.data)))
@@ -334,12 +337,13 @@ export function useServer(
           }
           socket.onclose = (event) => {
             if (stopped) return
-            setConnection(
-              event.code === 1008
-                ? 'Session or access expired. Sign in again.'
-                : 'Offline · reconnecting',
-            )
-            if (event.code !== 1008) reconnect = setTimeout(() => void watch(), 1800)
+            if (event.code === 4001) {
+              void watch()
+              return
+            }
+            setConnection('Offline · reconnecting')
+            if (event.code === 1008) onAccessChanged()
+            reconnect = setTimeout(() => void watch(), 1800)
           }
           socket.onerror = () => socket?.close()
         }

@@ -3,15 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { serverInitials } from '@huddle/contracts'
 
 export type FrameServer = { name?: string; origin: string }
-export function Frame({
-  actions,
-  footer,
-  children,
-}: {
-  actions?: ReactNode
-  footer?: ReactNode
-  children: ReactNode
-}) {
+export function Frame({ children }: { children: ReactNode }) {
   return (
     <div className="access-shell">
       <header className="access-header">
@@ -19,10 +11,8 @@ export function Frame({
           <Logo size={20} />
           <span>huddle</span>
         </a>
-        {actions && <div className="access-header-right">{actions}</div>}
       </header>
       <main className="access-main">{children}</main>
-      {footer && <footer className="access-foot">{footer}</footer>}
     </div>
   )
 }
@@ -104,13 +94,11 @@ export function ServerCard({
   label,
   onServer,
   serverLabel = 'Change',
-  children,
 }: {
   server: FrameServer
   label?: string
   onServer?: () => void
   serverLabel?: string
-  children?: ReactNode
 }) {
   return (
     <div className="access-server-card">
@@ -124,7 +112,6 @@ export function ServerCard({
           {serverLabel}
         </button>
       )}
-      {children}
     </div>
   )
 }
@@ -217,15 +204,7 @@ export function useNow() {
   }, [])
   return now
 }
-export function CopyButton({
-  value,
-  label = 'Copy',
-  iconOnly = false,
-}: {
-  value: string
-  label?: string
-  iconOnly?: boolean
-}) {
+export function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   async function copy() {
     try {
@@ -239,13 +218,11 @@ export function CopyButton({
   return (
     <button
       type="button"
-      className={`access-tool ${state === 'copied' ? 'is-copied' : ''} ${iconOnly ? 'is-icon' : ''}`}
+      className={`access-tool ${state === 'copied' ? 'is-copied' : ''}`}
       onClick={() => void copy()}
-      aria-label={iconOnly ? text : undefined}
-      title={iconOnly ? text : undefined}
     >
       {state === 'copied' ? <Check size={13} /> : <Copy size={13} />}
-      {!iconOnly && text}
+      {text}
     </button>
   )
 }

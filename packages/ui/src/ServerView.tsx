@@ -7,7 +7,7 @@ import {
   type ConversationId,
   type Member,
   type RoomId,
-  type Session,
+  type Me,
   type UserId,
 } from '@huddle/contracts'
 import type { Transport } from './transport'
@@ -48,17 +48,17 @@ function threadOf(view: View): Thread | null {
 }
 export function ServerView({
   client,
-  session,
+  me,
   covered,
-  onLogout,
-  onSecurity,
+  onAccessChanged,
+  onSettings,
   onServer,
 }: {
   client: Transport
-  session: Session
+  me: Me
   covered: boolean
-  onLogout: () => void
-  onSecurity: () => void
+  onAccessChanged: () => void
+  onSettings: () => void
   onServer?: () => void
 }) {
   const [view, setView] = useState<View>({ kind: 'home' })
@@ -66,13 +66,17 @@ export function ServerView({
   const [memberList, setMemberList] = useState(true)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [revision, setRevision] = useState(0)
-  const changed = () => setRevision((value) => value + 1)
 
-  const sync = useServer(client, session.user.id, threadOf(view), covered || dialog.kind !== 'none')
+  const sync = useServer(
+    client,
+    me.user.id,
+    threadOf(view),
+    covered || dialog.kind !== 'none',
+    onAccessChanged,
+  )
   const members = useMembers(
     client,
-    `${revision}:${view.kind}:${dialog.kind}:${sync.changes}:${session.user.name}:${JSON.stringify(session.user.avatar)}`,
+    `${view.kind}:${dialog.kind}:${sync.changes}:${me.user.name}:${JSON.stringify(me.user.avatar)}`,
   )
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
   const rooms = snapshot?.rooms ?? []
@@ -101,7 +105,7 @@ export function ServerView({
     view.kind === 'room' ? channels.find((channel) => channel.id === view.channelId) : undefined
   if (!snapshot)
     return (
-      <Frame actions={<button onClick={onLogout}>Sign out</button>}>
+      <Frame>
         {onServer && <ServerCard server={{ origin: client.origin }} onServer={onServer} />}
         {sync.state.kind === 'failed' ? (
           <>
@@ -110,8 +114,8 @@ export function ServerView({
             <button className="access-primary" onClick={sync.retry}>
               Try again
             </button>
-            <button className="access-link" onClick={onSecurity}>
-              Account security
+            <button className="access-link" onClick={onSettings}>
+              Settings
             </button>
           </>
         ) : (
@@ -148,7 +152,7 @@ export function ServerView({
       </header>
       <Sidebar
         client={client}
-        session={session}
+        me={me}
         server={server}
         rooms={rooms}
         channels={channels}
@@ -160,19 +164,16 @@ export function ServerView({
         onDirect={openDirect}
         onRoom={openRoom}
         onDialog={setDialog}
-        onSecurity={onSecurity}
-        onLogout={onLogout}
+        onSettings={onSettings}
         onServer={onServer}
       />
       {view.kind === 'members' && server.role === 'admin' ? (
         <MembersPage
           client={client}
-          session={session}
+          me={me}
           server={server}
           members={members}
-          revision={revision}
           onInvite={() => setDialog({ kind: 'invite' })}
-          onChange={changed}
         />
       ) : channel?.kind === 'voice' ? (
         <VoiceChannel
@@ -184,7 +185,7 @@ export function ServerView({
         <DirectConversation
           key={direct.id}
           client={client}
-          session={session}
+          me={me}
           direct={direct}
           sync={sync}
           draft={drafts[direct.id] ?? ''}
@@ -194,7 +195,7 @@ export function ServerView({
         <ChannelConversation
           key={channel.id}
           client={client}
-          session={session}
+          me={me}
           channel={channel}
           sync={sync}
           draft={drafts[channel.id] ?? ''}
@@ -213,7 +214,7 @@ export function ServerView({
       ) : (
         <Home
           client={client}
-          session={session}
+          me={me}
           server={server}
           rooms={rooms}
           channels={channels}
@@ -226,7 +227,7 @@ export function ServerView({
         />
       )}
       {memberList && view.kind !== 'members' && !direct && (
-        <MemberList client={client} session={session} members={members} onMessage={messageMember} />
+        <MemberList client={client} me={me} members={members} onMessage={messageMember} />
       )}
       {dialog.kind === 'room' && (
         <RoomDialog
@@ -255,7 +256,7 @@ export function ServerView({
       {dialog.kind === 'direct' && (
         <NewMessageDialog
           client={client}
-          session={session}
+          me={me}
           members={members}
           onClose={() => setDialog({ kind: 'none' })}
           onChoose={messageMember}
@@ -267,7 +268,6 @@ export function ServerView({
           client={client}
           serverName={server.name}
           onClose={() => setDialog({ kind: 'none' })}
-          onInvited={changed}
         />
       )}
     </div>

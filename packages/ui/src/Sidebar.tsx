@@ -1,21 +1,12 @@
 import { useRef, useState, type ReactNode } from 'react'
-import {
-  ArrowLeftRight,
-  ChevronDown,
-  LogOut,
-  Plus,
-  Settings,
-  Shield,
-  UserPlus,
-  Users,
-} from 'lucide-react'
+import { ArrowLeftRight, ChevronDown, Plus, Settings, UserPlus, Users } from 'lucide-react'
 import type {
   Channel,
   ChannelKind,
   ConversationId,
   Room,
   RoomId,
-  Session,
+  Me,
   Server,
 } from '@huddle/contracts'
 import type { Transport } from './transport'
@@ -197,7 +188,7 @@ const channelSections: { kind: ChannelKind; label: string; create: string }[] = 
 ]
 export function Sidebar({
   client,
-  session,
+  me,
   server,
   rooms,
   channels,
@@ -209,12 +200,11 @@ export function Sidebar({
   onDirect,
   onRoom,
   onDialog,
-  onSecurity,
-  onLogout,
+  onSettings,
   onServer,
 }: {
   client: Transport
-  session: Session
+  me: Me
   server: Server
   rooms: Room[]
   channels: Channel[]
@@ -226,8 +216,7 @@ export function Sidebar({
   onDirect: (conversationId: ConversationId) => void
   onRoom: (roomId: RoomId) => void
   onDialog: (dialog: Dialog) => void
-  onSecurity: () => void
-  onLogout: () => void
+  onSettings: () => void
   onServer?: () => void
 }) {
   const admin = server.role === 'admin'
@@ -277,14 +266,9 @@ export function Sidebar({
               <span>Share invite</span>
             </button>
           )}
-          <button onClick={act(onSecurity)}>
-            <Shield size={16} />
-            <span>Security settings</span>
-          </button>
-          <hr />
-          <button className="menu-danger" onClick={act(onLogout)}>
-            <LogOut size={16} />
-            <span>Sign out</span>
+          <button onClick={act(onSettings)}>
+            <Settings size={16} />
+            <span>Settings</span>
           </button>
         </div>
         <nav className="sidebar-nav" aria-label={room ? `${room.name} channels` : server.name}>
@@ -396,26 +380,21 @@ export function Sidebar({
       <footer className="account">
         <span className="account-avatar">
           <Avatar
-            avatar={session.user.avatar}
-            name={session.user.name}
+            avatar={me.user.avatar}
+            name={me.user.name}
             photo={client.photo?.bind(client)}
             size={32}
           />
           <i className={`presence ${connection === 'Connected' ? 'online' : ''}`} />
         </span>
         <span className="account-name">
-          <strong>{session.user.name}</strong>
+          <strong>{me.user.name}</strong>
           <span>{connection === 'Connected' ? roleLabels[server.role] : connection}</span>
           <span className="sr-only" role="status">
             {connection}
           </span>
         </span>
-        <button
-          className="icon-button"
-          aria-label="Account security"
-          title="Account security"
-          onClick={onSecurity}
-        >
+        <button className="icon-button" aria-label="Settings" title="Settings" onClick={onSettings}>
           <Settings size={18} />
         </button>
       </footer>

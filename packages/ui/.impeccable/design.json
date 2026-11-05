@@ -1241,7 +1241,7 @@
       },
       "mono": {
         "displayName": "Mono",
-        "purpose": "Hostnames, invite codes, and session values."
+        "purpose": "Hostnames, invite codes, and Tailscale logins."
       }
     },
     "shadows": [
@@ -1325,8 +1325,8 @@
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Every other action, such as Reset password.",
-      "html": "<button class=\"ds-btn-secondary\">Reset password</button>",
+      "description": "Every other action, such as Done.",
+      "html": "<button class=\"ds-btn-secondary\">Done</button>",
       "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 16px; border: 0; border-radius: 8px; font: 500 14px var(--font); white-space: nowrap; cursor: pointer; transition: background-color 120ms; background: var(--secondary); color: var(--text); } .ds-btn-secondary:hover { background: var(--secondary-hover); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
     },
     {
@@ -1389,8 +1389,8 @@
       "name": "Access Card",
       "kind": "card",
       "refersTo": "access-card",
-      "description": "The sign-in, setup, and join card on the gradient field.",
-      "html": "<div class=\"ds-access\"><form class=\"ds-access-card\"><h1>Sign in to Gaming</h1><label>Username<input autocomplete=\"off\" /></label><button type=\"button\">Sign in</button></form></div>",
+      "description": "The setup and join card on the gradient field.",
+      "html": "<div class=\"ds-access\"><form class=\"ds-access-card\"><h1>Join Gaming</h1><label>Your name<input autocomplete=\"off\" /></label><button type=\"button\">Create account</button></form></div>",
       "css": ".ds-access { padding: 40px 16px; background: var(--access-field); font-family: var(--font); } .ds-access-card { width: min(480px, 100%); margin: auto; padding: 32px; border-radius: 8px; background: var(--access-card); box-shadow: var(--shadow-card); } .ds-access-card h1 { margin: 0 0 8px; color: var(--strong); font-size: 24px; font-weight: 600; line-height: 1.25; text-align: center; } .ds-access-card label { display: grid; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; } .ds-access-card input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; background: var(--access-input); color: var(--text); font: 400 16px var(--font); } .ds-access-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); } .ds-access-card input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-access-card button { width: 100%; height: 44px; margin-top: 20px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: 500 16px var(--font); cursor: pointer; transition: background-color 120ms; } .ds-access-card button:hover { background: var(--accent-hover); } .ds-access-card button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }"
     }
   ],
