@@ -258,6 +258,21 @@ try {
     'a display name cannot hold a control character',
   )
   failed(
+    await new Client(base, 'access-admin@huddle.test').call('/api/access', {
+      kind: 'profile.save',
+      profile: { name: 'Stale page', avatar: admin.avatar },
+    }),
+    401,
+    'no_access',
+    'saving a profile must name the account the page expects',
+  )
+  const unchanged = await adminClient.stage()
+  assert.notEqual(
+    unchanged.kind === 'ready' && unchanged.user.name,
+    'Stale page',
+    'a save without the account header changes nothing',
+  )
+  failed(
     await new Client(base, 'visitor@huddle.test').call('/api/access', {
       kind: 'profile.save',
       profile: { name: 'Visitor', avatar: admin.avatar },

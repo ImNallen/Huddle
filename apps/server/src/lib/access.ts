@@ -30,7 +30,8 @@ async function advance(visitor: Visitor, command: AccessCommand, headers: Header
       else await joinAccount(visitor.login, command)
       break
     case 'profile.save': {
-      if (visitor.kind !== 'member') throw new AccessFailure('no_access')
+      if (visitor.kind !== 'member' || headers.get('x-huddle-user') !== visitor.user.id)
+        throw new AccessFailure('no_access')
       const { name, avatar } = command.profile
       await transaction(async (sql) => {
         if (avatar.kind === 'photo') {
