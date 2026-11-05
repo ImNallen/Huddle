@@ -1,47 +1,61 @@
-# Accounts and sign-in
+# Accounts and identity
 
-Every Huddle account signs in with a username and password. Huddle has no email, passkeys, company login, or authenticator apps.
+Tailscale says who a person is, and Huddle trusts nothing else. Huddle stores no credential, on the server or on any device. `tailscale serve` adds the `Tailscale-User-Login` header to every request and WebSocket upgrade, and Huddle looks that login up in `"user".tailscale_login` each time.
 
-## Create accounts
+## Create an account
 
-The admin creates the first account during setup. Every other account comes from an invite. The invite carries the server's join code, and `account.join` creates the account only when the code's hash matches. The new account joins as a member.
+The admin creates the first account during setup, with the setup code from the server log. Every other account needs both of these:
 
-Usernames are unique, lowercase, 2 to 32 characters, and use letters, digits, `_`, and `-`. Passwords are 8 to 200 characters and stored as scrypt hashes. An unknown username costs the same hash check as a wrong password, so timing does not reveal which usernames exist.
+- A Tailscale login that can reach the machine.
+- The invite link, which carries the server's join code.
+
+Reaching the server is not membership. A person with a login and no invite sees the **Join** screen and can do nothing else. A person with no login sees a screen that says what is wrong:
+
+- A tagged device has no user. Use a device signed in as a person.
+- A request that did not come through Serve has no identity. Open the server's Tailscale address.
+- Funnel traffic has no identity. Huddle does not work through Funnel, so turn Funnel off.
+
+The join code stays in the link's fragment, so opening the link sends it to no server and writes it to no log. Your friend's browser stores the code until the account exists, and the code reaches the server only in the join request.
+
+## Know what the account key means
+
+The account key is the exact login string that Tailscale reports, compared with no case folding and no trimming. `Ada@example.com` and `ada@example.com` are two people.
+
+If your identity provider gives a login to someone new, that person inherits the account, including its direct messages. To cut access, remove the login from the machine's Tailscale share or ACL. A person with two logins has two accounts, unless you move one with `account:link`.
+
+Members never see each other's logins. The login appears only on that person's own screens and in `account:link` on the host.
+
+## Link an existing account
+
+An account from an older version of Huddle has no login after the upgrade, and it cannot be reached until you bind one. Only someone with a shell on the host can do that, and no page in Huddle can. To list every account, run this on the host:
+
+```sh
+pnpm --filter @huddle/server account:link
+```
+
+The list shows each account's ID, role, name, old username, joined date, and login. To bind a login, name the account by its ID or old username:
+
+```sh
+pnpm --filter @huddle/server account:link alice alice@example.com
+```
+
+The command prints what moved and from where. If another account holds that login, the command takes it, and that account has no login until you link it again. Open sockets of the old login close within a second, and its requests fail at once. In Docker, run `docker compose exec server node --import tsx scripts/account-link.ts` with the same arguments.
+
+For a friend, ask for the login their Huddle page shows and bind it. They select **Check again** and return to their rooms, messages, direct messages, and photos. A friend who creates a new account with an invite by mistake gets an empty account, and Huddle has no way to delete it. Use `account:link` to move their login back to the old account.
+
+## Understand the limits
+
+Huddle has no sign-out. Anyone using a device signed in to Tailscale as you is you in Huddle, including every other process and OS user on that device. To leave, disconnect Tailscale on the device.
+
+Huddle cannot remove a member yet, and the join code cannot be rotated. To cut someone off, remove their access in the Tailscale share or ACL. New connections fail as soon as Tailscale stops letting the person reach the machine. An open socket closes when it reaches its age limit, within about five and a half minutes. The person keeps their account, and it works again if you give them access back.
+
+Whoever runs the host can read every message in the database and can bind any account to any login with `account:link`. Admins without a shell cannot do either.
 
 ## Rate limits
 
-Every 15 minutes, the server allows:
+The server keys these limits on the login or account, because every connection reaches it from loopback:
 
-- 10 setup or join attempts per IP address.
-- 30 sign-in attempts per IP address.
-- 10 sign-in attempts per username.
-- 5 password changes per account.
-- 10 password resets per admin.
+- 10 setup or join attempts per Tailscale login every 15 minutes.
+- 10 photo uploads per account every hour.
 
-## Reset a forgotten password
-
-An admin resets a member's password with **Reset password** on the **Members** page, then sends the new password to that friend.
-
-Whoever runs the server can reset any password, including the admin's own, from the repository:
-
-```sh
-pnpm --filter @huddle/server account:reset USERNAME
-```
-
-The command reads the new password from the terminal without echoing it, or from standard input when piped. It never takes the password as an argument, so the password stays out of shell history.
-
-Both resets replace the hash and delete every session of that account. Deleting a session cuts it off everywhere. Its HTTP requests fail, the server closes its WebSocket within a second, and its unused watch tickets go with it.
-
-## Change your password
-
-Members change their own password under **Account security**. The form asks for the current password and the new one twice. A change keeps the current session signed in and signs out every other session of the account. After an admin reset, a friend can use this to replace the password the admin chose.
-
-## Sessions
-
-Browsers hold the session in an HttpOnly cookie. The desktop app holds a bearer token in the OS credential store, scoped to the server's origin.
-
-The **Account security** page lists the account's sessions and marks the current one **This device**. **Sign out** next to a session ends only that session. **Sign out all other sessions** ends every session except the current one. Neither needs the password, because signing out can only remove access.
-
-## Encryption keys
-
-Better Auth's authenticated encryption seals the join code. By default, encryption version 1 uses `BETTER_AUTH_SECRET`. To rotate encryption independently, set `AUTH_ENCRYPTION_KEYS` to a JSON array of objects with positive unique `version` numbers and `secret` values of at least 32 random characters. The first entry encrypts new records. Keep prior entries until every record they encrypted has been replaced. Replacing `BETTER_AUTH_SECRET` invalidates keyed hashes and session signatures.
+A visitor with no identity is refused before any code is compared, so they use up nothing.

@@ -1,52 +1,55 @@
 # Huddle
 
-Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. You run the server and share an invite. Friends paste it into the Huddle desktop app, pick a username and password, and chat with you in rooms and channels. Any two friends can also message each other directly from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
+Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. Everyone reaches it over [Tailscale](https://tailscale.com), and Tailscale says who they are, so there is nothing to sign in with. You run the server and share an invite link. A friend opens the link on a device signed in to Tailscale, confirms their name, and chats with you in rooms and channels. Any two friends can also message each other directly from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
 
 Huddle is text only for now. A room can list voice channels, but they carry no audio yet. Voice calls, video, file uploads, message editing, group direct messages, blocking, and mobile apps are not built yet.
 
 ## Host a server
 
-You need Node.js 24, pnpm 11, and Docker for PostgreSQL.
+You need a machine that runs only Huddle, with Tailscale, Node.js 24, pnpm 11, and Docker for PostgreSQL. A Proxmox LXC or VM works. Turn on HTTPS certificates in your tailnet's DNS settings, then run these commands with your machine's Tailscale name:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm setup:local
+pnpm setup:local --server-url https://huddle.your-tailnet.ts.net
 docker compose up -d db
 pnpm build
 pnpm db:migrate
+tailscale serve --bg --https=443 http://127.0.0.1:3000
+tailscale serve --bg --https=443 --set-path=/events http://127.0.0.1:3001
 pnpm --filter @huddle/server start
 ```
 
-`pnpm setup:local` writes a `.env` with fresh secrets. The server prints a setup code to its log.
+`pnpm setup:local` writes a `.env` with a generated database password. The server prints a setup code to its log.
 
-Open `http://localhost:3000/login`, or point the desktop app at `http://localhost:3000`. Choose **Set up this server** and enter the setup code, a server name, a username, and a password. You are now the admin. Create a room and a channel so your friends have somewhere to talk.
+From a device signed in to Tailscale as you, open `https://huddle.your-tailnet.ts.net`. Enter the setup code, a server name, and your name. You are now the admin, as your Tailscale login. Create a room and a channel so your friends have somewhere to talk.
+
+To run the server in Docker with a Tailscale sidecar instead, see [hosting](docs/hosting.md).
 
 ## Invite friends
 
-1. Open **Members** and select **Share invite**.
-2. Copy the invite for where your friend is, **on this network** or **from the internet**.
-3. Send it to your friend.
+1. In Tailscale, give your friend access to this machine. Share the machine with them, or add them to your tailnet.
+2. In Huddle, open **Members** and select **Share invite**.
+3. Copy the invite link and send it to your friend.
 
-Your friend pastes the invite into the Huddle desktop app and creates an account. Invites work only in the desktop app, not in a browser.
+Your friend opens the link in a browser or pastes it into the Huddle desktop app, then confirms their name. Reaching the server is not enough to create an account. They also need the invite, so share it only with people you trust.
 
-Anyone with an invite can join, so share it only with people you trust. Every invite uses the same join code, and you cannot change that code yet.
+## Upgrade from an older version
 
-## How friends connect
+Back up the database first. Then run `pnpm db:migrate`. In `.env`, keep `DATABASE_URL` and `POSTGRES_PASSWORD`, set `SERVER_URL` to your machine's Tailscale address, and delete every other line. Bind your account to your Tailscale login:
 
-Friends connect to port 4000 on your machine. The invite carries your address and a fingerprint of your server's certificate, so you need no domain name, and the app refuses any server that does not match.
+```sh
+pnpm --filter @huddle/server account:link
+pnpm --filter @huddle/server account:link <id-or-old-username> you@example.com
+```
 
-Friends on your network use the network invite. Friends elsewhere get an invite only if your router supports NAT-PMP, which Huddle uses to open the port automatically. If yours does not, join the same [Tailscale](https://tailscale.com) network and share the Tailscale invite. The server log says at startup whether remote friends can connect.
-
-## Manage friends
-
-Admins see everyone on the **Members** page. If a friend forgets their password, select **Reset password**, set a new one, and tell them. Your friend can then pick their own password under **Account security**. Huddle never sends email.
-
-If you forget your own password, reset it on the server with `pnpm --filter @huddle/server account:reset USERNAME`.
+Friends do the same through you. Each friend sends you the login their Huddle page shows, you run `account:link` for them, and they select **Check again**. Everyone keeps their rooms, messages, direct messages, and photos. See [accounts](docs/accounts.md).
 
 ## Known limits
 
-- Invites from the Docker image do not work yet. Run the server directly on your machine.
-- Keep `apps/server/data/friend/`. It holds your server's key, and losing it breaks every invite.
+- There is no sign-out. Anyone using a device signed in to Tailscale as you is you in Huddle. To leave, disconnect Tailscale on that device.
+- Huddle cannot remove a member yet. To cut someone off, remove their access in Tailscale.
+- Every invite uses the same join code, and you cannot change that code yet.
+- Any process on the server machine can claim to be any member, so run nothing else on that machine.
 
 ## Develop
 
@@ -60,11 +63,11 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open `http://127.0.0.1:1420` for the browser app. For the desktop app, stop `pnpm dev`, then run `pnpm --filter @huddle/server dev` and `pnpm desktop` in two terminals.
+Open `http://localhost:3000` for the browser app. `pnpm dev` plays `tailscale serve` on that port, so you need no tailnet, and you act as the login in `HUDDLE_DEV_LOGIN`. To try a second person, open another browser profile and set a `huddle-dev-login` cookie to another login. For the desktop app, stop `pnpm dev`, then run `pnpm --filter @huddle/server dev` and `pnpm desktop` in two terminals.
 
 ## More
 
-- [Hosting](docs/hosting.md) covers ports, Docker, upgrades, password resets, and a browser domain.
+- [Hosting](docs/hosting.md) covers Serve, Proxmox, Docker, ports, and upgrades.
+- [Accounts](docs/accounts.md) covers Tailscale identity, invites, linking old accounts, and limits.
 - [Architecture](docs/architecture.md) explains the data model, realtime events, and design decisions.
-- [Accounts and sign-in](docs/accounts.md) covers usernames, passwords, sign-in limits, and sessions.
 - [AGENTS.md](AGENTS.md) holds testing and contribution notes for AI agents.
