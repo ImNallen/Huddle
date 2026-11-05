@@ -59,7 +59,7 @@ docker compose logs server
 
 If the sidecar restarts on its own, run `docker compose restart server`, because the server's network goes with the sidecar. The sidecar's node is named `huddle`, so `SERVER_URL` must use that name. Without `TS_AUTHKEY`, run `docker compose logs tailscale` and open the login link it prints. Use an auth key for a person rather than a tagged key until you confirm that sharing a tagged machine works for your tailnet.
 
-Compose publishes only PostgreSQL, on `127.0.0.1:5434`, for migrations from the host.
+Compose publishes only PostgreSQL, on `127.0.0.1` at `POSTGRES_PORT` (5434 by default), for migrations from the host.
 
 ## Deploy updates automatically
 

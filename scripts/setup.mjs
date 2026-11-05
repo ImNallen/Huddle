@@ -1,10 +1,22 @@
 import { randomBytes } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { parseArgs } from 'node:util'
+
+const claimPort = (port) =>
+  new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once('error', reject)
+    server.listen(port, '127.0.0.1', () => {
+      const claimed = server.address().port
+      server.close(() => resolve(claimed))
+    })
+  })
 
 const { values } = parseArgs({ options: { 'server-url': { type: 'string' } } })
 const password = randomBytes(24).toString('hex')
-const database = `DATABASE_URL=postgresql://huddle:${password}@localhost:5434/huddle\nPOSTGRES_PASSWORD=${password}\n`
+const port = await claimPort(5434).catch(() => claimPort(0))
+const database = `DATABASE_URL=postgresql://huddle:${password}@localhost:${port}/huddle\nPOSTGRES_PASSWORD=${password}\nPOSTGRES_PORT=${port}\n`
 const contents = values['server-url']
   ? `${database}SERVER_URL=${values['server-url']}\n`
   : `${database}SERVER_URL=http://localhost:3000\nPORT=3002\nWS_PORT=3003\nWS_PUBLIC_URL=ws://localhost:3000/events\nHUDDLE_DEV_LOGIN=you@huddle.local\nTRUSTED_ORIGINS=http://localhost:1420,http://127.0.0.1:1420\n`
