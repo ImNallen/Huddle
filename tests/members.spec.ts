@@ -1,12 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
-import { expectHome, friendPassword, inviteCode, join, onboard, railTile, signIn } from './accounts'
+import { actAs, expectHome, inviteCode, join, loginOf, onboard, railTile } from './accounts'
 import { useScratchServer } from './server'
 
-useScratchServer('ui')
+const server = useScratchServer('ui')
 const shortDate = (date: Date) =>
   date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
-test('admins share an invite and reset a password; members see setup progress but not the page', async ({
+test('admins share an invite and see who joined; a friend moved to a new login keeps their history', async ({
   browser,
   page,
 }) => {
@@ -19,15 +20,16 @@ test('admins share an invite and reset a password; members see setup progress bu
     const roster = page.getByRole('region', { name: /^Members/ })
     await expect(page.getByRole('region', { name: /^Pending invitations/ })).toHaveCount(0)
     await expect(roster.getByRole('row')).toHaveText([
-      'NameRoleJoinedActions',
-      `nallen (you)Admin${shortDate(new Date())}Reset password`,
+      'NameRoleJoined',
+      `nallen (you)Admin${shortDate(new Date())}`,
     ])
     await expect(page.getByText('You’re the only member so far.', { exact: false })).toBeVisible()
+    await expect(page.getByText("Huddle can't remove a member yet", { exact: false })).toBeVisible()
 
     await page.getByRole('button', { name: 'Share invite', exact: true }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('button', { name: 'Copy invite' }).first()).toBeVisible()
-    await expect(dialog).not.toContainText('huddle:')
+    await expect(dialog.getByRole('button', { name: 'Copy invite' })).toBeVisible()
+    await expect(dialog).not.toContainText('#join=')
     const code = await inviteCode(page)
     await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 
@@ -52,47 +54,19 @@ test('admins share an invite and reset a password; members see setup progress bu
     )
     await expect(second.locator('.account-name > span').first()).toHaveText('Member')
 
-    const denied = await second.evaluate(async () => {
-      const response = await fetch('/api/members/password', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'nallen', password: 'replaced-secret' }),
-      })
-      return response.status
-    })
+    const denied = await second.evaluate(async () => (await fetch('/api/invite')).status)
     expect(denied).toBe(403)
 
     await page.getByRole('button', { name: 'Home', exact: true }).click()
     await page.getByRole('button', { name: 'Members', exact: true }).click()
     await expect(roster.getByRole('row')).toHaveText([
-      'NameRoleJoinedActions',
-      `nallen (you)Admin${shortDate(new Date())}Reset password`,
-      `aikoMember${shortDate(new Date())}Reset password`,
+      'NameRoleJoined',
+      `nallen (you)Admin${shortDate(new Date())}`,
+      `aikoMember${shortDate(new Date())}`,
     ])
     await expect(page.getByText('You’re the only member so far.', { exact: false })).toHaveCount(0)
     await expect(page.getByRole('list', { name: 'Members' })).toHaveCount(0)
-
-    await page.getByRole('button', { name: 'Reset password', exact: true }).nth(1).click()
-    await expect(page.getByRole('button', { name: 'Reset password', exact: true })).toHaveCount(1)
-    await page.getByLabel('New password for aiko').fill('replaced-secret')
-    await page.getByRole('button', { name: 'Save password', exact: true }).click()
-    await expect(
-      page.getByText('Password updated. They can sign in with the new one.', { exact: true }),
-    ).toBeVisible()
-
-    await second.reload()
-    await expect(second.getByRole('heading', { name: 'Sign in to Harbor members' })).toBeVisible()
-    const stale = second.locator('form').filter({
-      has: second.getByRole('button', { name: 'Sign in', exact: true }),
-    })
-    await stale.getByLabel('Username').fill('aiko')
-    await stale.getByLabel('Password').fill(friendPassword)
-    await stale.getByRole('button', { name: 'Sign in', exact: true }).click()
-    await expect(second.getByRole('alert')).toHaveText(
-      "That username or password isn't right. Check both and try again.",
-    )
-    await signIn(second, 'aiko', 'replaced-secret')
+    await expect(page.locator('main')).not.toContainText('@huddle.test')
 
     await railTile(page, 'Create room').click()
     await page.getByLabel('Room name').fill('Product')
@@ -106,6 +80,32 @@ test('admins share an invite and reset a password; members see setup progress bu
     await expect(
       second.getByRole('heading', { name: /^Good (morning|afternoon|evening), aiko$/ }),
     ).toBeVisible()
+
+    const history = `Written before my login changed ${randomUUID()}`
+    await railTile(second, 'Product').click()
+    await second.getByRole('textbox', { name: 'Message #general' }).fill(history)
+    await second.getByRole('button', { name: 'Send message' }).click()
+    await expect(second.getByText(history, { exact: true })).toBeVisible()
+    const { user } = await second.evaluate(async () => {
+      const response = await fetch('/api/account')
+      return (await response.json()) as { user: { id: string } }
+    })
+
+    await actAs(second, 'aiko-renamed')
+    await second.reload()
+    await expect(second.getByRole('heading', { name: 'Join Harbor members' })).toBeVisible()
+    await expect(second.getByText(loginOf('aiko-renamed'), { exact: true })).toBeVisible()
+    await expect(second.getByRole('button', { name: 'Copy login', exact: true })).toBeVisible()
+    await expect(second.locator('main')).not.toContainText(history)
+
+    const linked = await server.link(user.id, loginOf('aiko-renamed'))
+    expect(linked.code, linked.stderr).toBe(0)
+    expect(linked.stdout).toContain(`Linked ${loginOf('aiko-renamed')} to aiko`)
+    await second.getByRole('button', { name: 'Check again', exact: true }).click()
+    await expectHome(second)
+    await railTile(second, 'Product').click()
+    await expect(second.getByText(history, { exact: true })).toBeVisible()
+    await expect(second.locator('.account-name > strong')).toHaveText('aiko')
   } finally {
     await colleague.close()
   }
