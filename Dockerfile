@@ -14,5 +14,4 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app /app
 USER node
 WORKDIR /app/apps/server
-EXPOSE 3000 3001
 CMD ["node", "--import", "tsx", "runtime/production.ts"]
