@@ -1,5 +1,5 @@
 import { Check, ChevronLeft, CircleAlert, Copy, Server } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { serverInitials } from '@huddle/contracts'
 
 export type FrameServer = { name?: string; origin: string }
@@ -24,6 +24,55 @@ export function Frame({
       <main className="access-main">{children}</main>
       {footer && <footer className="access-foot">{footer}</footer>}
     </div>
+  )
+}
+function outside(event: { currentTarget: Element; clientX: number; clientY: number }) {
+  const box = event.currentTarget.getBoundingClientRect()
+  return (
+    event.clientX < box.left ||
+    event.clientX > box.right ||
+    event.clientY < box.top ||
+    event.clientY > box.bottom
+  )
+}
+export function Overlay({
+  className,
+  labelledBy,
+  onClose,
+  children,
+}: {
+  className: string
+  labelledBy: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDialogElement>(null)
+  const pressedBackdrop = useRef(false)
+  useLayoutEffect(() => {
+    const dialog = ref.current
+    dialog?.showModal()
+    return () => dialog?.close()
+  }, [])
+  return (
+    <dialog
+      ref={ref}
+      className={className}
+      aria-labelledby={labelledBy}
+      onCancel={(event) => {
+        // A file input's cancel event bubbles here when someone dismisses the file picker.
+        if (event.target === event.currentTarget) onClose()
+      }}
+      onPointerDown={(event) => {
+        pressedBackdrop.current = outside(event)
+      }}
+      onClick={(event) => {
+        // A drag across the dialog's edge and a click on its padding also target the dialog.
+        if (pressedBackdrop.current && event.target === event.currentTarget && outside(event))
+          onClose()
+      }}
+    >
+      {children}
+    </dialog>
   )
 }
 export function Logo({ size = 22 }: { size?: number }) {

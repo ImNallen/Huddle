@@ -80,7 +80,8 @@ colors:
   access-card-light: '#ffffff'
   access-input-dark: '#27292d'
   access-input-light: '#ebedef'
-  scrim: 'rgb(0 0 0 / 0.7)'
+  scrim-dark: 'rgb(0 0 0 / 0.7)'
+  scrim-light: 'rgb(255 255 255 / 0.55)'
 typography:
   display:
     fontFamily: 'Figtree Variable, -apple-system, BlinkMacSystemFont, SF Pro Text, Inter, system-ui, sans-serif'
@@ -352,7 +353,7 @@ Server badges are tinted by hash: a hue from a set of eight, with lightness set 
 - **Graphite Shell** (`chrome`: dark #131215, light #e3e5e8): The ground behind the rail and title bar.
 - **Channel Column** (`sidebar`: dark #131215, light #f2f3f5): The channel sidebar, member list, and settings side column. In dark it matches the shell and is separated by a hairline only.
 - **Chat Ground** (`bg`: dark #1b1a1f, light #ffffff): The main column, one step above the shell.
-- **Account Panel Ground** (`panel`: dark #212025, light #ebedef): The floating account panel and the settings page ground. `rail-tile` matches it in dark (#212025) and is white in light (#ffffff).
+- **Account Panel Ground** (`panel`: dark #212025, light #ebedef): The floating account panel and the Settings window ground. `rail-tile` matches it in dark (#212025) and is white in light (#ffffff).
 - **Raised Surface** (`raised`: dark #242328, light #ffffff): Menus, tooltips, and dialogs.
 - **Card Surface** (`card`: dark #1c1b20, light #ffffff): Cards, tables, and setup steps. In dark it is nearly the chat ground, so the hairline border does the work.
 - **Composer Fill** (`input`: dark #212327, light #ebedef): The composer and the segmented control.
@@ -363,7 +364,7 @@ Server badges are tinted by hash: a hue from a set of eight, with lightness set 
 - **Text ramp** (`strong`: dark #ffffff, light #060607; `text`: dark #f2f2f3, light #1f2125; `muted`: dark #a09fa4, light #5c5e66; `faint`: dark #96959a, light #5c5e66; `placeholder`: dark #94969b, light #5c5e66): Names and headings, then message text, then secondary text, then timestamps. Light mode collapses the bottom three steps into one value to hold contrast.
 - **Access Field** (`access-field-from`: dark #1a1650, light #262a8c; `access-field-to`: dark #2b52d2, light #2a54c8; at 160 degrees): The blue gradient behind sign-in, setup, and join.
 - **Access Card** (`access-card`: dark #323339, light #ffffff; `access-input`: dark #27292d, light #ebedef): The lifted card on the access field and its filled inputs.
-- **Scrim** (70% black): The dialog backdrop in both modes.
+- **Scrim** (70% black dark, 55% white light): The backdrop of every dialog, which also blurs the app behind it by 8px.
 
 ### Named Rules
 
@@ -382,14 +383,14 @@ Server badges are tinted by hash: a hue from a set of eight, with lightness set 
 ### Hierarchy
 
 - **Display** (700, 32px, 1.25): The channel welcome heading only, dropping to 24px at 760px wide.
-- **Headline** (700, 24px, 1.25): Home greeting, the Members page, and settings pages.
+- **Headline** (700, 24px, 1.25): Home greeting and the Members page.
 - **Headline Access** (600, 24px, 1.25): The centered heading on the access card.
 - **Title Dialog** (700, 20px): Centered dialog headings.
-- **Title** (600, 16px): Channel name in the top bar, server name in the sidebar, message authors, and card headings, including "Direct messages" on Home.
+- **Title** (600, 16px): Channel name in the top bar, the current tab in the Settings window's top bar, server name in the sidebar, message authors, and card headings, including "Direct messages" on Home.
 - **Body** (400, 16px, 1.375): Message text and the composer. Lines run the full width of the chat column.
 - **Nav** (500, 15px): Channel rows, member rows, and settings navigation.
 - **UI** (400, 14px, 1.375): The interface base, set on the root. Weight 500 (`ui-strong`) for buttons, menu items, tabs, and field labels.
-- **Section Label** (500, 12px, mixed case): "Text Channels" and member group headings. Table headers use the same size at 600.
+- **Section Label** (500, 12px, mixed case): "Text Channels", member group headings, and the "Settings" label. Table headers use the same size at 600.
 - **Meta** (400, 12px, tabular numerals): Timestamps and counts, in `faint` or `muted`. The hover-revealed continuation time uses 11px.
 - **Access Label** (700, 12px, 0.02em, uppercase): Field labels on the access card and the saved servers list label.
 
@@ -405,11 +406,11 @@ The shell is a fixed floor plan on a CSS grid filling the viewport below the win
 
 The sidebar header and top bar share a 48px height, so one horizontal line runs across the top of the shell. The account panel is absolutely placed 8px from the bottom left, spanning the rail and sidebar minus 16px; the rail stops 72px above the window bottom and the sidebar reserves 80px of bottom padding, so nothing scrolls under it.
 
-The thread runs full width with no measure: messages are inset 72px on the left to clear the 40px avatar, and 48px on the right. Pages within the chat column are narrower by purpose: Home is a centered 680px column, its setup state 440px; Members is a left-aligned table up to 880px; settings content is 680px; dialogs are 460px and the access card 480px.
+The thread runs full width with no measure: messages are inset 72px on the left to clear the 40px avatar, and 48px on the right. Pages within the chat column are narrower by purpose: Home is a centered 680px column, its setup state 440px; Members is a left-aligned table up to 880px. The Settings window centers its content in a column of up to 680px. Dialogs are 460px and the access card 480px.
 
 Spacing runs on 8px with 2, 4, 6, 12, and 20px steps for tight assemblies. Density is high: nav rows are 32px, and author groups are separated by 16px while continuation lines stack with none.
 
-Responsive changes are progressive. At 1000px the member list and its toggle disappear. At 760px the rail narrows to 56px, the sidebar to 200px, and rail tiles to 36px. At 560px the access header shrinks and settings stack into a horizontal nav. At 480px the rail is 48px, the sidebar 130px, and the rail tile 32px, and Home's conversation rows drop their avatars and unread tags.
+Responsive changes are progressive. At 1000px the member list and its toggle disappear. At 760px the rail narrows to 56px, the sidebar to 200px, rail tiles to 36px, and the Settings side column to 168px. At 560px the access header shrinks, and the Settings window fills the space below the window bar with an 8px margin and stacks under a horizontal nav. At 480px the rail is 48px, the sidebar 130px, and the rail tile 32px, and Home's conversation rows drop their avatars and unread tags.
 
 ## Elevation & Depth
 
@@ -431,7 +432,7 @@ Gently rounded rectangles at a small set of radii: 4px for menu items, mentions,
 
 Mascot avatars are the system's one playful form: a rounded square (28%), circle, hexagon, triangle, bean, or flower in a mascot color, with two white vertical pill eyes. The Huddle logo is a circle cut by vertical slots and renders in `currentColor`.
 
-Motion is small and shared: 120ms for color and border changes, and `cubic-bezier(0.16, 1, 0.3, 1)` for rail pill height, tile radius, and tooltip movement. Reduced motion removes transitions.
+Motion is small and shared: 120ms for color and border changes, and `cubic-bezier(0.16, 1, 0.3, 1)` for rail pill height, tile radius, tooltip movement, and dialog entrances. A dialog and its backdrop fade in over 140ms, the dialog also from 98% scale, with no exit animation. Reduced motion removes transitions and that entrance.
 
 ## Components
 
@@ -473,7 +474,7 @@ Compact and plain, with fill as the only emphasis.
 - **Direct message rows:** At Home, Members, and direct views the sidebar lists a "Direct Messages" section under Members, with a `New message` add button for everyone. Rows are 42px with a 24px avatar and the peer's name, and use the channel row states. The empty text is "No messages yet."
 - **Section labels:** "Text Channels", "Voice Channels", and "Direct Messages" at 12px, with a small 24px add button.
 - **Top bar:** 48px with the channel icon and name at 16px, and page actions at the right. It states the current place directly, with no breadcrumb trail.
-- **Settings:** A 200px side nav with the same row states, and a sign-out row in `danger`. A round 36px close button sits at the top right with an "ESC" caption.
+- **Settings:** A 200px side nav with the same row states under a "Settings" label, and a sign-out row in `danger` pinned to the column's bottom. The right column has a 48px top bar with the current tab's title and an icon button that closes the window.
 
 ### Home
 
@@ -510,6 +511,7 @@ A 56px hairline-bordered panel across the rail and sidebar: 32px avatar, name at
 
 - **Menu:** 220px on Raised Surface at 8px radius with an 8px inset, 32px items at 4px radius, and icons at the row's trailing edge. Sign out takes `danger`.
 - **Dialog:** 460px on Raised Surface at 12px radius over the Scrim, with a centered 20px heading and description and right-aligned actions.
+- **Settings window:** Up to 920 by 680px on Account Panel Ground at 12px radius, with a hairline border and the Modal shadow, over the Scrim. It centers in the space below the window bar and keeps the app mounted behind it. The left column uses the `sidebar` ground behind a hairline, and the right column scrolls below its top bar.
 
 ### Access Screens
 
