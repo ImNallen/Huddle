@@ -61,6 +61,76 @@ If the sidecar restarts on its own, run `docker compose restart server`, because
 
 Compose publishes only PostgreSQL, on `127.0.0.1:5434`, for migrations from the host.
 
+## Deploy updates automatically
+
+An Ubuntu VM can run the Docker sidecar setup and deploy each commit that passes the checks on `main`. Nothing reaches into the VM. It needs no inbound port or self-hosted runner, and GitHub holds no credential for the VM or your tailnet.
+
+1. After the checks pass on `main`, GitHub Actions publishes `ghcr.io/imnallen/huddle:main`. Pull requests and forks cannot publish this image.
+2. Every five minutes, a systemd timer on the VM runs `deploy/update.sh`, which pulls the image. If the server already runs that image, it stops there.
+3. For a new image, it takes `compose.yaml` and `deploy/` out of the image, backs up the database, runs the migrations, and starts the new server. The VM has no Git checkout, so the Compose file always matches the code.
+4. If the migrations fail, or the server is not healthy within three minutes, it restores the previous image and skips the new one.
+
+Anyone who can merge to `main` controls this VM, because the updater runs what `main` publishes as root. Decide who can merge with that in mind.
+
+### Set up the VM
+
+In your tailnet's DNS settings, turn on HTTPS certificates. The sidecar's node is named `huddle`, so the server's address must use that name. The VM pulls without credentials, so the image's package on GitHub must be public.
+
+Run these as root on a fresh Ubuntu VM:
+
+```sh
+apt update
+apt install -y docker.io docker-compose-v2
+mkdir -p /opt/huddle
+docker run --rm ghcr.io/imnallen/huddle:main tar -C /app -c compose.yaml deploy | tar -x --no-same-owner -C /opt/huddle
+/opt/huddle/deploy/install.sh --server-url https://huddle.your-tailnet.ts.net
+systemctl start huddle-update.service
+docker compose --project-directory /opt/huddle logs tailscale
+```
+
+`install.sh` writes `.env` with a generated database password if `.env` does not exist, and it never changes an existing one. It also installs and starts the timer.
+
+Open the newest login link from the `tailscale` log to add the node to your tailnet. Until you do, the sidecar restarts every minute with a new link, and the updater waits instead of deploying. In the Tailscale admin console, turn off key expiry for this machine, or friends lose access when the key expires. Then deploy and read the setup code from the `server` log:
+
+```sh
+systemctl start huddle-update.service
+docker compose --project-directory /opt/huddle logs server
+```
+
+### Operate it
+
+- `journalctl -u huddle-update` shows what each run did.
+- `systemctl start huddle-update` deploys now instead of waiting for the timer.
+- `systemctl stop huddle-update.timer` pauses deploys until you start it again.
+- Each run also restarts the server if it is unhealthy, which covers a sidecar restart cutting off its network.
+- An image that fails its deploy is tagged `huddle:failed`, and the updater skips it until a newer image is published. To retry it, run `docker rmi huddle:failed`. If it was the first deploy, there is no earlier image to restore, so also run `docker compose rm -sf server`.
+- A published change to the systemd units takes effect only after you run `install.sh` again.
+
+### Restore a backup
+
+Before each deploy, the updater writes a dump to `/var/backups/huddle` and keeps the newest 14. These stay on the VM's disk, so they do not survive losing that disk. Copy them elsewhere or back up the VM in Proxmox if that matters to you.
+
+Migrations only go forward. A restored image may not work with a database that a newer migration changed. In that case, restore the newest dump, which was taken just before the failed deploy:
+
+```sh
+cd /opt/huddle
+systemctl stop huddle-update.timer
+docker compose stop server
+docker compose exec -T db pg_restore -U huddle -d huddle --clean --if-exists --single-transaction < /var/backups/huddle/your-dump.dump
+docker compose up -d --no-build server
+systemctl start huddle-update.timer
+```
+
+### Deploy a fork
+
+A fork's own `main` publishes to its own package, such as `ghcr.io/you/huddle:main`. Use that address in the setup commands, and point the updater at it before you run `install.sh`:
+
+```sh
+mkdir -p /etc/systemd/system/huddle-update.service.d
+printf '[Service]\nEnvironment=HUDDLE_RELEASE_IMAGE=ghcr.io/you/huddle:main\n' > /etc/systemd/system/huddle-update.service.d/image.conf
+systemctl daemon-reload
+```
+
 ## Give friends access in Tailscale
 
 Share the machine with a friend, or add them to your tailnet. A shared machine appears in the friend's tailnet under its own name, and it cannot start connections to them. ACLs can target the friend's email.
@@ -69,7 +139,7 @@ Whether Serve reports a friend's own login for a machine shared into their tailn
 
 ## Upgrade
 
-PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgrade. Run `pnpm db:migrate` before you start the new server.
+PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgrade. Run `pnpm db:migrate` before you start the new server. A VM that [deploys updates automatically](#deploy-updates-automatically) does both for you.
 
 Migrations are transactional and tracked in `huddle_migration`. Migration `007_single_server.sql` converts a database from the earlier workspace design. It keeps rooms, channels, messages, read markers, mentions, and events from zero or one workspace, and fails on a database with more than one. To start over from such a database, drop and recreate it, run the migrations, and set up the server again.
 

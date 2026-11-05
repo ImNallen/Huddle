@@ -8,6 +8,8 @@ COPY apps/server apps/server
 COPY apps/desktop/package.json apps/desktop/package.json
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @huddle/server build
+COPY compose.yaml ./
+COPY deploy deploy
 
 FROM node:24-bookworm-slim
 WORKDIR /app

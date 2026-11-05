@@ -34,6 +34,7 @@ services:
       - ./deploy/tailscale:/config:ro
     restart: unless-stopped
   server:
+    image: huddle:current
     build: .
     network_mode: service:tailscale
     env_file: .env

@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:18.3
+        image: postgres:17-bookworm
         env:
           POSTGRES_USER: huddle
           POSTGRES_PASSWORD: huddle-ci
@@ -86,3 +86,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @huddle/desktop build
       - run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  publish:
+    needs: [application, desktop]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Publish the image
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --tag "$image:main" \
+            --tag "$image:${{ github.sha }}" \
+            .
+          docker push "$image:${{ github.sha }}"
+          docker push "$image:main"
