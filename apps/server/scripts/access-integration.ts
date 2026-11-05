@@ -1,18 +1,29 @@
+import './identity-check'
 import assert from 'node:assert/strict'
-import { once } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import sharp from 'sharp'
 import { WebSocket } from 'ws'
 import { z } from 'zod'
-import { AccessError, AccessView, AccountSecurity, Snapshot } from '@huddle/contracts'
 import {
+  AccessError,
+  AccessStage,
+  Account,
+  EventPage,
+  Members,
+  Room,
+  Snapshot,
+  type PublicUser,
+} from '@huddle/contracts'
+import {
+  accountLink,
   Client,
   joinFriend,
   migratedDatabase,
   setupFriend,
   startServer,
   storedJoinCode,
+  tailscale,
 } from './harness'
 
 type Result = Awaited<ReturnType<Client['call']>>
@@ -20,62 +31,8 @@ function failed(result: Result, status: number, error: AccessError['error'], lab
   assert.equal(result.response.status, status, `${label}: ${JSON.stringify(result.value)}`)
   assert.equal(AccessError.parse(result.value).error, error, label)
 }
-function stage(result: Result) {
-  assert.equal(result.response.status, 200, JSON.stringify(result.value))
-  return AccessView.parse(result.value).stage
-}
 function pass(message: string) {
   process.stdout.write(`PASS ${message}\n`)
-}
-
-async function watchTicket(client: Client) {
-  return z.object({ ticket: z.string() }).parse((await client.call('/api/watch-ticket', {})).value)
-    .ticket
-}
-async function currentSession(client: Client) {
-  const session = AccountSecurity.parse((await client.call('/api/account')).value).sessions.find(
-    (item) => item.current,
-  )
-  assert(session)
-  return session.id
-}
-type Watch = { socket: WebSocket; closed: Promise<unknown> }
-async function watchFrame(ticket: string) {
-  const socket = new WebSocket(server.websocket, { origin: base })
-  sockets.add(socket)
-  socket.on('error', () => {})
-  const closed = once(socket, 'close')
-  await once(socket, 'open')
-  const page = once(socket, 'message').then(() => 'page' as const)
-  socket.send(JSON.stringify({ kind: 'watch', after: '0', ticket }))
-  return { socket, closed, page }
-}
-async function watching(client: Client): Promise<Watch> {
-  const watch = await watchFrame(await watchTicket(client))
-  await Promise.race([
-    watch.page,
-    watch.closed.then(() => assert.fail('watch closed before its first page')),
-    delay(5000).then(() => assert.fail('watch did not start')),
-  ])
-  return watch
-}
-async function cutOff(client: Client, live: Watch, ticket: string, label: string) {
-  failed(await client.call('/api/snapshot'), 401, 'reauth_required', label)
-  await Promise.race([
-    live.closed,
-    delay(5000).then(() => assert.fail(`${label}: watch stayed open`)),
-  ])
-  const unused = await watchFrame(ticket)
-  const [code] = z
-    .tuple([z.number(), z.unknown()])
-    .parse(await Promise.race([unused.closed, unused.page]))
-  assert.equal(code, 1008, `${label}: its unused ticket fails`)
-}
-async function stillLive(client: Client, live: Watch | undefined, label: string) {
-  assert.equal((await client.call('/api/snapshot')).response.status, 200, label)
-  if (!live) return
-  await delay(2500)
-  assert.equal(live.socket.readyState, WebSocket.OPEN, `${label}: watch stays open`)
 }
 
 const setupCode = `access-${randomUUID()}`
@@ -91,250 +48,224 @@ const server = await startServer({
 })
 const base = server.origin
 const sockets = new Set<WebSocket>()
+async function eventually(predicate: () => boolean, message: string) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (predicate()) return
+    await delay(100)
+  }
+  assert.ok(predicate(), message)
+}
 try {
   const anonymous = new Client(base)
-  assert.deepEqual(stage(await anonymous.call('/api/access')), { kind: 'setup' })
+  assert.deepEqual(await anonymous.stage(), { kind: 'no-identity', reason: 'direct' })
   for (const path of [
     '/api/snapshot',
     '/api/members',
+    '/api/invite',
     `/api/direct/messages?conversationId=${randomUUID()}`,
     '/api/account',
+    `/api/account/photo/${randomUUID()}`,
   ])
-    failed(await anonymous.call(path), 401, 'reauth_required', `anonymous ${path}`)
-  for (const path of [
-    '/sign-in/email',
-    '/sign-up/email',
-    '/sign-in/social',
-    '/request-password-reset',
-    '/reset-password',
-    '/get-session',
-    '/huddle/response',
-  ])
-    failed(await anonymous.call(`/api/auth${path}`, {}), 400, 'invalid', `raw Better Auth ${path}`)
+    failed(await anonymous.call(path), 401, 'no_access', `anonymous ${path}`)
   failed(
     await anonymous.call('/api/access', {
       kind: 'account.setup',
+      code: setupCode,
+      serverName: 'Access server',
+      name: 'Anonymous',
+    }),
+    401,
+    'no_access',
+    'setup with the right code but no identity',
+  )
+  const adminClient = new Client(base, 'access-admin@huddle.test')
+  assert.deepEqual(await adminClient.stage(), {
+    kind: 'setup',
+    login: 'access-admin@huddle.test',
+    suggestedName: 'access-admin',
+  })
+  failed(
+    await adminClient.call('/api/access', {
+      kind: 'account.setup',
       code: 'not-the-setup-code',
       serverName: 'Access server',
-      username: 'intruder',
-      password: 'intruder-secret',
+      name: 'Intruder',
     }),
     400,
     'invalid',
     'setup with a wrong code',
   )
-  pass('anonymous callers see setup, cannot read the server, and reach no raw Better Auth route')
+  pass('without identity a visitor reads nothing and cannot set up; a person sees the setup stage')
 
-  const browser = new Client(base)
-  const adminPassword = 'access-admin-secret'
-  await setupFriend(browser, {
+  const admin = await setupFriend(adminClient, {
     code: setupCode,
     serverName: 'Access server',
-    username: 'access-admin',
-    password: adminPassword,
     name: 'Synthetic member',
   })
-  assert(browser.cookies.size > 0)
-  assert.equal(browser.token, '')
-  assert.deepEqual(stage(await new Client(base).call('/api/access')), { kind: 'signin' })
-  const native = new Client(base, true)
-  const memberPassword = 'access-member-secret'
-  await joinFriend(
-    native,
-    await storedJoinCode(database.url),
-    'access-member',
-    memberPassword,
-    'Native member',
+  const ready = (user: PublicUser, login: string) => ({ kind: 'ready', login, user })
+  assert.deepEqual(await adminClient.stage(), ready(admin, 'access-admin@huddle.test'))
+  assert.deepEqual(
+    Account.parse((await adminClient.call('/api/account')).value),
+    { user: admin, login: 'access-admin@huddle.test' },
+    'the account route tells a member their own login',
   )
-  assert(native.token.length > 0)
-  assert.equal(native.cookies.size, 0)
-  for (const client of [browser, native]) {
-    const inventory = AccountSecurity.parse((await client.call('/api/account')).value)
-    assert.equal(inventory.user.avatar.kind, 'mascot')
-    assert.deepEqual(
-      inventory.sessions.map((session) => session.current),
-      [true],
-    )
-  }
-  const seat = Snapshot.parse((await browser.call('/api/snapshot')).value).server
+  assert.equal(admin.avatar.kind, 'mascot')
+  assert.equal(
+    (await new Client(base, 'visitor@huddle.test').stage()).kind,
+    'join',
+    'setup is over for everyone else',
+  )
+  const noCookie = await fetch(`${base}/api/access`, {
+    headers: tailscale('access-admin@huddle.test'),
+  })
+  assert.equal(noCookie.headers.getSetCookie().length, 0, 'identity needs no cookie')
+  assert.equal(noCookie.headers.get('cache-control'), 'no-store')
+
+  const code = await storedJoinCode(database.url)
+  const friendClient = new Client(base, 'access-friend@huddle.test')
+  const friend = await joinFriend(friendClient, code, 'Native member')
+  const seat = Snapshot.parse((await adminClient.call('/api/snapshot')).value).server
   assert.equal(seat.role, 'admin')
   assert.equal(seat.memberCount, 2)
-  failed(
-    await new Client(base).call('/api/access', {
-      kind: 'account.signin',
-      username: 'access-stranger',
-      password: 'access-stranger-secret',
-    }),
-    400,
-    'invalid',
-    'an unknown username',
+  assert.equal(
+    (await new Client(base, 'Access-Friend@huddle.test').stage()).kind,
+    'join',
+    'a login is compared exactly, so another case is another person',
   )
-  failed(
-    await new Client(base).call('/api/access', {
-      kind: 'account.signin',
-      username: 'access-member',
-      password: 'access-wrong-secret',
-    }),
-    400,
-    'invalid',
-    'a wrong password',
-  )
-  pass(
-    'setup gives the admin a cookie session, join gives a native bearer, and unknown users or wrong passwords get nothing',
-  )
-
-  const limited = new Client(base, true)
-  await joinFriend(
-    limited,
-    await storedJoinCode(database.url),
-    'access-limited',
-    'access-limited-secret',
-    'Limited member',
-  )
-  for (let attempt = 0; attempt < 10; attempt++)
-    failed(
-      await new Client(base).call('/api/access', {
-        kind: 'account.signin',
-        username: 'access-limited',
-        password: 'access-wrong-secret',
-      }),
-      400,
-      'invalid',
-      `wrong password attempt ${attempt + 1}`,
-    )
-  const throttled = await new Client(base).call('/api/access', {
-    kind: 'account.signin',
-    username: 'access-limited',
-    password: 'access-limited-secret',
+  const encoded = await fetch(`${base}/api/access`, {
+    headers: {
+      'tailscale-user-login': 'jose@huddle.test',
+      'tailscale-user-name': '=?utf-8?q?Jos=C3=A9_Garc=C3=ADa?=',
+    },
   })
-  failed(throttled, 429, 'rate_limited', 'the eleventh sign-in for one username')
+  assert.deepEqual(AccessStage.parse(await encoded.json()), {
+    kind: 'join',
+    login: 'jose@huddle.test',
+    suggestedName: 'José García',
+  })
+  pass('setup makes the admin, a friend joins with the code, and each is recognized by exact login')
+
+  const limited = new Client(base, 'access-limited@huddle.test')
+  const attempt = (code: string) =>
+    limited.call('/api/access', { kind: 'account.join', code, name: 'Limited' })
+  for (let count = 0; count < 10; count++)
+    failed(await attempt('not-a-real-join-code-xx'), 400, 'invalid', `wrong code ${count + 1}`)
+  const throttled = await attempt(code)
+  failed(throttled, 429, 'rate_limited', 'the eleventh attempt for one login')
   assert.ok(Date.parse(z.string().parse(AccessError.parse(throttled.value).retryAt)) > Date.now())
-  assert.equal((await limited.call('/api/snapshot')).response.status, 200)
-  pass('ten sign-ins per username per window, then even the right password waits until retryAt')
-
-  const memberSignIn = {
-    kind: 'account.signin',
-    username: 'access-member',
-    password: memberPassword,
-  } as const
-  const phone = new Client(base, true)
-  await phone.act(memberSignIn)
-  const laptop = new Client(base)
-  await laptop.act(memberSignIn)
-  const nativeToken = native.token
-  const phoneLive = await watching(phone)
-  const phoneTicket = await watchTicket(phone)
-  const laptopLive = await watching(laptop)
-  const phoneSession = await currentSession(phone)
-  stage(await native.call('/api/access', { kind: 'session.revoke', id: phoneSession }))
-  await cutOff(phone, phoneLive, phoneTicket, 'the revoked session')
-  await stillLive(laptop, laptopLive, 'a session that was not revoked')
-  await stillLive(native, undefined, 'the revoking session')
-  assert.equal(native.token, nativeToken, 'the revoking session keeps its token')
-  assert.deepEqual(
-    AccountSecurity.parse((await native.call('/api/account')).value).sessions.map(
-      (session) => session.current,
-    ),
-    [true, false],
+  assert.equal(
+    (
+      await new Client(base, 'access-other@huddle.test').call('/api/access', {
+        kind: 'account.join',
+        code: 'not-a-real-join-code-xx',
+        name: 'Other',
+      })
+    ).response.status,
+    400,
+    'one login using up its attempts leaves another login alone',
   )
-  pass('signing out one session ends its HTTP access, its watch and its tickets, and nothing else')
-
-  const laptopSession = await currentSession(laptop)
-  stage(await browser.call('/api/access', { kind: 'session.revoke', id: laptopSession }))
-  await stillLive(laptop, laptopLive, 'a session another account tried to revoke')
-  pass("a session cannot sign out another account's session")
-
-  const tablet = new Client(base, true)
-  await tablet.act(memberSignIn)
-  const laptopTicket = await watchTicket(laptop)
-  stage(await native.call('/api/access', { kind: 'sessions.revoke-others' }))
-  await cutOff(laptop, laptopLive, laptopTicket, 'another session after sign out all others')
-  failed(await tablet.call('/api/snapshot'), 401, 'reauth_required', 'the second other session')
-  await stillLive(native, undefined, 'the session that signed out the others')
-  assert.deepEqual(
-    AccountSecurity.parse((await native.call('/api/account')).value).sessions.map(
-      (session) => session.current,
-    ),
-    [true],
+  failed(
+    await anonymous.call('/api/access', {
+      kind: 'account.join',
+      code,
+      name: 'Anonymous',
+    }),
+    401,
+    'no_access',
+    'no identity fails before any code is compared',
   )
-  pass('signing out all other sessions ends every session but the current one')
+  pass('ten setup or join attempts per login per window, then even the right code waits')
 
-  for (let attempt = 0; attempt < 5; attempt++)
-    failed(
-      await limited.call('/api/access', {
-        kind: 'password.change',
-        current: 'access-wrong-secret',
-        next: 'access-limited-next',
-      }),
-      400,
-      'invalid',
-      `wrong current password attempt ${attempt + 1}`,
-    )
-  const passwordThrottled = await limited.call('/api/access', {
-    kind: 'password.change',
-    current: 'access-limited-secret',
-    next: 'access-limited-next',
+  for (const path of ['/api/members/link', '/api/members/logins', '/api/auth/sign-in/email'])
+    assert.equal((await adminClient.call(path, {})).response.status, 404, `${path} does not exist`)
+  const room = Room.parse((await adminClient.call('/api/rooms', { name: 'Lounge' })).value)
+  const roster = await friendClient.call('/api/members')
+  assert.deepEqual(
+    Members.parse(roster.value).members.map(({ id, name, role }) => ({ id, name, role })),
+    [
+      { id: admin.id, name: 'Synthetic member', role: 'admin' },
+      { id: friend.id, name: 'Native member', role: 'member' },
+    ],
+  )
+  const exposed = (value: unknown) => JSON.stringify(value).includes('@huddle.test')
+  assert.equal(exposed(roster.value), false, "a roster carries nobody's login")
+  assert.equal(
+    exposed((await adminClient.call('/api/members')).value),
+    false,
+    "an admin's roster carries no logins either",
+  )
+  assert.equal(exposed((await friendClient.call('/api/snapshot')).value), false)
+  const socket = new WebSocket(server.websocket, {
+    origin: base,
+    headers: tailscale('access-friend@huddle.test'),
   })
-  failed(passwordThrottled, 429, 'rate_limited', 'the sixth password change in a window')
-  assert.ok(
-    Date.parse(z.string().parse(AccessError.parse(passwordThrottled.value).retryAt)) > Date.now(),
+  sockets.add(socket)
+  const frames: string[] = []
+  socket.on('error', () => {})
+  socket.on('open', () => socket.send(JSON.stringify({ kind: 'watch', after: '0' })))
+  socket.on('message', (data) => frames.push(data.toString()))
+  await eventually(
+    () =>
+      frames.some((frame) =>
+        EventPage.parse(JSON.parse(frame)).events.some(
+          (event) => event.kind === 'room.created' && event.room.id === room.id,
+        ),
+      ),
+    'the friend receives the room event',
   )
-  assert.equal((await limited.call('/api/snapshot')).response.status, 200)
-  pass('five password changes per account per window, then even the right password waits')
+  assert.equal(exposed(frames), false, 'no event carries a login')
+  socket.terminate()
+  pass("members never see each other's logins, and no web route can bind one")
 
-  const nextPassword = 'access-member-next-secret'
-  const desktop = new Client(base, true)
-  await desktop.act(memberSignIn)
-  const desktopLive = await watching(desktop)
-  const desktopTicket = await watchTicket(desktop)
+  const legacyId = 'legacy-account-id'
+  const { default: pg } = await import('pg')
+  const fixture = new pg.Client({ connectionString: database.url })
+  await fixture.connect()
+  try {
+    await fixture.query(
+      `INSERT INTO "user"(id, name, legacy_username) VALUES ($1, $2, 'waitingfriend')`,
+      [legacyId, 'Waiting\nforged row\u001b[2K'],
+    )
+    await fixture.query('INSERT INTO account_security(user_id) VALUES ($1)', [legacyId])
+    await fixture.query(`INSERT INTO member(user_id, role) VALUES ($1, 'member')`, [legacyId])
+  } finally {
+    await fixture.end()
+  }
+  const waiting = new Client(base, 'waiting@huddle.test')
+  assert.equal((await waiting.stage()).kind, 'join', 'an unlinked account authenticates nobody')
+  failed(await waiting.call('/api/snapshot'), 401, 'no_access', 'an unlinked account reads nothing')
+  const forged = await accountLink(database.url)
+  assert.doesNotMatch(forged.stdout, /^forged row/m, 'a stored newline cannot start a table row')
+  assert.equal(
+    forged.stdout.includes('\u001b'),
+    false,
+    'a stored escape never reaches the terminal',
+  )
+  const linked = await accountLink(database.url, 'waitingfriend', 'waiting@huddle.test')
+  assert.equal(linked.code, 0, linked.stderr)
+  assert.equal(linked.stdout.includes('\u001b'), false, 'nor does the link report print one')
+  const back = await waiting.stage()
+  assert.equal(back.kind === 'ready' && back.user.id, legacyId, 'the old account is back')
+  pass('an unlinked account authenticates nobody until the host binds it from the command line')
+
   failed(
-    await native.call('/api/access', {
-      kind: 'password.change',
-      current: 'not-the-member-secret',
-      next: nextPassword,
+    await adminClient.call('/api/access', {
+      kind: 'profile.save',
+      profile: { name: 'Bob\nforged row', avatar: admin.avatar },
     }),
     400,
     'invalid',
-    'a wrong current password',
+    'a display name cannot hold a control character',
   )
   failed(
-    await native.call('/api/access', {
-      kind: 'password.change',
-      current: memberPassword,
-      next: 'short',
+    await new Client(base, 'visitor@huddle.test').call('/api/access', {
+      kind: 'profile.save',
+      profile: { name: 'Visitor', avatar: admin.avatar },
     }),
-    400,
-    'invalid',
-    'a new password under eight characters',
+    401,
+    'no_access',
+    'only a member saves a profile',
   )
-  await stillLive(desktop, desktopLive, 'a rejected password change ends nothing')
-  assert.equal(
-    stage(
-      await native.call('/api/access', {
-        kind: 'password.change',
-        current: memberPassword,
-        next: nextPassword,
-      }),
-    ).kind,
-    'ready',
-  )
-  await stillLive(native, undefined, 'the session that changed the password')
-  assert.equal(native.token, nativeToken, 'changing the password keeps the current token')
-  await cutOff(desktop, desktopLive, desktopTicket, 'another session after a password change')
-  failed(
-    await new Client(base).call('/api/access', memberSignIn),
-    400,
-    'invalid',
-    'the old password after a change',
-  )
-  assert.equal(
-    (await new Client(base).act({ ...memberSignIn, password: nextPassword })).stage.kind,
-    'ready',
-  )
-  pass(
-    'a password change needs the current password, keeps this session, ends the others, and only the new password signs in',
-  )
-
   const photo = await sharp({
     create: { width: 32, height: 32, channels: 3, background: '#346bf1' },
   })
@@ -342,30 +273,34 @@ try {
     .toBuffer()
   const form = new FormData()
   form.set('photo', new File([new Uint8Array(photo)], 'avatar.png', { type: 'image/png' }))
+  const adminHeaders = { Origin: base, ...tailscale('access-admin@huddle.test') }
   const upload = await fetch(`${base}/api/account/photo`, {
     method: 'POST',
-    headers: { Origin: base, Cookie: browser.cookie() },
+    headers: { ...adminHeaders, 'X-Huddle-User': admin.id },
     body: form,
   })
   assert.equal(upload.status, 200)
   const uploaded = z.object({ uploadId: z.string() }).parse(await upload.json())
-  const saved = await browser.act({
+  const saved = await adminClient.act({
     kind: 'profile.save',
     profile: { name: 'Photo member', avatar: { kind: 'photo', uploadId: uploaded.uploadId } },
   })
-  assert.equal(saved.stage.kind === 'ready' && saved.stage.user.name, 'Photo member')
+  assert.equal(saved.kind === 'ready' && saved.user.name, 'Photo member')
   const image = await fetch(`${base}/api/account/photo/${uploaded.uploadId}`, {
-    headers: { Cookie: browser.cookie() },
+    headers: adminHeaders,
   })
   assert.equal(image.status, 200)
   assert.equal((await sharp(Buffer.from(await image.arrayBuffer())).metadata()).format, 'webp')
-  assert.equal((await native.call(`/api/account/photo/${uploaded.uploadId}`)).response.ok, true)
+  assert.equal(
+    (await friendClient.call(`/api/account/photo/${uploaded.uploadId}`)).response.ok,
+    true,
+  )
   assert.equal(
     (await new Client(base).call(`/api/account/photo/${uploaded.uploadId}`)).response.ok,
     false,
   )
   failed(
-    await native.call('/api/access', {
+    await friendClient.call('/api/access', {
       kind: 'profile.save',
       profile: { name: 'Borrowed photo', avatar: { kind: 'photo', uploadId: uploaded.uploadId } },
     }),
@@ -382,21 +317,21 @@ try {
     (
       await fetch(`${base}/api/account/photo`, {
         method: 'POST',
-        headers: { Origin: base, Cookie: browser.cookie() },
+        headers: { ...adminHeaders, 'X-Huddle-User': admin.id },
         body: invalidForm,
       })
     ).ok,
     false,
   )
+  const unnamed = await fetch(`${base}/api/account/photo`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: form,
+  })
+  assert.equal(unnamed.status, 401, 'an upload must name its account')
   pass(
     'photo decode and re-encode, persisted profile, visibility to fellow members but not anonymous callers, and active SVG rejection',
   )
-
-  assert.deepEqual(stage(await browser.call('/api/access', { kind: 'signout' })), {
-    kind: 'signin',
-  })
-  failed(await browser.call('/api/snapshot'), 401, 'reauth_required', 'a signed-out cookie')
-  pass('sign-out ends the session and returns to sign-in')
 } catch (error) {
   process.stderr.write(server.logs())
   throw error

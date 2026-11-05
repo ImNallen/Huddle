@@ -1,16 +1,21 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
 import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { connect } from 'node:net'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { z } from 'zod'
 import { WebSocket } from 'ws'
 import pg from 'pg'
 import sharp from 'sharp'
 import {
   AccessError,
+  AccessStage,
   type Avatar,
   Channel,
+  defaultMascot,
   DirectConversation,
   DirectMessage,
   EventPage,
@@ -23,22 +28,24 @@ import {
   type ServerEvent,
 } from '@huddle/contracts'
 import { mentionedUsers } from '../src/lib/domain'
-import { renewDelay } from '../src/lib/reach'
 import {
+  accountLink,
   Client,
-  friendCode,
+  inviteCode,
   joinFriend,
   migratedDatabase,
   setupFriend,
   startServer,
+  tailscale,
 } from './harness'
 
 const setupCode = `integration-${randomUUID()}`
 const database = await migratedDatabase()
+const port = Number(process.env.TEST_PORT ?? 3100)
 const server = await startServer({
   databaseUrl: database.url,
-  port: Number(process.env.TEST_PORT ?? 3100),
-  env: { SETUP_CODE: setupCode, HUDDLE_INVITE_LOOPBACK: '1' },
+  port,
+  env: { SETUP_CODE: setupCode },
 }).catch(async (error: unknown) => {
   await database.drop()
   throw error
@@ -46,56 +53,58 @@ const server = await startServer({
 const origin = server.origin
 const wsURL = server.websocket
 const sockets = new Set<WebSocket>()
+const accounts = new Map<string, string>()
+function headersFor(login: string | undefined, requestOrigin: string, post: boolean) {
+  const headers = new Headers({ 'Content-Type': 'application/json', Origin: requestOrigin })
+  if (login) {
+    for (const [name, value] of Object.entries(tailscale(login))) headers.set(name, value)
+    const user = accounts.get(login)
+    if (post && user) headers.set('X-Huddle-User', user)
+  }
+  return headers
+}
 async function request(
   path: string,
   {
-    token,
-    cookie,
+    login,
     body,
     requestOrigin = origin,
-  }: { token?: string; cookie?: string; body?: unknown; requestOrigin?: string } = {},
+  }: { login?: string; body?: unknown; requestOrigin?: string } = {},
 ) {
-  const headers = new Headers({ 'Content-Type': 'application/json', Origin: requestOrigin })
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  if (cookie) headers.set('Cookie', cookie)
   const response = await fetch(origin + path, {
     method: body === undefined ? 'GET' : 'POST',
-    headers,
+    headers: headersFor(login, requestOrigin, body !== undefined),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data: unknown = await response.json()
   return { response, data }
 }
-async function call<T>(path: string, schema: z.ZodType<T>, token?: string, body?: unknown) {
-  const { response, data } = await request(path, { token, body })
+async function call<T>(path: string, schema: z.ZodType<T>, login?: string, body?: unknown) {
+  const { response, data } = await request(path, { login, body })
   assert.equal(response.status, 200, `${path}: ${JSON.stringify(data)}`)
   return schema.parse(data)
 }
-async function rawText(path: string, token: string, body?: unknown) {
+async function rawText(path: string, login: string, body?: unknown) {
   const response = await fetch(origin + path, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Origin: origin,
-      Authorization: `Bearer ${token}`,
-    },
+    headers: headersFor(login, origin, body !== undefined),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   return { status: response.status, text: await response.text() }
 }
 function account(client: Client, user: Awaited<ReturnType<typeof setupFriend>>) {
-  return { token: client.sessionToken(), cookie: client.cookie(), user }
+  const login = z.string().parse(client.login)
+  accounts.set(login, user.id)
+  return { login, user }
 }
 
-function watch(token: string, after: string, ticket?: string) {
-  const socket = new WebSocket(wsURL, { origin })
+function watch(login: string, after: string) {
+  const socket = new WebSocket(wsURL, { origin, headers: tailscale(login) })
   sockets.add(socket)
   const events: ServerEvent[] = []
   const frames: string[] = []
   let ready = false
-  socket.on('open', () =>
-    socket.send(JSON.stringify({ kind: 'watch', after, ...(ticket ? { ticket } : { token }) })),
-  )
+  socket.on('open', () => socket.send(JSON.stringify({ kind: 'watch', after })))
   socket.on('message', (data) => {
     frames.push(data.toString())
     events.push(...EventPage.parse(JSON.parse(data.toString())).events)
@@ -107,6 +116,7 @@ function watch(token: string, after: string, ticket?: string) {
     socket,
     events,
     frames,
+    closed: once(socket, 'close').then(([code]) => z.number().parse(code)),
     get ready() {
       return ready
     },
@@ -119,8 +129,8 @@ async function eventually(predicate: () => boolean, message: string) {
   }
   assert.ok(predicate(), message)
 }
-async function rejectedFrame(frame: unknown, expected = 1008) {
-  const socket = new WebSocket(wsURL, { origin })
+async function rejectedFrame(frame: unknown, login: string, expected = 1008) {
+  const socket = new WebSocket(wsURL, { origin, headers: tailscale(login) })
   sockets.add(socket)
   socket.on('error', () => {})
   const closed = once(socket, 'close')
@@ -130,30 +140,21 @@ async function rejectedFrame(frame: unknown, expected = 1008) {
   sockets.delete(socket)
   assert.equal(code, expected)
 }
-async function accountReset(username: string, password: string) {
-  const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/account-reset.ts', username], {
-    cwd: new URL('..', import.meta.url),
-    env: { ...process.env, DATABASE_URL: database.url },
-    stdio: ['pipe', 'pipe', 'pipe'],
+async function refusedUpgrade(options: ConstructorParameters<typeof WebSocket>[2], url = wsURL) {
+  await new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(url, options)
+    socket.on('unexpected-response', (_request, response) => {
+      assert.equal(response.statusCode, 403)
+      response.resume()
+      socket.terminate()
+      resolve()
+    })
+    socket.on('open', () => {
+      socket.terminate()
+      reject(new Error('The upgrade was accepted'))
+    })
+    socket.on('error', () => {})
   })
-  let stdout = ''
-  let stderr = ''
-  child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
-  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
-  child.stdin.end(`${password}\n`)
-  const [code] = await once(child, 'exit')
-  return { code: z.number().parse(code), args: child.spawnargs, stdout, stderr }
-}
-async function watchedSession(token: string) {
-  const cursor = (await call('/api/snapshot', Snapshot, token)).cursor
-  const live = watch(token, cursor)
-  await eventually(() => live.ready, 'the session watches before the reset')
-  const { ticket } = await call('/api/watch-ticket', z.object({ ticket: z.string() }), token, {})
-  return async function cutOff(label: string) {
-    assert.equal((await request('/api/snapshot', { token })).response.status, 401, label)
-    await eventually(() => live.socket.readyState === WebSocket.CLOSED, `${label}: watch closes`)
-    await rejectedFrame({ kind: 'watch', after: cursor, ticket })
-  }
 }
 function pass(message: string) {
   process.stdout.write(`PASS ${message}\n`)
@@ -177,50 +178,120 @@ try {
   assert.deepEqual(mentions('@åsa, @jxr', 'ana'), ['dy'])
   assert.deepEqual(mentions('@Åsab @j.r.', 'ana'), ['jr'])
   pass('mentions match a full or first name after @, escape names, and never include the author')
-  assert.equal(renewDelay(3600), 1800)
-  assert.equal(renewDelay(10), 5)
-  assert.equal(renewDelay(1), 1)
-  pass('a NAT mapping renews halfway through the lifetime the router granted')
   assert.equal((await request('/api/snapshot')).response.status, 401)
   assert.equal((await request('/api/rooms', { body: { name: 'anonymous' } })).response.status, 401)
-  pass('anonymous requests cannot read the server or create rooms')
+  const asked = async (headers: Record<string, string>) => {
+    const answer = await fetch(`${origin}/api/access`, { headers })
+    return AccessStage.parse(await answer.json())
+  }
+  assert.deepEqual(await asked({}), { kind: 'no-identity', reason: 'direct' })
+  assert.deepEqual(await asked({ tailscale_user_login: 'evil@huddle.test' }), {
+    kind: 'no-identity',
+    reason: 'direct',
+  })
+  assert.deepEqual(
+    await asked({
+      'tailscale-user-login': 'ada@huddle.test',
+      tailscale_user_login: 'evil@huddle.test',
+    }),
+    { kind: 'setup', login: 'ada@huddle.test', suggestedName: 'ada' },
+    'the underscore header changes nothing beside the real one',
+  )
+  assert.deepEqual(
+    await asked({ 'tailscale-user-login': 'ada@huddle.test', 'tailscale-funnel-request': '?1' }),
+    { kind: 'no-identity', reason: 'funnel' },
+  )
+  assert.deepEqual(await asked({ 'x-forwarded-host': 'huddle.test' }), {
+    kind: 'no-identity',
+    reason: 'no-user',
+  })
+  const rebound = await new Promise<AccessStage>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1', () =>
+      socket.write(
+        'GET /api/access HTTP/1.1\r\nHost: evil.test\r\nTailscale-User-Login: ada@huddle.test\r\nConnection: close\r\n\r\n',
+      ),
+    )
+    let text = ''
+    socket.on('data', (chunk) => (text += chunk.toString()))
+    socket.on('end', () => {
+      try {
+        resolve(AccessStage.parse(JSON.parse(text.slice(text.indexOf('{')))))
+      } catch (error) {
+        reject(error)
+      }
+    })
+    socket.on('error', reject)
+  })
+  assert.deepEqual(
+    rebound,
+    { kind: 'no-identity', reason: 'direct' },
+    'a rebound Host has no identity',
+  )
+  const unattested = await new Client(origin).call('/api/access', {
+    kind: 'account.setup',
+    code: setupCode,
+    serverName: 'No identity',
+    name: 'Nobody',
+  })
+  assert.equal(unattested.response.status, 401, 'no identity cannot set up, even with the code')
+  assert.deepEqual(AccessError.parse(unattested.value), { error: 'no_access' })
+  const external = Object.values(networkInterfaces())
+    .flat()
+    .filter((entry) => entry && !entry.internal && entry.family === 'IPv4')
+    .map((entry) => z.string().parse(entry?.address))
+  assert.ok(external.length > 0, 'this machine needs a non-loopback address to prove the bind')
+  for (const listener of [port, port + 1])
+    for (const address of external)
+      await new Promise<void>((resolve, reject) => {
+        const socket = connect(listener, address, () => {
+          socket.destroy()
+          reject(new Error(`${address}:${listener} accepted a connection`))
+        })
+        socket.on('error', () => resolve())
+      })
+  pass(
+    'requests without Tailscale identity cannot read or set up, and no listener accepts off-host connections',
+  )
 
   const fresh = await call('/api/info', ServerInfo)
   assert.equal(fresh.setup, 'required')
   assert.equal(fresh.name, 'Huddle')
-  const anonymous = new Client(origin)
-  assert.equal((await anonymous.act({ kind: 'signout' })).stage.kind, 'setup')
-  const wrong = await anonymous.call('/api/access', {
+  const visitor = new Client(origin, 'intruder@huddle.test')
+  assert.equal((await visitor.stage()).kind, 'setup')
+  const wrong = await visitor.call('/api/access', {
     kind: 'account.setup',
     code: 'not-the-setup-code',
     serverName: 'Integration studio',
-    username: 'intruder',
-    password: 'intruder-secret',
+    name: 'Intruder',
   })
   assert.equal(wrong.response.status, 400)
   assert.deepEqual(AccessError.parse(wrong.value), { error: 'invalid' })
-  const ownerClient = new Client(origin)
-  const ownerUser = await setupFriend(ownerClient, {
+  const ownerClient = new Client(origin, 'owner@huddle.test')
+  const setupInput = {
+    kind: 'account.setup',
     code: setupCode,
     serverName: 'Integration studio',
-    username: 'owner',
-    password: 'owner-secret',
     name: 'Integration owner',
-  })
+  } as const
+  const ownerUser = await setupFriend(ownerClient, setupInput)
   const owner = account(ownerClient, ownerUser)
   const named = await call('/api/info', ServerInfo)
   assert.equal(named.setup, 'complete')
   assert.equal(named.name, 'Integration studio')
-  assert.equal((await new Client(origin).act({ kind: 'signout' })).stage.kind, 'signin')
+  assert.deepEqual(
+    await ownerClient.act(setupInput),
+    await ownerClient.stage(),
+    'a setup retried after it committed finds the account and changes nothing',
+  )
+  assert.equal((await visitor.stage()).kind, 'join')
   for (const code of [setupCode, 'a-brand-new-setup-code'])
     assert.equal(
       (
-        await new Client(origin).call('/api/access', {
+        await visitor.call('/api/access', {
           kind: 'account.setup',
           code,
           serverName: 'Hijacked',
-          username: 'intruder',
-          password: 'intruder-secret',
+          name: 'Intruder',
         })
       ).response.status,
       400,
@@ -230,148 +301,164 @@ try {
   assert.doesNotMatch(server.logs(), /Huddle setup/)
   assert.equal(
     (
-      await new Client(origin).call('/api/access', {
+      await visitor.call('/api/access', {
         kind: 'account.setup',
         code: setupCode,
         serverName: 'Hijacked',
-        username: 'intruder',
-        password: 'intruder-secret',
+        name: 'Intruder',
       })
     ).response.status,
     400,
   )
   assert.equal((await call('/api/info', ServerInfo)).name, 'Integration studio')
-  const seat = (await call('/api/snapshot', Snapshot, owner.token)).server
+  const seat = (await call('/api/snapshot', Snapshot, owner.login)).server
   assert.equal(seat.role, 'admin')
   assert.equal(seat.memberCount, 1)
   pass('onboarding needs the setup code, makes the admin, names the server, and cannot run twice')
 
-  const code = await friendCode(ownerClient)
-  const memberClient = new Client(origin)
-  const memberUser = await joinFriend(
-    memberClient,
-    code,
-    'colleague',
-    'colleague-secret',
-    'Integration colleague',
-  )
+  const code = await inviteCode(ownerClient)
+  const memberClient = new Client(origin, 'colleague@huddle.test')
+  const memberUser = await joinFriend(memberClient, code, 'Integration colleague')
   const member = account(memberClient, memberUser)
-  const joined = await call('/api/snapshot', Snapshot, member.token)
+  const joined = await call('/api/snapshot', Snapshot, member.login)
   assert.equal(joined.server.role, 'member')
   assert.equal(joined.server.memberCount, 2)
-  const memberInvite = await request('/api/friend-invite', { token: member.token })
+  assert.deepEqual(
+    await memberClient.act({ kind: 'account.join', code, name: 'Second try' }),
+    await memberClient.stage(),
+    'a join retried after it committed finds the account and renames nothing',
+  )
+  const memberInvite = await request('/api/invite', { login: member.login })
   assert.equal(memberInvite.response.status, 403)
   assert.deepEqual(memberInvite.data, { message: 'Only an admin can do that.' })
-  const memberReset = await request('/api/members/password', {
-    token: member.token,
-    body: { userId: owner.user.id, password: 'replaced-secret' },
-  })
-  assert.equal(memberReset.response.status, 403)
-  assert.deepEqual(memberReset.data, { message: 'Only an admin can do that.' })
-  const badJoin = await new Client(origin).call('/api/access', {
+  for (const removed of ['/api/friend-invite', '/api/auth/sign-out'])
+    assert.equal(
+      (await request(removed, { login: owner.login, body: {} })).response.status,
+      404,
+      `${removed} is gone`,
+    )
+  const badJoin = await new Client(origin, 'outsider@huddle.test').call('/api/access', {
     kind: 'account.join',
     code: 'not-a-real-join-code-xx',
-    username: 'outsider',
-    password: 'outsider-secret',
+    name: 'Outsider',
   })
   assert.equal(badJoin.response.status, 400)
   assert.deepEqual(AccessError.parse(badJoin.value), { error: 'invalid' })
-  const lateClient = new Client(origin)
-  const lateUser = await joinFriend(
-    lateClient,
+  assert.equal((await visitor.stage()).kind, 'join', 'reaching the server is not membership')
+  assert.equal((await request('/api/snapshot', { login: visitor.login })).response.status, 401)
+  const noIdentityJoin = await new Client(origin).call('/api/access', {
+    kind: 'account.join',
     code,
-    'latefriend',
-    'late-secret-1',
-    'Late colleague',
-  )
-  assert.equal((await call('/api/snapshot', Snapshot, owner.token)).server.memberCount, 3)
-  const lateCutOff = await watchedSession(lateClient.sessionToken())
-  const lateLaptop = new Client(origin)
-  await lateLaptop.act({
-    kind: 'account.signin',
-    username: 'latefriend',
-    password: 'late-secret-1',
+    name: 'Nobody',
   })
-  const reset = await request('/api/members/password', {
-    token: owner.token,
-    body: { userId: lateUser.id, password: 'late-secret-2' },
-  })
-  assert.equal(reset.response.status, 200, JSON.stringify(reset.data))
-  assert.deepEqual(reset.data, {})
-  await lateCutOff('an admin reset signs the friend out')
-  assert.equal((await lateLaptop.call('/api/snapshot')).response.status, 401)
-  const stale = await new Client(origin).call('/api/access', {
-    kind: 'account.signin',
-    username: 'latefriend',
-    password: 'late-secret-1',
-  })
-  assert.equal(stale.response.status, 400)
-  assert.deepEqual(AccessError.parse(stale.value), { error: 'invalid' })
-  const returned = await new Client(origin).act({
-    kind: 'account.signin',
-    username: 'latefriend',
-    password: 'late-secret-2',
-  })
-  assert.equal(returned.stage.kind, 'ready')
+  assert.equal(noIdentityJoin.response.status, 401, 'an invite without an identity admits nobody')
+  const lateClient = new Client(origin, 'latefriend@huddle.test')
+  const lateUser = await joinFriend(lateClient, code, 'Late colleague')
+  const late = account(lateClient, lateUser)
+  assert.equal((await call('/api/snapshot', Snapshot, owner.login)).server.memberCount, 3)
   pass(
-    'friends join with the invite code, a bad code fails, and an admin reset cuts off HTTP, the watch and its tickets for every session',
+    'friends join with the invite code and their identity, retries are idempotent, a bad code fails',
   )
 
-  const mascot = { kind: 'mascot', shape: 'circle', color: 'indigo' }
-  const roster = (await call('/api/members', Members, member.token)).members
+  const roster = (await call('/api/members', Members, member.login)).members
   assert.deepEqual(
     roster.map(({ name, avatar, role }) => ({ name, avatar, role })),
     [
-      { name: 'Integration owner', avatar: mascot, role: 'admin' },
-      { name: 'Integration colleague', avatar: mascot, role: 'member' },
-      { name: 'Late colleague', avatar: mascot, role: 'member' },
+      { name: 'Integration owner', avatar: defaultMascot(owner.user.id), role: 'admin' },
+      { name: 'Integration colleague', avatar: defaultMascot(member.user.id), role: 'member' },
+      { name: 'Late colleague', avatar: defaultMascot(lateUser.id), role: 'member' },
     ],
   )
   assert.equal(roster[0]?.id, owner.user.id)
   assert.ok(roster.every((person) => Date.parse(person.joinedAt) <= Date.now()))
-  assert.deepEqual(await call('/api/members', Members, owner.token), { members: roster })
+  assert.deepEqual(await call('/api/members', Members, owner.login), { members: roster })
   pass('every member sees the roster: admins first, with avatar and role')
 
-  const resetClient = new Client(origin)
-  await joinFriend(resetClient, code, 'resetfriend', 'forgotten-secret', 'Reset friend')
-  const cliCutOff = await watchedSession(resetClient.sessionToken())
-  const resetLaptop = new Client(origin)
-  await resetLaptop.act({
-    kind: 'account.signin',
-    username: 'resetfriend',
-    password: 'forgotten-secret',
-  })
-  const resetByCli = await accountReset('resetfriend', 'operator-chosen-secret')
-  assert.equal(resetByCli.code, 0, resetByCli.stderr)
-  assert.match(resetByCli.stdout, /Reset the password for resetfriend/)
-  assert.ok(
-    resetByCli.args.every((arg) => !arg.includes('operator-chosen-secret')),
-    'the new password never appears in argv',
+  const linkClient = new Client(origin, 'linkfriend@huddle.test')
+  const linkUser = await joinFriend(linkClient, code, 'Link friend')
+  const linked = account(linkClient, linkUser)
+  const listed = await accountLink(database.url)
+  assert.equal(listed.code, 0, listed.stderr)
+  assert.match(listed.stdout, /^ID\s+ROLE\s+NAME\s+OLD USERNAME\s+JOINED\s+LOGIN$/m)
+  assert.match(
+    listed.stdout,
+    new RegExp(
+      `^${owner.user.id}\\s+admin\\s+Integration owner\\s+-\\s+\\d{4}-\\d{2}-\\d{2}\\s+owner@huddle\\.test$`,
+      'm',
+    ),
   )
-  await cliCutOff('the CLI signs out every session of the account')
-  assert.equal((await resetLaptop.call('/api/snapshot')).response.status, 401)
-  const forgotten = await new Client(origin).call('/api/access', {
-    kind: 'account.signin',
-    username: 'resetfriend',
-    password: 'forgotten-secret',
+  assert.match(listed.stdout, /linkfriend@huddle\.test$/m)
+  const movedAway = watch(linked.login, '0')
+  await eventually(() => movedAway.ready, 'the friend watches before the login moves')
+  const relinked = await accountLink(database.url, linkUser.id, 'renamed@huddle.test')
+  assert.equal(relinked.code, 0, relinked.stderr)
+  assert.match(relinked.stdout, /Linked renamed@huddle\.test to Link friend/)
+  assert.match(relinked.stdout, /No other account held it/)
+  assert.match(relinked.stdout, /linkfriend@huddle\.test no longer reaches this account/)
+  assert.equal(await movedAway.closed, 1008, 'the old login loses its socket within a second')
+  assert.equal((await request('/api/snapshot', { login: linked.login })).response.status, 401)
+  assert.equal((await new Client(origin, linked.login).stage()).kind, 'join')
+  accounts.delete(linked.login)
+  accounts.set('renamed@huddle.test', linkUser.id)
+  assert.equal(
+    (await call('/api/snapshot', Snapshot, 'renamed@huddle.test')).server.role,
+    'member',
+    'the new login reaches the same account',
+  )
+  const heldByOther = watch('renamed@huddle.test', '0')
+  await eventually(() => heldByOther.ready, 'the socket is live before its login moves on')
+  const takeover = await accountLink(database.url, lateUser.id, 'renamed@huddle.test')
+  assert.equal(takeover.code, 0, takeover.stderr)
+  assert.match(takeover.stdout, new RegExp(`It came from Link friend \\(${linkUser.id}\\)`))
+  assert.equal(
+    await heldByOther.closed,
+    1008,
+    'a socket never starts streaming another account when its login moves',
+  )
+  const stale = await request('/api/rooms', {
+    login: 'renamed@huddle.test',
+    body: { name: 'Sent for the old account' },
   })
-  assert.equal(forgotten.response.status, 400)
-  assert.deepEqual(AccessError.parse(forgotten.value), { error: 'invalid' })
-  const operatorChosen = await new Client(origin).act({
-    kind: 'account.signin',
-    username: 'resetfriend',
-    password: 'operator-chosen-secret',
-  })
-  assert.equal(operatorChosen.stage.kind, 'ready')
-  const unknown = await accountReset('nobody-here', 'operator-chosen-secret')
-  assert.notEqual(unknown.code, 0)
-  assert.match(unknown.stderr, /No account has the username nobody-here\./)
+  assert.equal(stale.response.status, 401, 'a page still naming the old account cannot act')
+  assert.deepEqual(stale.data, { error: 'no_access' })
+  accounts.set('renamed@huddle.test', lateUser.id)
+  assert.equal((await new Client(origin, 'renamed@huddle.test').stage()).kind === 'ready', true)
+  const restored = await accountLink(database.url, lateUser.id, late.login)
+  assert.match(restored.stdout, /renamed@huddle\.test no longer reaches this account/)
+  accounts.delete('renamed@huddle.test')
+  const unknownAccount = await accountLink(database.url, 'nobody-here', 'x@huddle.test')
+  assert.notEqual(unknownAccount.code, 0)
+  assert.match(unknownAccount.stderr, /No single member has the ID or old username nobody-here/)
+  const badLogin = await accountLink(database.url, lateUser.id, 'not a login')
+  assert.notEqual(badLogin.code, 0)
+  assert.match(badLogin.stderr, /is not a Tailscale login/)
+  const legacyFixture = new pg.Client({ connectionString: database.url })
+  await legacyFixture.connect()
+  try {
+    await legacyFixture.query(
+      `UPDATE "user" SET tailscale_login = NULL, legacy_username = 'oldfriend' WHERE id = $1`,
+      [linkUser.id],
+    )
+  } finally {
+    await legacyFixture.end()
+  }
+  assert.match(
+    (await accountLink(database.url)).stdout,
+    /oldfriend\s+\d{4}-\d{2}-\d{2}\s+\(none\)$/m,
+  )
+  const byUsername = await accountLink(database.url, 'oldfriend', 'back@huddle.test')
+  assert.equal(byUsername.code, 0, byUsername.stderr)
+  assert.equal(
+    (await new Client(origin, 'back@huddle.test').stage()).kind,
+    'ready',
+    'an old username finds the account to bind',
+  )
   pass(
-    'account:reset replaces the password from stdin, cuts off HTTP, the watch and its tickets for every session, and names an unknown user',
+    'account:link lists accounts, binds by ID or old username, reports what moved, and the old login loses HTTP and its socket at once',
   )
 
-  const studio = await call('/api/rooms', Room, owner.token, { name: 'Studio' })
-  const channel = await call('/api/channels', Channel, owner.token, {
+  const studio = await call('/api/rooms', Room, owner.login, { name: 'Studio' })
+  const channel = await call('/api/channels', Channel, owner.login, {
     roomId: studio.id,
     name: 'general',
     kind: 'text',
@@ -379,32 +466,30 @@ try {
   assert.equal(
     (
       await request('/api/channels', {
-        token: member.token,
+        login: member.login,
         body: { roomId: studio.id, name: 'forbidden', kind: 'text' },
       })
     ).response.status,
     403,
   )
   assert.equal(
-    (await request('/api/rooms', { token: member.token, body: { name: 'Forbidden' } })).response
+    (await request('/api/rooms', { login: member.login, body: { name: 'Forbidden' } })).response
       .status,
     403,
   )
   pass('only admins create rooms and channels')
-  const snapshot = await call('/api/snapshot', Snapshot, owner.token)
-  const first = watch(owner.token, snapshot.cursor)
-  const ticket = await call('/api/watch-ticket', z.object({ ticket: z.string() }), member.token, {})
-  const second = watch('', snapshot.cursor, ticket.ticket)
+  const snapshot = await call('/api/snapshot', Snapshot, owner.login)
+  const first = watch(owner.login, snapshot.cursor)
+  const second = watch(member.login, snapshot.cursor)
   await eventually(() => first.ready && second.ready, 'Both clients are subscribed')
-  await rejectedFrame({ kind: 'watch', after: snapshot.cursor, ticket: ticket.ticket })
   const input = {
     channelId: channel.id,
     retryId: randomUUID(),
     body: 'A real persistent conversation.',
   }
   const [message, duplicate] = await Promise.all([
-    call('/api/messages', Message, owner.token, input),
-    call('/api/messages', Message, owner.token, input),
+    call('/api/messages', Message, owner.login, input),
+    call('/api/messages', Message, owner.login, input),
   ])
   assert.deepEqual(message, duplicate)
   await eventually(
@@ -418,11 +503,11 @@ try {
     'Both clients receive the durable message',
   )
   assert.equal(
-    (await request('/api/messages', { token: owner.token, body: { ...input, body: 'Changed' } }))
+    (await request('/api/messages', { login: owner.login, body: { ...input, body: 'Changed' } }))
       .response.status,
     409,
   )
-  const anotherChannel = await call('/api/channels', Channel, owner.token, {
+  const anotherChannel = await call('/api/channels', Channel, owner.login, {
     roomId: studio.id,
     name: 'design',
     kind: 'text',
@@ -430,13 +515,13 @@ try {
   assert.equal(
     (
       await request('/api/messages', {
-        token: owner.token,
+        login: owner.login,
         body: { ...input, channelId: anotherChannel.id },
       })
     ).response.status,
     409,
   )
-  const history = await call(`/api/messages?channelId=${channel.id}`, Message.array(), owner.token)
+  const history = await call(`/api/messages?channelId=${channel.id}`, Message.array(), owner.login)
   assert.equal(history.filter((item) => item.retryId === input.retryId).length, 1)
   pass('two clients receive committed messages; exact retries deduplicate and conflicts reject')
   const fixture = new pg.Client({ connectionString: database.url })
@@ -506,17 +591,17 @@ try {
 
   const cursor = message.cursor
   second.socket.close()
-  const offline = await call('/api/messages', Message, owner.token, {
+  const offline = await call('/api/messages', Message, owner.login, {
     channelId: channel.id,
     retryId: randomUUID(),
     body: 'Sent while a client was disconnected.',
   })
-  const offlineChannel = await call('/api/channels', Channel, owner.token, {
+  const offlineChannel = await call('/api/channels', Channel, owner.login, {
     roomId: studio.id,
     name: 'replay',
     kind: 'text',
   })
-  const reconnected = watch(member.token, cursor)
+  const reconnected = watch(member.login, cursor)
   await eventually(
     () =>
       reconnected.events.some(
@@ -527,13 +612,13 @@ try {
       ),
     'Replay includes messages and channels created offline',
   )
-  const beforeOverlap = await call('/api/snapshot', Snapshot, owner.token)
-  const overlap = await call('/api/messages', Message, owner.token, {
+  const beforeOverlap = await call('/api/snapshot', Snapshot, owner.login)
+  const overlap = await call('/api/messages', Message, owner.login, {
     channelId: channel.id,
     retryId: randomUUID(),
     body: 'Between snapshot and watch.',
   })
-  const racing = watch(owner.token, beforeOverlap.cursor)
+  const racing = watch(owner.login, beforeOverlap.cursor)
   await eventually(
     () =>
       racing.events.some(
@@ -543,7 +628,7 @@ try {
   )
   await Promise.all(
     Array.from({ length: 12 }, (_, index) =>
-      call('/api/messages', Message, owner.token, {
+      call('/api/messages', Message, owner.login, {
         channelId: channel.id,
         retryId: randomUUID(),
         body: `Concurrent ${index}`,
@@ -558,70 +643,170 @@ try {
   for (let index = 1; index < cursors.length; index++)
     assert.equal(cursors[index], (cursors[index - 1] ?? 0n) + 1n)
   pass('offline replay, snapshot overlap, polling recovery, and concurrent cursor order')
-  await rejectedFrame({ kind: 'send', body: 'socket cannot mutate' })
-  await rejectedFrame({ kind: 'watch', after: '0', token: 'invalid-session' })
+  await rejectedFrame({ kind: 'send', body: 'socket cannot mutate' }, owner.login)
+  await rejectedFrame({ kind: 'watch', after: '0', ticket: 'x'.repeat(43) }, owner.login)
+  await rejectedFrame({ kind: 'watch', after: '0', token: 'old-bearer' }, owner.login)
+  await rejectedFrame({ kind: 'watch', after: '0' }, 'stranger@huddle.test')
+  const noIdentitySocket = new WebSocket(wsURL, { origin })
+  sockets.add(noIdentitySocket)
+  noIdentitySocket.on('error', () => {})
+  noIdentitySocket.on('open', () => noIdentitySocket.send('{"kind":"watch","after":"0"}'))
+  const [noIdentityCode] = await once(noIdentitySocket, 'close')
+  assert.equal(noIdentityCode, 1008, 'a socket without identity closes')
   assert.equal(
     (
       await request('/api/messages', {
-        token: owner.token,
+        login: owner.login,
         requestOrigin: 'https://untrusted.test',
         body: input,
       })
     ).response.status,
     403,
   )
+  const noOrigin = await fetch(`${origin}/api/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Huddle-User': owner.user.id,
+      ...tailscale(owner.login),
+    },
+    body: JSON.stringify(input),
+  })
+  assert.equal(noOrigin.status, 403, 'a POST without Origin is always refused')
+  const opaque = await request('/api/rooms', {
+    login: owner.login,
+    requestOrigin: 'null',
+    body: { name: 'From a sandbox' },
+  })
+  assert.equal(opaque.response.status, 403, 'an opaque origin is refused')
+  for (const site of ['cross-site', 'same-site']) {
+    const probe = await fetch(`${origin}/api/snapshot`, {
+      headers: { 'Sec-Fetch-Site': site, ...tailscale(owner.login) },
+    })
+    assert.equal(probe.status, 403, `a no-cors GET from a ${site} page is refused`)
+  }
+  const sameOriginRead = await fetch(`${origin}/api/snapshot`, {
+    headers: { 'Sec-Fetch-Site': 'same-origin', ...tailscale(owner.login) },
+  })
+  assert.equal(sameOriginRead.status, 200, 'a same-origin read needs no Origin')
+  await refusedUpgrade({ headers: tailscale(owner.login) })
+  await refusedUpgrade({ origin: 'null', headers: tailscale(owner.login) })
+  const preflight = (from: string) =>
+    fetch(`${origin}/api/messages`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: from,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type,x-huddle-user',
+      },
+    })
+  for (const desktop of ['tauri://localhost', 'https://tauri.localhost']) {
+    const answer = await preflight(desktop)
+    assert.equal(answer.status, 204, `${desktop} may preflight`)
+    assert.equal(answer.headers.get('access-control-allow-origin'), desktop)
+    assert.equal(
+      answer.headers.get('access-control-allow-headers'),
+      'Content-Type, X-Huddle-User',
+      'identity headers are never allowed from a page',
+    )
+    assert.equal(answer.headers.get('access-control-allow-credentials'), null)
+  }
+  assert.equal((await preflight('https://evil.test')).status, 403)
+  assert.equal((await preflight('http://tauri.localhost')).status, 403)
+  const mismatch = await fetch(`${origin}/api/rooms`, {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      'X-Huddle-User': member.user.id,
+      ...tailscale(owner.login),
+    },
+    body: JSON.stringify({ name: 'Wrong person' }),
+  })
+  assert.equal(mismatch.status, 401, 'a page naming another account cannot act')
+  assert.deepEqual(await mismatch.json(), { error: 'no_access' })
+  const absent = await fetch(`${origin}/api/rooms`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json', ...tailscale(owner.login) },
+    body: JSON.stringify({ name: 'No expectation' }),
+  })
+  assert.equal(absent.status, 401, 'a data POST must name its account')
+  const accessMismatch = await fetch(`${origin}/api/access`, {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      'X-Huddle-User': member.user.id,
+      ...tailscale(owner.login),
+    },
+    body: JSON.stringify({
+      kind: 'profile.save',
+      profile: { name: 'Wrong person', avatar: ownerUser.avatar },
+    }),
+  })
+  assert.equal(accessMismatch.status, 401, 'the access route checks a named account too')
+  const strangerNaming = await fetch(`${origin}/api/access`, {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      'X-Huddle-User': member.user.id,
+      ...tailscale('stranger@huddle.test'),
+    },
+    body: JSON.stringify({ kind: 'account.join', code, name: 'Stranger' }),
+  })
+  assert.equal(strangerNaming.status, 401, 'a stale page cannot join for a new login')
   assert.equal(
-    (await request('/api/messages', { token: owner.token, body: { ...input, body: '' } })).response
+    (await request('/api/messages', { login: owner.login, body: { ...input, body: '' } })).response
       .status,
     400,
   )
-  await new Promise<void>((resolve, reject) => {
-    const socket = new WebSocket(wsURL, { origin: 'https://untrusted.test' })
-    socket.on('unexpected-response', (_request, response) => {
-      assert.equal(response.statusCode, 403)
-      response.resume()
-      socket.terminate()
-      resolve()
-    })
-    socket.on('open', () => {
-      socket.terminate()
-      reject(new Error('Untrusted origin connected'))
-    })
-    socket.on('error', () => {})
-  })
+  await refusedUpgrade({ origin: 'https://untrusted.test', headers: tailscale(owner.login) })
   assert.equal(
-    (await request('/api/snapshot', { token: owner.token, requestOrigin: 'tauri://localhost' }))
+    (await request('/api/snapshot', { login: owner.login, requestOrigin: 'tauri://localhost' }))
       .response.status,
     200,
   )
   assert.equal(
     (
       await request('/api/snapshot', {
-        token: owner.token,
-        requestOrigin: 'http://tauri.localhost',
+        login: owner.login,
+        requestOrigin: 'https://tauri.localhost',
       })
     ).response.status,
     200,
   )
-  pass('malformed frames, invalid sessions, unauthorized watches, and untrusted origins reject')
-  const snapshotOf = (token: string) => call('/api/snapshot', Snapshot, token)
-  const beforeRooms = await snapshotOf(owner.token)
+  assert.equal(
+    (
+      await request('/api/snapshot', {
+        login: owner.login,
+        requestOrigin: 'http://tauri.localhost',
+      })
+    ).response.status,
+    403,
+    'the plain http desktop origin is gone',
+  )
+  pass(
+    'malformed frames, sockets without a member, cross-site contexts, and a page naming the wrong account all reject',
+  )
+  const snapshotOf = (login: string) => call('/api/snapshot', Snapshot, login)
+  const beforeRooms = await snapshotOf(owner.login)
   assert.deepEqual(beforeRooms.rooms, [studio])
   assert.equal(
     (
       await request('/api/rooms', {
-        token: member.token,
+        login: member.login,
         body: { name: 'Lounge' },
       })
     ).response.status,
     403,
   )
-  const lounge = await call('/api/rooms', Room, owner.token, { name: ' Lounge ' })
+  const lounge = await call('/api/rooms', Room, owner.login, { name: ' Lounge ' })
   assert.deepEqual(lounge, { id: lounge.id, name: 'Lounge' })
   assert.equal(
     (
       await request('/api/rooms', {
-        token: owner.token,
+        login: owner.login,
         body: { name: 'LOUNGE' },
       })
     ).response.status,
@@ -630,13 +815,13 @@ try {
   assert.equal(
     (
       await request('/api/rooms', {
-        token: owner.token,
+        login: owner.login,
         body: { name: 'Extra field', roomId: studio.id },
       })
     ).response.status,
     400,
   )
-  const lobby = await call('/api/channels', Channel, owner.token, {
+  const lobby = await call('/api/channels', Channel, owner.login, {
     roomId: lounge.id,
     name: 'general',
     kind: 'text',
@@ -646,7 +831,7 @@ try {
   assert.equal(
     (
       await request('/api/channels', {
-        token: owner.token,
+        login: owner.login,
         body: { roomId: lounge.id, name: 'General', kind: 'text' },
       })
     ).response.status,
@@ -655,13 +840,13 @@ try {
   assert.equal(
     (
       await request('/api/channels', {
-        token: owner.token,
+        login: owner.login,
         body: { roomId: randomUUID(), name: 'nowhere', kind: 'text' },
       })
     ).response.status,
     404,
   )
-  const afterRooms = await snapshotOf(owner.token)
+  const afterRooms = await snapshotOf(owner.login)
   assert.deepEqual(afterRooms.rooms, [lounge, studio])
   assert.deepEqual(
     afterRooms.channels
@@ -675,7 +860,7 @@ try {
       first.events.some((event) => event.kind === 'room.created' && event.room.id === lounge.id),
     'room.created is delivered to a live watch',
   )
-  const roomReplay = watch(member.token, beforeRooms.cursor)
+  const roomReplay = watch(member.login, beforeRooms.cursor)
   await eventually(() => roomReplay.events.length >= 2, 'Room events replay')
   assert.deepEqual(roomReplay.events.slice(0, 2), [
     { kind: 'room.created', cursor: String(BigInt(beforeRooms.cursor) + 1n), room: lounge },
@@ -683,11 +868,11 @@ try {
   ])
   pass('admins create rooms with unique names; channel names are unique per room; rooms replay')
 
-  const beforeVoice = await snapshotOf(owner.token)
+  const beforeVoice = await snapshotOf(owner.login)
   assert.equal(
     (
       await request('/api/channels', {
-        token: owner.token,
+        login: owner.login,
         body: { roomId: lounge.id, name: 'nokind' },
       })
     ).response.status,
@@ -697,7 +882,7 @@ try {
   assert.equal(
     (
       await request('/api/channels', {
-        token: owner.token,
+        login: owner.login,
         body: { roomId: lounge.id, name: 'video', kind: 'video' },
       })
     ).response.status,
@@ -707,20 +892,20 @@ try {
   assert.equal(
     (
       await request('/api/channels', {
-        token: owner.token,
+        login: owner.login,
         body: { roomId: lounge.id, name: 'general', kind: 'voice' },
       })
     ).response.status,
     409,
     'text and voice channels share one namespace in a room',
   )
-  const hangout = await call('/api/channels', Channel, owner.token, {
+  const hangout = await call('/api/channels', Channel, owner.login, {
     roomId: lounge.id,
     name: 'hangout',
     kind: 'voice',
   })
   assert.deepEqual(hangout, { id: hangout.id, roomId: lounge.id, name: 'hangout', kind: 'voice' })
-  const voiceReplay = watch(member.token, beforeVoice.cursor)
+  const voiceReplay = watch(member.login, beforeVoice.cursor)
   await eventually(() => voiceReplay.events.length >= 1, 'The voice channel replays')
   assert.deepEqual(voiceReplay.events, [
     {
@@ -730,17 +915,17 @@ try {
     },
   ])
   const voicePost = await request('/api/messages', {
-    token: member.token,
+    login: member.login,
     body: { channelId: hangout.id, retryId: randomUUID(), body: 'Anyone here?' },
   })
   assert.equal(voicePost.response.status, 409)
   assert.deepEqual(voicePost.data, { message: 'Voice channels do not hold messages.' })
   assert.deepEqual(
-    await call(`/api/messages?channelId=${hangout.id}`, Message.array(), owner.token),
+    await call(`/api/messages?channelId=${hangout.id}`, Message.array(), owner.login),
     [],
     'a rejected voice post leaves no message',
   )
-  const afterVoice = await snapshotOf(owner.token)
+  const afterVoice = await snapshotOf(owner.login)
   assert.equal(
     afterVoice.cursor,
     voiceReplay.events[0]?.cursor,
@@ -757,7 +942,7 @@ try {
   const sent: Message[] = []
   for (const body of ['First unread', 'Second unread', '@integration OWNER, can you look?'])
     sent.push(
-      await call('/api/messages', Message, member.token, {
+      await call('/api/messages', Message, member.login, {
         channelId: lobby.id,
         retryId: randomUUID(),
         body,
@@ -765,11 +950,11 @@ try {
     )
   const [firstUnread, , mention] = sent
   assert(firstUnread && mention)
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [
+  assert.deepEqual((await snapshotOf(owner.login)).unread, [
     { channelId: lobby.id, count: 3, mentions: 1 },
   ])
   assert.equal(
-    (await snapshotOf(member.token)).unread.some((item) => item.channelId === lobby.id),
+    (await snapshotOf(member.login)).unread.some((item) => item.channelId === lobby.id),
     false,
   )
   await eventually(
@@ -789,97 +974,91 @@ try {
     'unread counts skip your own messages, the snapshot counts unread mentions, and the event names who was mentioned',
   )
 
-  const markRead = (token: string, body: unknown) => request('/api/read', { token, body })
-  const cleared = await markRead(owner.token, { channelId: lobby.id, cursor: firstUnread.cursor })
+  const markRead = (login: string, body: unknown) => request('/api/read', { login, body })
+  const cleared = await markRead(owner.login, { channelId: lobby.id, cursor: firstUnread.cursor })
   assert.equal(cleared.response.status, 200)
   assert.deepEqual(cleared.data, {})
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [
+  assert.deepEqual((await snapshotOf(owner.login)).unread, [
     { channelId: lobby.id, count: 2, mentions: 1 },
   ])
   assert.equal(
-    (await markRead(owner.token, { channelId: lobby.id, cursor: mention.cursor })).response.status,
+    (await markRead(owner.login, { channelId: lobby.id, cursor: mention.cursor })).response.status,
     200,
   )
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [])
+  assert.deepEqual((await snapshotOf(owner.login)).unread, [])
   assert.equal(
-    (await markRead(owner.token, { channelId: lobby.id, cursor: firstUnread.cursor })).response
+    (await markRead(owner.login, { channelId: lobby.id, cursor: firstUnread.cursor })).response
       .status,
     200,
   )
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [])
+  assert.deepEqual((await snapshotOf(owner.login)).unread, [])
   for (const cursor of ['9000000000000000000', '9999999999999999999'])
     assert.equal(
-      (await markRead(owner.token, { channelId: lobby.id, cursor })).response.status,
+      (await markRead(owner.login, { channelId: lobby.id, cursor })).response.status,
       200,
     )
-  await call('/api/messages', Message, member.token, {
+  await call('/api/messages', Message, member.login, {
     channelId: lobby.id,
     retryId: randomUUID(),
     body: 'Fourth unread',
   })
-  assert.deepEqual((await snapshotOf(owner.token)).unread, [
+  assert.deepEqual((await snapshotOf(owner.login)).unread, [
     { channelId: lobby.id, count: 1, mentions: 0 },
   ])
-  const memberBefore = await snapshotOf(member.token)
+  const memberBefore = await snapshotOf(member.login)
   assert.deepEqual(memberBefore.unread, [{ channelId: channel.id, count: 16, mentions: 0 }])
   assert.equal(
-    (await markRead(member.token, { channelId: channel.id, cursor: memberBefore.cursor })).response
+    (await markRead(member.login, { channelId: channel.id, cursor: memberBefore.cursor })).response
       .status,
     200,
   )
-  assert.deepEqual((await snapshotOf(member.token)).unread, [])
+  assert.deepEqual((await snapshotOf(member.login)).unread, [])
   pass('read markers clear unread and mentions, never regress, and stop at the server cursor')
 
   assert.equal(
-    (await markRead(owner.token, { channelId: randomUUID(), cursor: '1' })).response.status,
+    (await markRead(owner.login, { channelId: randomUUID(), cursor: '1' })).response.status,
     404,
   )
   assert.equal(
-    (await markRead(owner.token, { kind: 'all', cursor: '1' })).response.status,
+    (await markRead(owner.login, { kind: 'all', cursor: '1' })).response.status,
     400,
     'the all-channels read marker is gone',
   )
   assert.equal(
-    (await request('/api/home', { token: owner.token })).response.status,
+    (await request('/api/home', { login: owner.login })).response.status,
     404,
     'the home feed endpoint is gone',
   )
   pass('read markers reject unknown channels and the removed feed endpoints are gone')
 
-  const thirdClient = new Client(origin)
-  const thirdUser = await joinFriend(
-    thirdClient,
-    code,
-    'thirdparty',
-    'third-secret-1',
-    'Third party',
-  )
+  const thirdClient = new Client(origin, 'thirdparty@huddle.test')
+  const thirdUser = await joinFriend(thirdClient, code, 'Third party')
   const third = account(thirdClient, thirdUser)
   const secret = `direct-secret-${randomUUID()}`
-  const open = (token: string, userId: string) =>
-    call('/api/direct/conversations', DirectConversation, token, { userId })
-  const beforeDirect = await snapshotOf(owner.token)
-  const conversation = await open(owner.token, member.user.id)
+  const open = (login: string, userId: string) =>
+    call('/api/direct/conversations', DirectConversation, login, { userId })
+  const beforeDirect = await snapshotOf(owner.login)
+  const conversation = await open(owner.login, member.user.id)
   assert.deepEqual(conversation, {
     id: conversation.id,
     peerId: member.user.id,
     latest: null,
     unread: 0,
   })
-  assert.equal((await open(owner.token, member.user.id)).id, conversation.id)
-  const fromPeer = await open(member.token, owner.user.id)
+  assert.equal((await open(owner.login, member.user.id)).id, conversation.id)
+  const fromPeer = await open(member.login, owner.user.id)
   assert.equal(fromPeer.id, conversation.id, 'find-or-create finds one row from either direction')
   assert.equal(fromPeer.peerId, owner.user.id)
-  const afterOpen = await snapshotOf(owner.token)
+  const afterOpen = await snapshotOf(owner.login)
   assert.equal(afterOpen.cursor, beforeDirect.cursor, 'opening a conversation emits no event')
   assert.deepEqual(afterOpen.directs, [])
   assert.deepEqual(
-    (await snapshotOf(member.token)).directs,
+    (await snapshotOf(member.login)).directs,
     [],
     'an empty conversation does not appear for the peer',
   )
   const toSelf = await request('/api/direct/conversations', {
-    token: owner.token,
+    login: owner.login,
     body: { userId: owner.user.id },
   })
   assert.equal(toSelf.response.status, 400)
@@ -887,7 +1066,7 @@ try {
   assert.equal(
     (
       await request('/api/direct/conversations', {
-        token: owner.token,
+        login: owner.login,
         body: { userId: 'nobody-here' },
       })
     ).response.status,
@@ -896,7 +1075,7 @@ try {
   assert.equal(
     (
       await request('/api/direct/conversations', {
-        token: owner.token,
+        login: owner.login,
         body: { userId: member.user.id, extra: true },
       })
     ).response.status,
@@ -905,9 +1084,9 @@ try {
   )
   pass('find-or-create is idempotent both ways, silent, and rejects self and non-members')
 
-  const bystander = watch(third.token, afterOpen.cursor)
-  const ownerLive = watch(owner.token, afterOpen.cursor)
-  const memberLive = watch(member.token, afterOpen.cursor)
+  const bystander = watch(third.login, afterOpen.cursor)
+  const ownerLive = watch(owner.login, afterOpen.cursor)
+  const memberLive = watch(member.login, afterOpen.cursor)
   await eventually(
     () => bystander.ready && ownerLive.ready && memberLive.ready,
     'all three members watch',
@@ -918,13 +1097,13 @@ try {
     body: `${secret} from the owner`,
   }
   const [dm, dmDuplicate] = await Promise.all([
-    call('/api/direct/messages', DirectMessage, owner.token, directInput),
-    call('/api/direct/messages', DirectMessage, owner.token, directInput),
+    call('/api/direct/messages', DirectMessage, owner.login, directInput),
+    call('/api/direct/messages', DirectMessage, owner.login, directInput),
   ])
   assert.deepEqual(dm, dmDuplicate, 'an exact retry returns the stored message')
   assert.equal(dm.conversationId, conversation.id)
   assert.equal(dm.authorId, owner.user.id)
-  const reply = await call('/api/direct/messages', DirectMessage, member.token, {
+  const reply = await call('/api/direct/messages', DirectMessage, member.login, {
     conversationId: conversation.id,
     retryId: randomUUID(),
     body: `${secret} from the member`,
@@ -947,19 +1126,19 @@ try {
     [owner.user.id, member.user.id].sort(),
     'the event alone tells a recipient who is in the conversation',
   )
-  const ownerDirects = (await snapshotOf(owner.token)).directs
+  const ownerDirects = (await snapshotOf(owner.login)).directs
   assert.deepEqual(ownerDirects, [
     { id: conversation.id, peerId: member.user.id, latest: reply, unread: 1 },
   ])
-  const memberDirects = (await snapshotOf(member.token)).directs
+  const memberDirects = (await snapshotOf(member.login)).directs
   assert.deepEqual(memberDirects, [
     { id: conversation.id, peerId: owner.user.id, latest: reply, unread: 1 },
   ])
   const directPath = `/api/direct/messages?conversationId=${conversation.id}`
-  assert.deepEqual(await call(directPath, DirectMessage.array(), member.token), [dm, reply])
+  assert.deepEqual(await call(directPath, DirectMessage.array(), member.login), [dm, reply])
   pass('participants exchange messages live, with retry deduplication and per-reader unread')
 
-  const roomAfterDirect = await call('/api/messages', Message, member.token, {
+  const roomAfterDirect = await call('/api/messages', Message, member.login, {
     channelId: channel.id,
     retryId: randomUUID(),
     body: 'Room message that follows the private ones.',
@@ -979,7 +1158,7 @@ try {
     [],
   )
   assert.deepEqual(leaks(bystander.frames.join('\n')), [], 'nothing private on a live watch')
-  const fromZero = watch(third.token, '0')
+  const fromZero = watch(third.login, '0')
   await eventually(
     () =>
       fromZero.events.some(
@@ -988,7 +1167,7 @@ try {
     'a replay from cursor 0 reaches the end of the log',
   )
   assert.deepEqual(leaks(fromZero.frames.join('\n')), [], 'nothing private in replay from 0')
-  const participantReplay = watch(member.token, '0')
+  const participantReplay = watch(member.login, '0')
   await eventually(
     () => sawDirect(participantReplay.events, reply.id),
     'the same replay does carry the messages to a participant',
@@ -996,19 +1175,19 @@ try {
   fromZero.socket.terminate()
   participantReplay.socket.terminate()
 
-  const thirdSnapshot = await rawText('/api/snapshot', third.token)
+  const thirdSnapshot = await rawText('/api/snapshot', third.login)
   assert.equal(thirdSnapshot.status, 200)
   assert.deepEqual(leaks(thirdSnapshot.text), [], 'nothing private in the snapshot')
   assert.deepEqual(Snapshot.parse(JSON.parse(thirdSnapshot.text)).directs, [])
   const notFound = JSON.stringify({ message: 'Conversation not found.' })
   const probes = (id: string) => [
-    rawText(`/api/direct/messages?conversationId=${id}`, third.token),
-    rawText('/api/direct/messages', third.token, {
+    rawText(`/api/direct/messages?conversationId=${id}`, third.login),
+    rawText('/api/direct/messages', third.login, {
       conversationId: id,
       retryId: randomUUID(),
       body: 'Let me in',
     }),
-    rawText('/api/direct/read', third.token, { conversationId: id, cursor: '1' }),
+    rawText('/api/direct/read', third.login, { conversationId: id, cursor: '1' }),
   ]
   for (const answer of await Promise.all([...probes(conversation.id), ...probes(randomUUID())])) {
     assert.equal(answer.status, 404)
@@ -1019,18 +1198,18 @@ try {
     )
   }
   assert.equal(
-    (await rawText(`/api/messages?channelId=${conversation.id}`, third.token)).status,
+    (await rawText(`/api/messages?channelId=${conversation.id}`, third.login)).status,
     404,
     'a conversation ID is not a channel',
   )
   for (const path of ['/api/snapshot', '/api/members', `/api/messages?channelId=${channel.id}`])
     assert.deepEqual(
-      leaks((await rawText(path, third.token)).text),
+      leaks((await rawText(path, third.login)).text),
       [],
       `nothing private in ${path}`,
     )
   assert.deepEqual(
-    (await snapshotOf(owner.token)).directs,
+    (await snapshotOf(owner.login)).directs,
     ownerDirects,
     'the stranger changed nothing',
   )
@@ -1041,15 +1220,15 @@ try {
   const conflict = JSON.stringify({
     message: 'This retry ID was already used for a different message.',
   })
-  const changedBody = await rawText('/api/direct/messages', owner.token, {
+  const changedBody = await rawText('/api/direct/messages', owner.login, {
     ...directInput,
     body: 'Changed',
   })
   assert.equal(changedBody.status, 409)
   assert.equal(changedBody.text, conflict)
-  const elsewhere = await open(owner.token, third.user.id)
+  const elsewhere = await open(owner.login, third.user.id)
   assert.notEqual(elsewhere.id, conversation.id)
-  const otherConversation = await rawText('/api/direct/messages', owner.token, {
+  const otherConversation = await rawText('/api/direct/messages', owner.login, {
     ...directInput,
     conversationId: elsewhere.id,
   })
@@ -1059,85 +1238,85 @@ try {
     await call(
       `/api/direct/messages?conversationId=${elsewhere.id}`,
       DirectMessage.array(),
-      owner.token,
+      owner.login,
     ),
     [],
   )
   assert.deepEqual(
-    (await snapshotOf(third.token)).directs,
+    (await snapshotOf(third.login)).directs,
     [],
     'a failed retry leaves the peer with nothing to see',
   )
   assert.equal(
     (
       await request('/api/direct/messages', {
-        token: owner.token,
+        login: owner.login,
         body: { ...directInput, retryId: randomUUID(), body: '   ' },
       })
     ).response.status,
     400,
   )
   assert.equal(
-    (await request('/api/direct/messages?conversationId=not-a-uuid', { token: owner.token }))
+    (await request('/api/direct/messages?conversationId=not-a-uuid', { login: owner.login }))
       .response.status,
     400,
   )
   pass('a reused retry ID is a conflict that returns no body, and input is validated')
 
-  const readDirect = (token: string, cursor: string) =>
-    request('/api/direct/read', { token, body: { conversationId: conversation.id, cursor } })
-  const unreadOf = async (token: string) =>
-    (await snapshotOf(token)).directs.find((item) => item.id === conversation.id)?.unread
-  const clearedDirect = await readDirect(member.token, dm.cursor)
+  const readDirect = (login: string, cursor: string) =>
+    request('/api/direct/read', { login, body: { conversationId: conversation.id, cursor } })
+  const unreadOf = async (login: string) =>
+    (await snapshotOf(login)).directs.find((item) => item.id === conversation.id)?.unread
+  const clearedDirect = await readDirect(member.login, dm.cursor)
   assert.equal(clearedDirect.response.status, 200)
   assert.deepEqual(clearedDirect.data, {})
-  assert.equal(await unreadOf(member.token), 0, 'your own reply is never unread')
-  assert.equal(await unreadOf(owner.token), 1, 'reading is private to each participant')
-  assert.equal((await readDirect(owner.token, reply.cursor)).response.status, 200)
-  assert.equal(await unreadOf(owner.token), 0)
-  assert.equal((await readDirect(owner.token, dm.cursor)).response.status, 200)
-  assert.equal(await unreadOf(owner.token), 0, 'a read marker never moves back')
-  assert.equal((await readDirect(owner.token, '9999999999999999999')).response.status, 200)
-  const afterCap = await call('/api/direct/messages', DirectMessage, member.token, {
+  assert.equal(await unreadOf(member.login), 0, 'your own reply is never unread')
+  assert.equal(await unreadOf(owner.login), 1, 'reading is private to each participant')
+  assert.equal((await readDirect(owner.login, reply.cursor)).response.status, 200)
+  assert.equal(await unreadOf(owner.login), 0)
+  assert.equal((await readDirect(owner.login, dm.cursor)).response.status, 200)
+  assert.equal(await unreadOf(owner.login), 0, 'a read marker never moves back')
+  assert.equal((await readDirect(owner.login, '9999999999999999999')).response.status, 200)
+  const afterCap = await call('/api/direct/messages', DirectMessage, member.login, {
     conversationId: conversation.id,
     retryId: randomUUID(),
     body: 'After the capped read marker',
   })
-  assert.equal(await unreadOf(owner.token), 1, 'a read marker stops at the server cursor')
+  assert.equal(await unreadOf(owner.login), 1, 'a read marker stops at the server cursor')
   pass('direct read markers clear unread per reader, never regress, and stop at the server cursor')
 
-  const paged = await open(third.token, member.user.id)
+  const paged = await open(third.login, member.user.id)
   const sentPages: DirectMessage[] = []
   for (let index = 0; index < 101; index++)
     sentPages.push(
-      await call('/api/direct/messages', DirectMessage, third.token, {
+      await call('/api/direct/messages', DirectMessage, third.login, {
         conversationId: paged.id,
         retryId: randomUUID(),
         body: `Page line ${index}`,
       }),
     )
   const pagedPath = `/api/direct/messages?conversationId=${paged.id}`
-  const newestPage = await call(pagedPath, DirectMessage.array(), member.token)
+  const newestPage = await call(pagedPath, DirectMessage.array(), member.login)
   assert.deepEqual(newestPage, sentPages.slice(1))
   assert.deepEqual(
-    await call(`${pagedPath}&before=${newestPage[0]?.cursor}`, DirectMessage.array(), member.token),
+    await call(`${pagedPath}&before=${newestPage[0]?.cursor}`, DirectMessage.array(), member.login),
     sentPages.slice(0, 1),
   )
   assert.deepEqual(
-    await call(`${pagedPath}&before=9999999999999999999`, DirectMessage.array(), member.token),
+    await call(`${pagedPath}&before=9999999999999999999`, DirectMessage.array(), member.login),
     sentPages.slice(1),
   )
   assert.deepEqual(
-    (await snapshotOf(member.token)).directs.map((item) => item.id),
+    (await snapshotOf(member.login)).directs.map((item) => item.id),
     [paged.id, conversation.id],
     'the snapshot lists the most recent conversation first',
   )
   pass('direct history pages 100 at a time, oldest first, and takes any valid before cursor')
 
-  const photoStatus = async (id: string, token: string) =>
+  const photoStatus = async (id: string, login: string) =>
     (
       await fetch(`${origin}/api/account/photo/${id}`, {
-        headers: { Origin: origin, Authorization: `Bearer ${token}` },
+        headers: { Origin: origin, ...tailscale(login) },
       })
     ).status
   const uploadPhoto = async (background: { r: number; g: number; b: number }) => {
@@ -1148,7 +1327,11 @@ try {
     form.set('photo', new File([new Uint8Array(png)], 'a.png', { type: 'image/png' }))
     const uploaded = await fetch(`${origin}/api/account/photo`, {
       method: 'POST',
-      headers: { Origin: origin, Authorization: `Bearer ${third.token}` },
+      headers: {
+        Origin: origin,
+        'X-Huddle-User': third.user.id,
+        ...tailscale(third.login),
+      },
       body: form,
     })
     assert.equal(uploaded.status, 200)
@@ -1159,38 +1342,32 @@ try {
   const saveAvatar = (avatar: Avatar) =>
     thirdClient.act({ kind: 'profile.save', profile: { name: 'Third party', avatar } })
   await saveAvatar({ kind: 'photo', uploadId: privatePhoto })
-  assert.equal(await photoStatus(privatePhoto, member.token), 200, 'a current avatar is visible')
-  const withOwner = await open(third.token, owner.user.id)
-  const withPhoto = await call('/api/direct/messages', DirectMessage, third.token, {
+  assert.equal(await photoStatus(privatePhoto, member.login), 200, 'a current avatar is visible')
+  const withOwner = await open(third.login, owner.user.id)
+  const withPhoto = await call('/api/direct/messages', DirectMessage, third.login, {
     conversationId: withOwner.id,
     retryId: randomUUID(),
     body: 'Sent with a photo avatar.',
   })
   assert.deepEqual(withPhoto.authorAvatar, { kind: 'photo', uploadId: privatePhoto })
   await saveAvatar({ kind: 'mascot', shape: 'circle', color: 'teal' })
-  assert.equal(await photoStatus(privatePhoto, owner.token), 200, 'the peer still sees it')
-  assert.equal(await photoStatus(privatePhoto, third.token), 200, 'the author still sees it')
+  assert.equal(await photoStatus(privatePhoto, owner.login), 200, 'the peer still sees it')
+  assert.equal(await photoStatus(privatePhoto, third.login), 200, 'the author still sees it')
   assert.equal(
-    await photoStatus(privatePhoto, member.token),
-    await photoStatus(unusedPhoto, member.token),
+    await photoStatus(privatePhoto, member.login),
+    await photoStatus(unusedPhoto, member.login),
     'a photo only a direct message uses looks like any unreachable photo to a third member',
   )
-  assert.equal(await photoStatus(privatePhoto, member.token), 400)
+  assert.equal(await photoStatus(privatePhoto, member.login), 400)
   for (const path of ['/api/snapshot', directPath])
     assert.equal(
-      (await request(path, { token: owner.token })).response.headers.get('cache-control'),
+      (await request(path, { login: owner.login })).response.headers.get('cache-control'),
       'no-store',
     )
   pass(
     'a photo used only in a direct message reveals nothing to a third member, and data responses are not cacheable',
   )
 
-  const removedClient = new Client(origin)
-  await removedClient.act({
-    kind: 'account.signin',
-    username: 'latefriend',
-    password: 'late-secret-2',
-  })
   const scratch = new pg.Client({ connectionString: database.url })
   await scratch.connect()
   try {
@@ -1198,30 +1375,28 @@ try {
   } finally {
     await scratch.end()
   }
-  const formerToken = removedClient.sessionToken()
-  const notMember = { message: 'You are not a member of this server. Ask an admin for an invite.' }
   for (const answer of await Promise.all([
-    request(directPath, { token: formerToken }),
+    request(directPath, { login: late.login }),
     request('/api/direct/conversations', {
-      token: formerToken,
+      login: late.login,
       body: { userId: owner.user.id },
     }),
     request('/api/direct/messages', {
-      token: formerToken,
+      login: late.login,
       body: { conversationId: conversation.id, retryId: randomUUID(), body: 'Hello?' },
     }),
     request('/api/direct/read', {
-      token: formerToken,
+      login: late.login,
       body: { conversationId: conversation.id, cursor: '1' },
     }),
   ])) {
-    assert.equal(answer.response.status, 403)
-    assert.deepEqual(answer.data, notMember)
+    assert.equal(answer.response.status, 401)
+    assert.deepEqual(answer.data, { error: 'no_access' })
   }
   assert.equal(
     (
       await request('/api/direct/conversations', {
-        token: owner.token,
+        login: owner.login,
         body: { userId: lateUser.id },
       })
     ).response.status,
@@ -1230,28 +1405,84 @@ try {
   )
   pass('every direct operation requires membership, and non-member targets are rejected')
 
-  await call('/api/auth/sign-out', z.unknown(), member.token, {})
-  await eventually(
-    () => reconnected.socket.readyState === WebSocket.CLOSED,
-    'A revoked session cannot keep watching',
-  )
-  assert.equal((await request('/api/snapshot', { token: member.token })).response.status, 401)
-  pass('session revocation closes an existing watch and denies subsequent HTTP reads')
+  const fakeTailscale = await mkdtemp(join(tmpdir(), 'huddle-userspace-'))
+  try {
+    await writeFile(join(fakeTailscale, 'tailscale'), `#!/bin/sh\nprintf '{"TUN":false}'\n`, {
+      mode: 0o755,
+    })
+    await assert.rejects(
+      startServer({
+        databaseUrl: database.url,
+        port: port + 4,
+        env: { PATH: `${fakeTailscale}:${process.env.PATH ?? ''}` },
+      }),
+      /userspace mode/,
+    )
+  } finally {
+    await rm(fakeTailscale, { recursive: true, force: true })
+  }
+  pass('the server refuses to start when Tailscale runs in userspace mode')
+
+  const aging = await startServer({
+    databaseUrl: database.url,
+    port: port + 2,
+    env: { SOCKET_MAX_AGE_SECONDS: '2' },
+  })
+  try {
+    const opened = Date.now()
+    const agingSocket = () =>
+      new WebSocket(aging.websocket, { origin: aging.origin, headers: tailscale(owner.login) })
+    const socket = agingSocket()
+    sockets.add(socket)
+    socket.on('error', () => {})
+    socket.on('open', () => socket.send(JSON.stringify({ kind: 'watch', after: '0' })))
+    const pages: string[] = []
+    socket.on('message', (data) => pages.push(data.toString()))
+    const [closeCode, closeReason] = await once(socket, 'close')
+    const lived = Date.now() - opened
+    assert.equal(closeCode, 4001, 'an old socket closes with the reconnect code')
+    assert.match(String(closeReason), /re-check access/)
+    assert.ok(lived >= 1900 && lived < 3500, `the socket lived 2 to 2.2 seconds, not ${lived}ms`)
+    assert.ok(pages.length > 0, 'the socket delivered events until it aged out')
+    const last = EventPage.parse(JSON.parse(pages.at(-1) ?? '')).events
+    const cursorAtClose = last.at(-1)?.cursor ?? (await snapshotOf(owner.login)).cursor
+    const whileAway = await call('/api/messages', Message, owner.login, {
+      channelId: channel.id,
+      retryId: randomUUID(),
+      body: 'Sent while the socket was reconnecting.',
+    })
+    const again = agingSocket()
+    sockets.add(again)
+    again.on('error', () => {})
+    const seen: ServerEvent[] = []
+    again.on('open', () => again.send(JSON.stringify({ kind: 'watch', after: cursorAtClose })))
+    again.on('message', (data) => seen.push(...EventPage.parse(JSON.parse(data.toString())).events))
+    await eventually(
+      () =>
+        seen.some((event) => event.kind === 'message.created' && event.message.id === whileAway.id),
+      'the reconnected socket replays what it missed',
+    )
+    again.terminate()
+  } finally {
+    await aging.stop()
+  }
+  pass('a socket ages out with code 4001 and a reconnect replays the gap under fresh attestation')
+
   for (const socket of sockets) socket.terminate()
   await server.stop()
   await server.start()
   const persisted = await call(
     `/api/messages?channelId=${channel.id}`,
     Message.array(),
-    owner.token,
+    owner.login,
   )
   assert.ok(persisted.some((item) => item.id === offline.id))
-  assert.deepEqual(await call(directPath, DirectMessage.array(), owner.token), [
+  assert.deepEqual(await call(directPath, DirectMessage.array(), owner.login), [
     dm,
     reply,
     afterCap,
   ])
-  const thirdAfterRestart = watch(third.token, '0')
+  const thirdAfterRestart = watch(third.login, '0')
   await eventually(
     () =>
       thirdAfterRestart.events.some(
@@ -1272,7 +1503,7 @@ try {
     ),
     'the caller still replays its own conversation',
   )
-  const restarted = watch(owner.token, cursor)
+  const restarted = watch(owner.login, cursor)
   await eventually(
     () =>
       restarted.events.some(
@@ -1280,7 +1511,7 @@ try {
       ),
     'Events survive a server restart',
   )
-  pass('messages, direct messages, sessions, and filtered replay survive an actual server restart')
+  pass('messages, direct messages, accounts, and filtered replay survive an actual server restart')
 } catch (error) {
   process.stderr.write(server.logs())
   throw error

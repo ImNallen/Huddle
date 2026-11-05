@@ -8,32 +8,29 @@ import {
   MarkDirectRead,
   MarkRead,
   OpenDirect,
-  Password,
   SendDirectMessage,
   SendMessage,
-  UserId,
 } from '@huddle/contracts'
-import { auth } from './auth'
-import { config, origins } from './config'
+import { config } from './config'
 import * as domain from './domain'
 import { db } from './db'
 import { boundedBody } from './request-body'
-import { accessRequest, requireAccess } from './access'
+import { accessRequest } from './access'
 import { accountRequest } from './access-account'
 import { AccessFailure } from './access-store'
 import { serverName, setupRequired } from './admission'
-import { friendInvites, resetMemberPassword } from './friends'
+import { serverInvite } from './accounts'
+import { contextAllowed, requireAccess } from './identity'
 
-export async function applicationRequest(request: Request, trustedIp?: string): Promise<Response> {
+export async function applicationRequest(request: Request): Promise<Response> {
   const origin = request.headers.get('origin')
-  if (origin && !origins.has(origin))
-    return Response.json({ message: 'Origin is not allowed.' }, { status: 403 })
+  if (!contextAllowed(request.headers, request.method === 'GET' ? 'read' : 'write'))
+    return Response.json({ message: 'This page may not use Huddle.' }, { status: 403 })
   const headers = new Headers({
     'Cache-Control': 'no-store',
     Vary: 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Huddle-Client',
-    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Huddle-User',
   })
   if (origin) headers.set('Access-Control-Allow-Origin', origin)
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers })
@@ -50,30 +47,17 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
           path === '/api/account/photo' ? 5 * 1024 * 1024 + 8192 : 65536,
         ),
       })
-    if (
-      request.method === 'POST' &&
-      !origin &&
-      !request.headers.has('authorization') &&
-      request.headers.get('x-huddle-client') !== 'native'
-    )
-      throw new AccessFailure('invalid')
-    let accessResponse: Response | undefined
-    if (path === '/api/access') accessResponse = await accessRequest(request, trustedIp)
-    else if (path === '/api/account' || path.startsWith('/api/account/photo'))
-      accessResponse = await accountRequest(request)
-    else if (path === '/api/auth/sign-out') accessResponse = await auth.handler(request)
-    else if (path.startsWith('/api/auth/')) throw new AccessFailure('invalid')
-    if (accessResponse) {
-      accessResponse.headers.set('Cache-Control', 'no-store')
-      accessResponse.headers.delete('set-auth-token')
-      for (const [key, value] of headers) accessResponse.headers.set(key, value)
-      return accessResponse
+    const withHeaders = (response: Response) => {
+      for (const [key, value] of headers) response.headers.set(key, value)
+      return response
     }
+    if (path === '/api/access') return withHeaders(await accessRequest(request))
     if (url.pathname === '/api/info')
       return Response.json(
         {
           name: await serverName(),
           setup: (await setupRequired()) ? 'required' : 'complete',
+          serverUrl: config.SERVER_URL,
           websocketUrl: config.WS_PUBLIC_URL,
         },
         { headers },
@@ -82,15 +66,18 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
       await db.query('SELECT 1')
       return Response.json({ status: 'ok' }, { headers })
     }
-    const session = await requireAccess(request.headers)
-    const userId = UserId.parse(session.user.id)
-    if (request.method === 'POST' && !origin && !request.headers.has('authorization'))
-      throw new domain.DomainError(403, 'An origin is required for cookie-authenticated changes.')
+    const member = await requireAccess(request.headers)
+    const { user } = member
+    const userId = user.id
+    if (request.method === 'POST' && request.headers.get('x-huddle-user') !== userId)
+      throw new AccessFailure('no_access')
+    if (path === '/api/account' || path.startsWith('/api/account/photo'))
+      return withHeaders(await accountRequest(request, member))
     let result: unknown
     if (request.method === 'GET') {
       if (path === '/api/snapshot') result = await domain.snapshot(userId)
       else if (path === '/api/members') result = await domain.members(userId)
-      else if (path === '/api/friend-invite') result = await friendInvites(userId)
+      else if (path === '/api/invite') result = await serverInvite(userId)
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
@@ -108,32 +95,20 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
       const raw = await request.text()
       if (raw.length > 16000) throw new domain.DomainError(413, 'Request is too large.')
       const body: unknown = JSON.parse(raw)
-      if (path === '/api/watch-ticket') result = await domain.createWatchTicket(session.session.id)
-      else if (path === '/api/rooms')
-        result = await domain.createRoom(userId, CreateRoom.parse(body))
+      if (path === '/api/rooms') result = await domain.createRoom(userId, CreateRoom.parse(body))
       else if (path === '/api/channels')
         result = await domain.createChannel(userId, CreateChannel.parse(body))
       else if (path === '/api/read') {
         await domain.markRead(userId, MarkRead.parse(body))
         result = {}
       } else if (path === '/api/messages')
-        result = await domain.sendMessage(
-          { id: userId, name: session.user.name, avatar: session.user.avatar },
-          SendMessage.parse(body),
-        )
+        result = await domain.sendMessage(user, SendMessage.parse(body))
       else if (path === '/api/direct/conversations')
         result = await domain.openDirect(userId, OpenDirect.parse(body))
       else if (path === '/api/direct/messages')
-        result = await domain.sendDirectMessage(
-          { id: userId, name: session.user.name, avatar: session.user.avatar },
-          SendDirectMessage.parse(body),
-        )
+        result = await domain.sendDirectMessage(user, SendDirectMessage.parse(body))
       else if (path === '/api/direct/read') {
         await domain.markDirectRead(userId, MarkDirectRead.parse(body))
-        result = {}
-      } else if (path === '/api/members/password') {
-        const input = z.object({ userId: UserId, password: Password }).strict().parse(body)
-        await resetMemberPassword(userId, input.userId, input.password)
         result = {}
       } else throw new domain.DomainError(404, 'Endpoint not found.')
     } else throw new domain.DomainError(405, 'Method not allowed.')
@@ -148,7 +123,7 @@ export async function applicationRequest(request: Request, trustedIp?: string): 
             expired: 410,
             rate_limited: 429,
             unavailable: 503,
-            reauth_required: 401,
+            no_access: 401,
           }[error.code],
           headers,
         },

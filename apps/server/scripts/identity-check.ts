@@ -1,0 +1,210 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+
+process.env.TRUSTED_ORIGINS = ''
+const { config, origins } = await import('../src/lib/config')
+const { contextAllowed, readAttestation, upgradeHeaders } = await import('../src/lib/identity')
+
+const host = new URL(config.SERVER_URL).host
+const websocketHost = new URL(config.WS_PUBLIC_URL).host
+const served = { host, 'tailscale-user-login': 'ada@example.com' }
+const none = (reason: string) => ({ kind: 'no-identity', reason })
+const person = (login: string, suggestedName: string) => ({ kind: 'person', login, suggestedName })
+
+const table: [string, Record<string, string>, unknown][] = [
+  [
+    'Serve with login and name',
+    { ...served, 'tailscale-user-name': 'Ada Lovelace' },
+    person('ada@example.com', 'Ada Lovelace'),
+  ],
+  ['the WebSocket host', { ...served, host: websocketHost }, person('ada@example.com', 'ada')],
+  [
+    'a Q-encoded name',
+    { ...served, 'tailscale-user-name': '=?utf-8?q?Jos=C3=A9_Garc=C3=ADa?=' },
+    person('ada@example.com', 'José García'),
+  ],
+  [
+    'a long name split into several encoded words',
+    {
+      ...served,
+      'tailscale-user-name':
+        '=?utf-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E6=97=A5=E6=9C=AC=E8=AA=9E=E6=97=A5?= =?utf-8?q?=E6=9C=AC=E8=AA=9E?=',
+    },
+    person('ada@example.com', '日本語日本語日本語'),
+  ],
+  [
+    'an empty name falls back to the login',
+    { ...served, 'tailscale-user-name': '' },
+    person('ada@example.com', 'ada'),
+  ],
+  [
+    'a name that is not valid UTF-8 falls back to the login',
+    { ...served, 'tailscale-user-name': '=?utf-8?q?=FF=FE?=' },
+    person('ada@example.com', 'ada'),
+  ],
+  [
+    'a name that is only partly encoded stays as sent',
+    { ...served, 'tailscale-user-name': 'Ada =?utf-8?q?=C3=A9?=' },
+    person('ada@example.com', 'Ada =?utf-8?q?=C3=A9?='),
+  ],
+  [
+    'a long name is cut to 80 characters',
+    { ...served, 'tailscale-user-name': 'x'.repeat(100) },
+    person('ada@example.com', 'x'.repeat(80)),
+  ],
+  [
+    'a Q-encoded login',
+    { host, 'tailscale-user-login': '=?utf-8?q?jos=C3=A9@example.com?=' },
+    person('josé@example.com', 'josé'),
+  ],
+  [
+    'a login keeps its case',
+    { host, 'tailscale-user-login': 'Ada@Example.COM' },
+    person('Ada@Example.COM', 'Ada'),
+  ],
+  [
+    'a GitHub login',
+    { host, 'tailscale-user-login': 'octocat@github' },
+    person('octocat@github', 'octocat'),
+  ],
+  ['Funnel traffic', { ...served, 'tailscale-funnel-request': '?1' }, none('funnel')],
+  [
+    'Funnel traffic with a wrong Host',
+    { host: 'evil.test', 'tailscale-funnel-request': '?1' },
+    none('funnel'),
+  ],
+  ['a wrong Host, as DNS rebinding sends', { ...served, host: 'evil.test' }, none('direct')],
+  ['no Host', { 'tailscale-user-login': 'ada@example.com' }, none('direct')],
+  ['Serve added nothing: a tagged device', { host, 'x-forwarded-host': host }, none('no-user')],
+  ['a loopback caller with no headers', { host }, none('direct')],
+  [
+    'the underscore header alone',
+    { host, tailscale_user_login: 'evil@example.com' },
+    none('direct'),
+  ],
+  [
+    'the underscore header beside the real one',
+    { ...served, tailscale_user_login: 'evil@example.com' },
+    person('ada@example.com', 'ada'),
+  ],
+  [
+    'an empty login means invalid UTF-8',
+    { host, 'tailscale-user-login': '', 'x-forwarded-host': host },
+    none('no-user'),
+  ],
+  [
+    'an undecodable login',
+    { host, 'tailscale-user-login': '=?utf-8?q?=FF@example.com?=', 'x-forwarded-host': host },
+    none('no-user'),
+  ],
+  ['a login with no at sign', { host, 'tailscale-user-login': 'ada' }, none('direct')],
+  [
+    'a doubled login header, as Node joins it',
+    { host, 'tailscale-user-login': 'ada@example.com, evil@example.com' },
+    none('direct'),
+  ],
+  [
+    'a login with a space',
+    { host, 'tailscale-user-login': 'ada lovelace@example.com' },
+    none('direct'),
+  ],
+  [
+    'a login over 320 characters',
+    { host, 'tailscale-user-login': `${'a'.repeat(320)}@example.com` },
+    none('direct'),
+  ],
+]
+for (const [label, headers, expected] of table)
+  assert.deepEqual(readAttestation(new Headers(headers)), expected, label)
+assert.deepEqual(
+  readAttestation(
+    upgradeHeaders({ host, 'tailscale-user-login': 'ada@example.com, evil@example.com' }),
+  ),
+  none('direct'),
+  'an upgrade with a doubled login carries no identity',
+)
+assert.deepEqual(
+  readAttestation(upgradeHeaders({ ...served, 'x-other': ['a', 'b'], absent: undefined })),
+  person('ada@example.com', 'ada'),
+  'upgrade headers convert repeated and absent values',
+)
+
+const trusted = config.SERVER_URL
+assert.ok(origins.has('tauri://localhost') && origins.has('https://tauri.localhost'))
+assert.ok(!origins.has('http://tauri.localhost'), 'the plain http Tauri origin is not trusted')
+assert.ok(!origins.has('null'), 'the opaque origin is never trusted')
+const contexts: [string, Record<string, string>, 'read' | 'write', boolean][] = [
+  ['an allowed page reads', { origin: trusted }, 'read', true],
+  ['an allowed page writes', { origin: trusted }, 'write', true],
+  ['a cross-site page cannot read', { origin: 'https://evil.test' }, 'read', false],
+  ['a cross-site page cannot write', { origin: 'https://evil.test' }, 'write', false],
+  ['an opaque origin cannot write', { origin: 'null' }, 'write', false],
+  ['a write without an origin', {}, 'write', false],
+  ['a same-origin GET without an origin', { 'sec-fetch-site': 'same-origin' }, 'read', true],
+  ['a typed address', { 'sec-fetch-site': 'none' }, 'read', true],
+  ['a client that sends no fetch metadata', {}, 'read', true],
+  ['a cross-site image', { 'sec-fetch-site': 'cross-site' }, 'read', false],
+  ['another port of this host', { 'sec-fetch-site': 'same-site' }, 'read', false],
+]
+for (const [label, headers, intent, allowed] of contexts)
+  assert.equal(contextAllowed(new Headers(headers), intent), allowed, label)
+process.stdout.write(
+  `PASS the header table covers ${table.length} requests and the context rule covers ${contexts.length}.\n`,
+)
+
+function configFor(env: Record<string, string>) {
+  return spawnSync(
+    process.execPath,
+    [
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      "const { config, origins, serverHosts } = await import('./src/lib/config.ts'); process.stdout.write(JSON.stringify({ websocket: config.WS_PUBLIC_URL, age: config.SOCKET_MAX_AGE_SECONDS, origins: [...origins], hosts: [...serverHosts] }))",
+    ],
+    {
+      cwd: new URL('..', import.meta.url),
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        DATABASE_URL: 'postgresql://huddle:unused@localhost/unused',
+        SERVER_URL: 'https://huddle.tailnet.ts.net',
+        ...env,
+      },
+    },
+  )
+}
+const hosted = configFor({})
+assert.equal(hosted.status, 0, hosted.stderr)
+assert.deepEqual(JSON.parse(hosted.stdout), {
+  websocket: 'wss://huddle.tailnet.ts.net/events',
+  age: 300,
+  origins: ['https://huddle.tailnet.ts.net', 'tauri://localhost', 'https://tauri.localhost'],
+  hosts: ['huddle.tailnet.ts.net'],
+})
+for (const [entry, reason] of [
+  ['http://localhost:1420', 'plain HTTP'],
+  ['http://chat.example.com', 'plain HTTP'],
+  ['https://localhost:1420', 'loopback'],
+  ['https://tools.localhost', 'loopback'],
+  ['https://127.0.0.1:8443', 'loopback'],
+  ['https://[::1]:8443', 'loopback'],
+  ['*', 'not an origin'],
+] as const) {
+  const refused = configFor({ TRUSTED_ORIGINS: `https://chat.example.com,${entry}` })
+  assert.notEqual(refused.status, 0, `${entry} is refused on an HTTPS server`)
+  assert.match(refused.stderr, new RegExp(`must not list ${entry.replace(/[*[\]]/g, '\\$&')}`))
+  assert.match(refused.stderr, new RegExp(reason), `the refusal for ${entry} says why`)
+}
+assert.equal(configFor({ TRUSTED_ORIGINS: 'https://chat.example.com,tauri://localhost' }).status, 0)
+const insecureSocket = configFor({ WS_PUBLIC_URL: 'ws://huddle.tailnet.ts.net/events' })
+assert.notEqual(insecureSocket.status, 0)
+assert.match(insecureSocket.stderr, /requires a wss:/)
+assert.equal(
+  configFor({ SERVER_URL: 'http://localhost:3000', TRUSTED_ORIGINS: 'http://localhost:1420' })
+    .status,
+  0,
+  'development may trust its own frontend',
+)
+assert.notEqual(configFor({ SERVER_URL: 'http://huddle.example.com' }).status, 0)
+process.stdout.write('PASS config refuses unsafe origins on an HTTPS server and says why.\n')

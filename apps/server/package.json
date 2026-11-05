@@ -11,16 +11,15 @@
     "db:migrate": "node --env-file=../../.env --import tsx scripts/migrate.ts",
     "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts",
     "test:access": "node --env-file=../../.env --import tsx scripts/access-integration.ts",
-    "test:friend": "node --env-file=../../.env --import tsx scripts/friend-connect-check.ts",
     "test:rooms-migration": "node --env-file=../../.env --import tsx scripts/rooms-migration-check.ts",
-    "account:reset": "node --env-file=../../.env --import tsx scripts/account-reset.ts"
+    "test:serve": "node --env-file=../../.env --import tsx scripts/serve-check.ts",
+    "account:link": "node --env-file=../../.env --import tsx scripts/account-link.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.4",
     "@huddle/contracts": "workspace:*",
     "@tanstack/react-router": "1.170.41",
     "@tanstack/react-start": "1.168.60",
-    "better-auth": "1.7.7",
     "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",

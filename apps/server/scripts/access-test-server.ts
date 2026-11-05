@@ -9,7 +9,7 @@ import { prepareSetup } from '../src/lib/admission'
 await prepareSetup()
 const realtime = await startRealtime()
 const server = serve({
-  fetch: (request, env) => applicationRequest(request, env.incoming.socket.remoteAddress),
+  fetch: (request) => applicationRequest(request),
   hostname: '127.0.0.1',
   port: config.PORT,
 })

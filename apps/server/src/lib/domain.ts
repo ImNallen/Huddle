@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
@@ -415,7 +415,6 @@ async function findChannel(sql: PoolClient, channelId: ChannelId) {
   if (!rows.rowCount) throw new DomainError(404, 'Channel not found.')
   return Channel.parse(rows.rows[0])
 }
-const hash = (code: string) => createHash('sha256').update(code).digest('hex')
 const replayPage = 100
 export async function replay(userId: UserId, after: string) {
   return transaction(async (sql) => {
@@ -431,21 +430,4 @@ export async function replay(userId: UserId, after: string) {
     const { cursor } = z.object({ cursor: z.string() }).parse(head.rows[0])
     return { events, scanned: BigInt(cursor) > BigInt(after) ? cursor : after }
   }, true)
-}
-
-export async function createWatchTicket(sessionId: string) {
-  const ticket = randomBytes(32).toString('base64url')
-  await db.query('DELETE FROM watch_ticket WHERE expires_at < now()')
-  await db.query(
-    "INSERT INTO watch_ticket(hash, session_id, expires_at) VALUES ($1,$2,now() + interval '30 seconds')",
-    [hash(ticket), sessionId],
-  )
-  return { ticket }
-}
-export async function consumeWatchTicket(ticket: string) {
-  const result = await db.query<Record<string, unknown>>(
-    'WITH claimed AS (DELETE FROM watch_ticket WHERE hash = $1 AND expires_at > now() RETURNING session_id) SELECT s.token FROM session s JOIN claimed ON claimed.session_id = s.id WHERE s."expiresAt">now()',
-    [hash(ticket)],
-  )
-  return z.object({ token: z.string() }).parse(result.rows[0]).token
 }

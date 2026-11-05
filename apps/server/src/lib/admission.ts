@@ -25,6 +25,7 @@ export async function prepareSetup() {
     Array.from({ length: 4 }, () =>
       Array.from({ length: 4 }, () => setupAlphabet[randomInt(setupAlphabet.length)]).join(''),
     ).join('-')
+  await announceUnlinkedAdmin()
   const stored = await db.query(
     `INSERT INTO setup_code(code_hash, expires_at) SELECT $1, now() + interval '24 hours'
     WHERE NOT EXISTS (SELECT 1 FROM server)
@@ -34,8 +35,19 @@ export async function prepareSetup() {
   if (!stored.rowCount) return
   const shown = config.SETUP_CODE ? 'the code from SETUP_CODE' : `this setup code:\n\n    ${code}\n`
   process.stdout.write(
-    `\nHuddle setup: this server is not set up yet.\nOpen ${config.SERVER_URL}/login and enter the server name, a username, a password, and ${shown}\nThe code works once and expires in 24 hours. Restarting the server replaces it until setup is complete.\n\n`,
+    `\nHuddle setup: this server is not set up yet.\nOpen ${config.SERVER_URL} from a device signed in to Tailscale and enter the server name, your name, and ${shown}\nThe code works once and expires in 24 hours. Restarting the server replaces it until setup is complete.\n\n`,
   )
+}
+async function announceUnlinkedAdmin() {
+  const unlinked = await db.query(
+    `SELECT EXISTS (SELECT 1 FROM member WHERE role = 'admin')
+      AND NOT EXISTS (SELECT 1 FROM member m JOIN "user" u ON u.id = m.user_id
+        WHERE m.role = 'admin' AND u.tailscale_login IS NOT NULL) AS waiting`,
+  )
+  if (z.boolean().parse(unlinked.rows[0]?.waiting))
+    process.stdout.write(
+      `\nHuddle upgrade: no admin has a Tailscale login yet. On this machine, run:\n\n    pnpm --filter @huddle/server account:link\n\nIt lists every account. Then bind yours with account:link <id-or-old-username> <login>.\n\n`,
+    )
 }
 export async function checkSetupCode(code: string) {
   const result = await db.query(
