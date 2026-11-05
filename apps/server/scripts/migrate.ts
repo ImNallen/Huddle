@@ -1,11 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
-import { getMigrations } from 'better-auth/db/migration'
-import { auth } from '../src/lib/auth'
 import { db } from '../src/lib/db'
 
 try {
-  const { runMigrations } = await getMigrations(auth.options)
-  await runMigrations()
   const connection = await db.connect()
   try {
     await connection.query('BEGIN')

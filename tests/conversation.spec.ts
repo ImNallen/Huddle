@@ -4,7 +4,7 @@ import { useScratchServer } from './server'
 
 useScratchServer('ui')
 
-test('an invited colleague joins the server, sends, reconnects, and signs out', async ({
+test('an invited colleague joins the server, sends, reconnects, and loses their identity', async ({
   browser,
   page,
 }) => {
@@ -166,8 +166,14 @@ test('an invited colleague joins the server, sends, reconnects, and signs out', 
     await page.unroute('**/api/messages?channelId=*')
 
     await second.getByRole('button', { name: 'Design menu', exact: true }).click()
-    await second.getByRole('button', { name: 'Sign out', exact: true }).click()
-    await expect(second.getByRole('heading', { name: /Sign in to/ })).toBeVisible()
+    await expect(second.getByRole('button', { name: /sign out/i })).toHaveCount(0)
+    await second.keyboard.press('Escape')
+    await colleague.setExtraHTTPHeaders({})
+    await second.reload()
+    await expect(
+      second.getByRole('heading', { name: 'Open Huddle through Tailscale' }),
+    ).toBeVisible()
+    await expect(second.getByRole('textbox', { name: 'Message #general' })).toHaveCount(0)
   } finally {
     await colleague.close()
   }

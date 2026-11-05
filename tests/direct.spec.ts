@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { inviteCode, join, onboard, rail, railTile, serverURL, signOut } from './accounts'
+import { apiPost, inviteCode, join, onboard, rail, railTile, serverURL } from './accounts'
 import { useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -24,21 +24,6 @@ async function expectNoTrace(page: Page, secrets: string[]) {
     page.getByRole('main').getByRole('heading', { name: 'No messages yet' }),
   ).toBeVisible()
   for (const secret of secrets) await expect(page.locator('body')).not.toContainText(secret)
-}
-async function apiPost(page: Page, path: string, body: unknown) {
-  return page.evaluate(
-    async ({ path, body }) => {
-      const response = await fetch(path, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!response.ok) throw new Error(`${path} failed with ${response.status}.`)
-      return (await response.json()) as { id: string }
-    },
-    { path, body },
-  )
 }
 
 test('direct messages reach the two people in them and nobody else', async ({ browser, page }) => {
@@ -202,8 +187,8 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     const body = 'Written before direct messages existed.'
     await avery.evaluate(
       async ({ serverURL, channelId, body }) => {
-        const access = await fetch('/api/access', { credentials: 'include' })
-        const { stage } = (await access.json()) as { stage: { user: { id: string } } }
+        const access = await fetch('/api/access')
+        const stage = (await access.json()) as { user: { id: string } }
         localStorage.setItem(
           `huddle.outbox:${serverURL}:${stage.user.id}`,
           JSON.stringify([
@@ -220,45 +205,6 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     await expect(avery.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
     await railTile(mira, 'Lounge').click()
     await expect(mira.getByText(body, { exact: true })).toBeVisible()
-
-    const outbox = () =>
-      avery.evaluate(() =>
-        Object.keys(localStorage)
-          .filter((key) => key.startsWith('huddle.outbox:'))
-          .map((key) => localStorage.getItem(key))
-          .join(''),
-      )
-    const unsent = 'A direct message nobody received.'
-    const channelDraft = 'A room message waiting to send.'
-    await avery.evaluate(
-      async ({ serverURL, channelId, unsent, channelDraft }) => {
-        const access = await fetch('/api/access', { credentials: 'include' })
-        const { stage } = (await access.json()) as { stage: { user: { id: string } } }
-        const row = { retryId: crypto.randomUUID(), kind: 'failed', error: 'Stored' }
-        localStorage.setItem(
-          `huddle.outbox:${serverURL}:${stage.user.id}`,
-          JSON.stringify([
-            {
-              ...row,
-              body: unsent,
-              thread: { kind: 'direct', id: crypto.randomUUID() },
-            },
-            {
-              ...row,
-              retryId: crypto.randomUUID(),
-              body: channelDraft,
-              thread: { kind: 'channel', id: channelId },
-            },
-          ]),
-        )
-      },
-      { serverURL, channelId: channel.id, unsent, channelDraft },
-    )
-    expect(await outbox()).toContain(unsent)
-    await signOut(avery, 'Lounge')
-    await expect(avery.getByRole('heading', { name: `Sign in to ${serverTitle}` })).toBeVisible()
-    expect(await outbox()).not.toContain(unsent)
-    expect(await outbox()).toContain(channelDraft)
   } finally {
     await jonasContext.close()
     await miraContext.close()

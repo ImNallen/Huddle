@@ -48,7 +48,6 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm test:integration
       - run: pnpm --filter @huddle/server test:rooms-migration
-      - run: pnpm --filter @huddle/server test:friend
       - name: Verify account security
         working-directory: apps/server
         run: |

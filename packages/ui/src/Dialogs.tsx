@@ -2,20 +2,20 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import {
   Channel,
-  FriendInvites,
   Room,
+  ServerInvite,
   parseInvite,
   type ChannelKind,
   type Member,
   type RoomId,
-  type Session,
+  type Me,
   type UserId,
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
 import { ChannelIcon } from './Badges'
 import type { Resource } from './Members'
-import { CopyButton, Overlay } from './primitives'
+import { CopyButton, Overlay, hostOf } from './primitives'
 
 function Modal({
   title,
@@ -186,14 +186,14 @@ export function ChannelDialog({
 }
 export function NewMessageDialog({
   client,
-  session,
+  me,
   members,
   onClose,
   onChoose,
   onInvite,
 }: {
   client: Transport
-  session: Session
+  me: Me
   members: Resource<Member[]>
   onClose: () => void
   onChoose: (userId: UserId) => Promise<void>
@@ -202,7 +202,7 @@ export function NewMessageDialog({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const others =
-    members.kind === 'ready' ? members.value.filter((member) => member.id !== session.user.id) : []
+    members.kind === 'ready' ? members.value.filter((member) => member.id !== me.user.id) : []
   const alone = members.kind === 'ready' && !others.length
   return (
     <Modal
@@ -265,43 +265,22 @@ export function NewMessageDialog({
     </Modal>
   )
 }
-function inviteLabel(value: string) {
-  try {
-    const invite = parseInvite(value)
-    const parts = invite.host.split('.').map((part) => Number(part))
-    const a = parts[0]
-    const b = parts[1]
-    const lan =
-      invite.host === '127.0.0.1' ||
-      a === 10 ||
-      (a === 192 && b === 168) ||
-      (a === 172 && b !== undefined && b >= 16 && b <= 31) ||
-      (a === 100 && b !== undefined && b >= 64 && b <= 127)
-    return lan
-      ? `${invite.host}:${invite.port} on this network`
-      : `${invite.host}:${invite.port} from the internet`
-  } catch {
-    return 'Invite'
-  }
-}
 export function InviteDialog({
   client,
   serverName,
   onClose,
-  onInvited: _onInvited,
 }: {
   client: Transport
   serverName: string
   onClose: () => void
-  onInvited: () => void
 }) {
-  const [invites, setInvites] = useState<string[] | null>(null)
+  const [invite, setInvite] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
-    client.request('/api/friend-invite', FriendInvites).then(
+    client.request('/api/invite', ServerInvite).then(
       (value) => {
-        if (!cancelled) setInvites(value.invites)
+        if (!cancelled) setInvite(value.invite)
       },
       (failure: unknown) => {
         if (!cancelled) setProblem(errorText(failure))
@@ -314,7 +293,7 @@ export function InviteDialog({
   return (
     <Modal
       title={`Share ${serverName}`}
-      description={`Copy one invite and send it to a friend. They paste it into Huddle and choose a username. The invite locks this server, so a lookalike cannot take its place.`}
+      description="Copy this link and send it to a friend. They need access to this machine in Tailscale first. Then they open the link and confirm their name."
       onClose={onClose}
     >
       {problem && (
@@ -322,19 +301,13 @@ export function InviteDialog({
           {problem}
         </p>
       )}
-      {invites?.length === 0 && (
-        <p className="notice warning">
-          This server has no address to share yet. Friends on another network cannot connect until
-          this computer is reachable.
-        </p>
-      )}
-      {invites?.map((invite) => (
-        <p className="invite-sent" key={invite}>
-          <span>{inviteLabel(invite)}</span>
+      {invite && (
+        <p className="invite-sent">
+          <span>{hostOf(parseInvite(invite).origin)}</span>
           <CopyButton value={invite} label="Copy invite" />
         </p>
-      ))}
-      {!invites && !problem && <p>Loading invites…</p>}
+      )}
+      {!invite && !problem && <p>Loading invite…</p>}
       <div className="modal-actions">
         <button type="button" className="button primary" onClick={onClose}>
           Done

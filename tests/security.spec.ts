@@ -1,45 +1,44 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { Client } from '../apps/server/scripts/harness'
-import {
-  browserLogin,
-  expectHome,
-  friendPassword,
-  member,
-  railTile,
-  serverURL,
-  signIn,
-  signOut,
-  type Identity,
-} from './accounts'
+import { actAs, browserApp, expectHome, loginOf, member, railTile, serverURL } from './accounts'
 import {
   Channel,
-  FriendInvites,
-  Room,
   defaultMascot,
   parseInvite,
+  Room,
+  ServerInvite,
 } from '../packages/contracts/src/index'
-import { sessionLabel } from '../packages/ui/src/sessionLabel'
-import { useScratchServer } from './server'
+import { serverName, useScratchServer } from './server'
 
 const server = useScratchServer('api')
 
-test('profile name persists for a password account', async ({ page }) => {
-  await member(server.admin, page, 'profile', browserLogin)
+test('profile name persists, and Settings says who you are and that there is nothing to sign out of', async ({
+  page,
+}) => {
+  await member(server.admin, page, 'profile', browserApp)
   await expectHome(page)
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Account security', exact: true })).toBeVisible()
-  await expect(page.getByText('@member.huddle.invalid')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const dialog = settings(page)
+  await expect(dialog.getByRole('heading', { name: 'Profile', exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Connection', exact: true }).click()
+  await expect(dialog.getByRole('heading', { name: 'Connection', exact: true })).toBeVisible()
+  await expect(dialog).toContainText(`Connected as ${loginOf('profile')} through Tailscale.`)
+  await expect(dialog).toContainText("There's no sign-in and nothing to sign out of.")
+  await expect(dialog).toContainText('To leave, disconnect Tailscale on this device.')
+  await expect(dialog.getByRole('button', { name: /sign out/i })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expectHome(page)
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
-  await page.getByRole('button', { name: 'Profile', exact: true }).click()
+  await page.getByRole('button', { name: `${serverName} menu`, exact: true }).click()
+  await expect(page.getByRole('button', { name: /sign out/i })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.locator('.account').getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByRole('button', { name: 'circle', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
   const { user } = await page.evaluate(async () => {
-    const response = await fetch('/api/account', { credentials: 'include' })
+    const response = await fetch('/api/account')
     return (await response.json()) as { user: { id: string } }
   })
   const assigned = defaultMascot(user.id)
@@ -51,8 +50,7 @@ test('profile name persists for a password account', async ({ page }) => {
   await page.getByLabel('Name', { exact: true }).fill('Updated profile owner')
   await page.getByRole('button', { name: 'Save profile', exact: true }).click()
   await page.reload()
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
-  await page.getByRole('button', { name: 'Profile', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Updated profile owner')
 })
 
@@ -65,154 +63,23 @@ test('default mascot colors are stable per user and differ between users', () =>
   expect(new Set(colors).size).toBeGreaterThan(1)
 })
 
-test('session labels name the browser and platform, not the raw user agent', () => {
-  const webkit = 'AppleWebKit/605.1.15 (KHTML, like Gecko)'
-  const blink = 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
-  const cases: [string | null, string][] = [
-    [`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${blink}`, 'Chrome on Mac'],
-    [`Mozilla/5.0 (Windows NT 10.0; Win64; x64) ${blink} Edg/130.0.0.0`, 'Edge on Windows'],
-    [
-      `Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) ${webkit} Version/18.0 Mobile/15E148 Safari/604.1`,
-      'Safari on iPhone',
-    ],
-    [`Mozilla/5.0 (Linux; Android 14; Pixel 8) ${blink}`, 'Chrome on Android'],
-    ['Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0', 'Firefox on Linux'],
-    [`Huddle desktop Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ${webkit}`, 'Huddle desktop'],
-    ['node', 'Session'],
-    ['', 'Session'],
-    [null, 'Session'],
-  ]
-  for (const [agent, label] of cases) expect(sessionLabel(agent)).toBe(label)
-})
-
-async function signedInElsewhere(browser: Browser, identity: Identity) {
-  const context = await browser.newContext()
-  const page = await context.newPage()
-  await page.addInitScript((origin) => localStorage.setItem('huddle.server', origin), serverURL)
-  await page.goto(browserLogin)
-  await signIn(page, identity.username, identity.password)
-  return { context, page }
-}
-async function openSecurity(page: Page) {
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
-  return page.locator('section', { has: page.getByRole('heading', { name: 'Active sessions' }) })
-}
-const sessionRows = (page: Page) => page.getByText(/^Signed in .*\. Expires /)
-const signInHeading = (page: Page) => page.getByRole('heading', { name: 'Sign in to Huddle UI' })
-
-test('signing out one session ends only that session', async ({ page, browser }) => {
-  const identity = await member(server.admin, page, 'one-session', browserLogin)
-  const laptop = await signedInElsewhere(browser, identity)
-  const phone = await signedInElsewhere(browser, identity)
-  try {
-    const sessions = await openSecurity(page)
-    await expect(sessionRows(page)).toHaveCount(3)
-    await expect(sessions.getByText(/^Chrome on \w+ · This device$/)).toBeVisible()
-    await sessions.getByRole('button', { name: 'Sign out', exact: true }).first().click()
-    await expect(sessionRows(page)).toHaveCount(2)
-    await expect(page.getByRole('dialog')).toHaveCount(1)
-    await laptop.page.reload()
-    await expect(signInHeading(laptop.page)).toBeVisible()
-    await phone.page.reload()
-    await expectHome(phone.page)
-    await page.reload()
-    await expectHome(page)
-  } finally {
-    await laptop.context.close()
-    await phone.context.close()
-  }
-})
-
-test('signing out all other sessions keeps only this device', async ({ page, browser }) => {
-  const identity = await member(server.admin, page, 'all-sessions', browserLogin)
-  const laptop = await signedInElsewhere(browser, identity)
-  const phone = await signedInElsewhere(browser, identity)
-  try {
-    const sessions = await openSecurity(page)
-    await expect(sessionRows(page)).toHaveCount(3)
-    await sessions.getByRole('button', { name: 'Sign out all other sessions', exact: true }).click()
-    await expect(sessionRows(page)).toHaveCount(1)
-    await expect(sessions.getByText(/· This device$/)).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Sign out all other sessions' })).toHaveCount(0)
-    for (const other of [laptop.page, phone.page]) {
-      await other.reload()
-      await expect(signInHeading(other)).toBeVisible()
-    }
-    await page.reload()
-    await expectHome(page)
-  } finally {
-    await laptop.context.close()
-    await phone.context.close()
-  }
-})
-
-test('changing the password signs out other sessions and the new one signs in', async ({
-  page,
-  browser,
-}) => {
-  const identity = await member(server.admin, page, 'new-password', browserLogin)
-  const laptop = await signedInElsewhere(browser, identity)
-  try {
-    await openSecurity(page)
-    await expect(sessionRows(page)).toHaveCount(2)
-    const form = page.locator('section', {
-      has: page.getByRole('heading', { name: 'Change password' }),
-    })
-    const change = async (current: string, next: string, confirm = next) => {
-      await form.getByLabel('Current password').fill(current)
-      await form.getByLabel('New password', { exact: true }).fill(next)
-      await form.getByLabel('Confirm new password').fill(confirm)
-      await form.getByRole('button', { name: 'Change password', exact: true }).click()
-    }
-    await change(identity.password, 'brand-new-secret', 'brand-new-typo')
-    await expect(form.getByRole('alert')).toHaveText('The new passwords don’t match.')
-    await change('not-the-password', 'brand-new-secret')
-    await expect(form.getByRole('alert')).toHaveText('Your current password is incorrect.')
-    await laptop.page.reload()
-    await expectHome(laptop.page)
-
-    await change(identity.password, 'brand-new-secret')
-    await expect(form.getByRole('status')).toHaveText(
-      'Password changed. Your other sessions were signed out.',
-    )
-    await expect(form.getByLabel('Current password')).toHaveValue('')
-    await expect(sessionRows(page)).toHaveCount(1)
-    await laptop.page.reload()
-    await expect(signInHeading(laptop.page)).toBeVisible()
-
-    await page.reload()
-    await expectHome(page)
-    await signOut(page)
-    const signInForm = page.locator('form').filter({
-      has: page.getByRole('button', { name: 'Sign in', exact: true }),
-    })
-    await signInForm.getByLabel('Username').fill(identity.username)
-    await signInForm.getByLabel('Password').fill(identity.password)
-    await signInForm.getByRole('button', { name: 'Sign in', exact: true }).click()
-    await expect(page.getByRole('alert')).toHaveText(
-      "That username or password isn't right. Check both and try again.",
-    )
-    await signIn(page, identity.username, 'brand-new-secret')
-  } finally {
-    await laptop.context.close()
-  }
-})
-
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true })
 const backdropCorner = { x: 5, y: 5 }
 
-async function friendClient(username = 'settingsfriend') {
-  const { value } = await server.admin.call('/api/friend-invite')
-  const line = FriendInvites.parse(value).invites[0]
-  if (!line) throw new Error('The server shared no invite.')
-  const friend = new Client(serverURL)
+async function friendClient(person = 'settingsfriend') {
+  const { value } = await server.admin.call('/api/invite')
+  const friend = new Client(serverURL, loginOf(person))
   await friend.act({
     kind: 'account.join',
-    code: parseInvite(line).code,
-    username,
-    password: friendPassword,
+    code: parseInvite(ServerInvite.parse(value).invite).code,
+    name: person,
   })
   return friend
+}
+async function openAsAdmin(page: Page) {
+  await actAs(page, 'uiadmin')
+  await page.goto(browserApp)
+  await expectHome(page)
 }
 
 async function expectThemedBlur(page: Page, dialog: Locator) {
@@ -246,21 +113,19 @@ test('the Settings window floats over a live chat and returns to it', async ({ p
     ).value,
   )
   const friend = await friendClient()
-  await page.addInitScript((origin) => localStorage.setItem('huddle.server', origin), serverURL)
-  await page.goto(browserLogin)
-  await signIn(page, 'uiadmin', 'admin-secret')
+  await openAsAdmin(page)
   await railTile(page, 'Lounge').click()
 
   const heading = page.getByRole('heading', { name: 'Welcome to #general' })
   const composer = page.getByRole('textbox', { name: 'Message #general' })
-  const gear = page.getByRole('button', { name: 'Account security', exact: true })
+  const gear = page.getByRole('button', { name: 'Settings', exact: true })
   const dialog = settings(page)
   const draft = 'a thought I have not finished'
   await composer.fill(draft)
 
   await gear.click()
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('heading', { name: 'Account security' })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: 'Profile' })).toBeVisible()
   await expect(heading).toBeAttached()
   await expectThemedBlur(page, dialog)
 
@@ -289,7 +154,7 @@ test('the Settings window floats over a live chat and returns to it', async ({ p
 
   const menu = page.getByRole('button', { name: 'Lounge menu', exact: true })
   await menu.click()
-  await page.getByRole('button', { name: 'Security settings', exact: true }).click()
+  await page.locator('#server-menu').getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(dialog).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
@@ -308,9 +173,7 @@ test('messages behind a dialog stay unread until it closes', async ({ page }) =>
     ).value,
   )
   const friend = await friendClient('readfriend')
-  await page.addInitScript((origin) => localStorage.setItem('huddle.server', origin), serverURL)
-  await page.goto(browserLogin)
-  await signIn(page, 'uiadmin', 'admin-secret')
+  await openAsAdmin(page)
   await railTile(page, 'Study').click()
   await expect(page.getByRole('heading', { name: 'Welcome to #notes' })).toBeVisible()
 
@@ -322,7 +185,7 @@ test('messages behind a dialog stay unread until it closes', async ({ page }) =>
     if (new URL(request.url()).pathname === '/api/read') reads += 1
   })
   const openers = [
-    page.getByRole('button', { name: 'Account security', exact: true }),
+    page.getByRole('button', { name: 'Settings', exact: true }),
     page.getByRole('button', { name: 'Create room', exact: true }),
   ]
   for (const [index, opener] of openers.entries()) {
@@ -349,13 +212,13 @@ test('messages behind a dialog stay unread until it closes', async ({ page }) =>
 })
 
 test('leaving a field or the file picker does not close the Settings window', async ({ page }) => {
-  await member(server.admin, page, 'dragger', browserLogin)
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
+  await member(server.admin, page, 'dragger', browserApp)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const dialog = settings(page)
-  const field = dialog.getByLabel('Current password')
+  const field = dialog.getByLabel('Name', { exact: true })
   await field.fill('typed before dragging')
   const box = await field.boundingBox()
-  if (!box) throw new Error('The password field has no box.')
+  if (!box) throw new Error('The name field has no box.')
 
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
@@ -371,7 +234,6 @@ test('leaving a field or the file picker does not close the Settings window', as
   await expect(dialog).toBeVisible()
   await expect(field).toHaveValue('typed before dragging')
 
-  await dialog.getByRole('button', { name: 'Profile', exact: true }).click()
   await dialog.getByRole('button', { name: 'Photo', exact: true }).click()
   await dialog.getByLabel('Upload a photo').dispatchEvent('cancel', { bubbles: true })
   await expect(dialog).toBeVisible()
@@ -391,13 +253,12 @@ test('leaving a field or the file picker does not close the Settings window', as
 test('a saved profile name reaches the member list behind the Settings window', async ({
   page,
 }) => {
-  await member(server.admin, page, 'renamer', browserLogin)
+  await member(server.admin, page, 'renamer', browserApp)
   const members = page.getByRole('list', { name: 'Members', exact: true })
   await expect(members.getByText('renamer', { exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const dialog = settings(page)
-  await dialog.getByRole('button', { name: 'Profile', exact: true }).click()
   await dialog.getByLabel('Name', { exact: true }).fill('Renamed friend')
   await dialog.getByRole('button', { name: 'Save profile', exact: true }).click()
   await expect(page.locator('.account-name').getByText('Renamed friend')).toBeVisible()
@@ -415,8 +276,7 @@ test('a saved profile name reaches the member list behind the Settings window', 
     await closed
     await route.fulfill({ response })
   })
-  await page.getByRole('button', { name: 'Account security', exact: true }).click()
-  await dialog.getByRole('button', { name: 'Profile', exact: true }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await dialog.getByLabel('Name', { exact: true }).fill('Closed while saving')
   const saving = page.waitForRequest('**/api/access')
   await dialog.getByRole('button', { name: 'Save profile', exact: true }).click()
@@ -427,4 +287,58 @@ test('a saved profile name reaches the member list behind the Settings window', 
 
   await expect(page.locator('.account-name').getByText('Closed while saving')).toBeVisible()
   await expect(members.getByText('Closed while saving', { exact: true })).toBeVisible()
+})
+
+test('a new identity under a running page never sends what the old one typed', async ({ page }) => {
+  const room = Room.parse((await server.admin.call('/api/rooms', { name: 'Handover' })).value)
+  const channel = Channel.parse(
+    (
+      await server.admin.call('/api/channels', {
+        roomId: room.id,
+        name: 'desk',
+        kind: 'text',
+      })
+    ).value,
+  )
+  await member(server.admin, page, 'switcher', browserApp)
+  await railTile(page, 'Handover').click()
+  const composer = page.getByRole('textbox', { name: 'Message #desk' })
+  const body = `typed before the switch ${randomUUID()}`
+  await composer.fill(body)
+
+  await actAs(page, 'uiadmin')
+  await page.getByRole('button', { name: 'Send message' }).click()
+  await expect(page.locator('.account-name > strong')).toHaveText('uiadmin')
+  await expectHome(page)
+  await expect(page.getByText(body, { exact: true })).toHaveCount(0)
+  const history = await server.admin.call(`/api/messages?channelId=${channel.id}`)
+  expect(JSON.stringify(history.value)).not.toContain(body)
+
+  await actAs(page, 'switcher')
+  await page.reload()
+  await expect(page.locator('.account-name > strong')).toHaveText('switcher')
+  await railTile(page, 'Handover').click()
+  await expect(page.getByText(body, { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
+  await expect
+    .poll(async () =>
+      JSON.stringify((await server.admin.call(`/api/messages?channelId=${channel.id}`)).value),
+    )
+    .toContain(body)
+})
+
+test('losing Tailscale under a running page shows why instead of a broken chat', async ({
+  page,
+}) => {
+  await member(server.admin, page, 'dropped', browserApp)
+  await page.context().setExtraHTTPHeaders({})
+  await page.locator('.account').getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Open Huddle through Tailscale' })).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('Nothing has changed yet.')
+  await actAs(page, 'dropped')
+  await page.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expectHome(page)
 })

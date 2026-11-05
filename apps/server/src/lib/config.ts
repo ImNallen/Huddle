@@ -1,54 +1,67 @@
 import { z } from 'zod'
 import { serverOrigin } from '@huddle/contracts'
 
+const tauriOrigins = ['tauri://localhost', 'https://tauri.localhost']
+
+function refusedForHttps(entry: string): string | null {
+  if (tauriOrigins.includes(entry)) return null
+  if (!URL.canParse(entry)) return 'it is not an origin'
+  const { protocol, hostname } = new URL(entry)
+  if (protocol === 'http:') return 'it is plain HTTP'
+  const loopback =
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '[::1]' ||
+    hostname.startsWith('127.')
+  return loopback ? 'it is a loopback address' : null
+}
+
 const Environment = z
   .object({
     DATABASE_URL: z.url(),
-    BETTER_AUTH_SECRET: z.string().min(32),
-    AUTH_ENCRYPTION_KEYS: z
-      .string()
-      .transform((value) =>
-        z
-          .array(
-            z.object({ version: z.number().int().positive(), secret: z.string().min(32) }).strict(),
-          )
-          .min(1)
-          .parse(JSON.parse(value)),
-      )
-      .optional(),
     SERVER_URL: z.string().default('http://localhost:3000').transform(serverOrigin),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    BIND_HOST: z.string().trim().min(1).default('127.0.0.1'),
     WS_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-    WS_PUBLIC_URL: z.url().default('ws://localhost:3001'),
-    TRUSTED_ORIGINS: z
-      .string()
-      .default(
-        'http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,https://tauri.localhost',
-      ),
+    WS_PUBLIC_URL: z.url().optional(),
+    TRUSTED_ORIGINS: z.string().default(''),
     SETUP_CODE: z.string().trim().min(8).max(64).optional(),
-    FRIEND_PORT: z.coerce.number().int().min(1).max(65535).optional(),
+    SOCKET_MAX_AGE_SECONDS: z.coerce.number().int().min(1).default(300),
+  })
+  .transform((env) => {
+    const https = env.SERVER_URL.startsWith('https:')
+    return {
+      ...env,
+      WS_PUBLIC_URL:
+        env.WS_PUBLIC_URL ??
+        (https ? `wss://${new URL(env.SERVER_URL).host}/events` : `ws://localhost:${env.WS_PORT}`),
+      trusted: env.TRUSTED_ORIGINS.split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    }
   })
   .superRefine((env, ctx) => {
-    if (/change|example|secretsecret|password/i.test(env.BETTER_AUTH_SECRET))
+    if (!env.SERVER_URL.startsWith('https:')) return
+    if (!env.WS_PUBLIC_URL.startsWith('wss:'))
       ctx.addIssue({
         code: 'custom',
-        message: 'Generate BETTER_AUTH_SECRET with pnpm setup:local.',
+        message: 'An HTTPS SERVER_URL requires a wss: WS_PUBLIC_URL.',
       })
-    if (env.SERVER_URL.startsWith('https:') && !env.WS_PUBLIC_URL.startsWith('wss:'))
-      ctx.addIssue({ code: 'custom', message: 'HTTPS installations require WSS.' })
-    const friend = env.FRIEND_PORT ?? (env.PORT + 1000 <= 65535 ? env.PORT + 1000 : env.PORT + 1)
-    if (friend === env.PORT || friend === env.WS_PORT)
-      ctx.addIssue({ code: 'custom', message: 'FRIEND_PORT must differ from PORT and WS_PORT.' })
+    for (const entry of env.trusted) {
+      const reason = refusedForHttps(entry)
+      if (reason)
+        ctx.addIssue({
+          code: 'custom',
+          message: `TRUSTED_ORIGINS must not list ${entry} on an HTTPS server, because ${reason}. Any page on a tailnet device acts as that device's person, so a page at that origin could read and write as them. Remove it.`,
+        })
+    }
   })
-const environment = Environment.parse(process.env)
-export const config = {
-  ...environment,
-  FRIEND_PORT:
-    environment.FRIEND_PORT ??
-    (environment.PORT + 1000 <= 65535 ? environment.PORT + 1000 : environment.PORT + 1),
-}
-export const origins = new Set([
+export const config = Environment.parse(process.env)
+export const origins: ReadonlySet<string> = new Set([
   config.SERVER_URL,
-  ...config.TRUSTED_ORIGINS.split(',').filter(Boolean),
+  ...tauriOrigins,
+  ...config.trusted,
+])
+export const serverHosts: ReadonlySet<string> = new Set([
+  new URL(config.SERVER_URL).host,
+  new URL(config.WS_PUBLIC_URL).host,
 ])

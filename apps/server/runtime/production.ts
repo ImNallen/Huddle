@@ -3,12 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { z } from 'zod'
 import { startRealtime } from '../src/lib/realtime'
-import { openFriendPortal } from '../src/lib/portal'
 import { config } from '../src/lib/config'
 import { db } from '../src/lib/db'
 import { applicationRequest } from '../src/lib/http'
 import { pruneAccess } from '../src/lib/access-maintenance'
 import { prepareSetup } from '../src/lib/admission'
+import { refuseUserspaceTailscale } from '../src/lib/identity'
 
 const serverPath = new URL('../dist/server/server.js', import.meta.url).href
 const entry: unknown = await import(serverPath)
@@ -29,17 +29,15 @@ const contentTypes: Record<string, string> = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 }
+await refuseUserspaceTailscale()
 await prepareSetup()
-const portal = await openFriendPortal()
-const realtime = await startRealtime(portal.server)
-await portal.listen()
+const realtime = await startRealtime()
 const server = serve({
   port: config.PORT,
-  hostname: config.BIND_HOST,
-  fetch: async (request, env) => {
+  hostname: '127.0.0.1',
+  fetch: async (request) => {
     const pathname = new URL(request.url).pathname
-    if (pathname.startsWith('/api/'))
-      return applicationRequest(request, env.incoming.socket.remoteAddress)
+    if (pathname.startsWith('/api/')) return applicationRequest(request)
     if (pathname.startsWith('/assets/')) {
       const file = resolve(clientRoot, `.${decodeURIComponent(pathname)}`)
       if (!file.startsWith(clientRoot + sep)) return new Response(null, { status: 400 })
@@ -54,7 +52,11 @@ const server = serve({
         return new Response(null, { status: 404 })
       }
     }
-    return handler.fetch(request)
+    const page = await handler.fetch(request)
+    const unframeable = new Response(page.body, page)
+    unframeable.headers.set('Content-Security-Policy', "frame-ancestors 'none'")
+    unframeable.headers.set('X-Frame-Options', 'DENY')
+    return unframeable
   },
 })
 const maintenance = setInterval(() => {
@@ -64,7 +66,6 @@ maintenance.unref()
 async function stop() {
   clearInterval(maintenance)
   realtime.close()
-  portal.close()
   server.close()
   await db.end()
   process.exit()

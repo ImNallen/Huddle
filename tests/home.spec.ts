@@ -6,8 +6,7 @@ useScratchServer('ui')
 async function shareInvite(page: Page) {
   await page.getByRole('button', { name: 'Share invite', exact: true }).first().click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('button', { name: 'Copy invite' }).first()).toBeVisible()
-  await expect(dialog).not.toContainText('huddle:')
+  await expect(dialog.getByRole('button', { name: 'Copy invite' })).toBeVisible()
   const code = await inviteCode(page)
   await dialog.getByRole('button', { name: 'Done', exact: true }).click()
   return code
@@ -44,7 +43,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(setup.getByRole('listitem')).toHaveText([
       /^Create your first roomDevelopmentDone$/,
       /^Add a channel#code-review in DevelopmentDone$/,
-      /^3Share HuddleCopy an invite\. A friend pastes it into Huddle and creates a username\.Share invite$/,
+      /^3Share HuddleCopy the invite link and send it to a friend\. They need access to this machine in Tailscale first\.Share invite$/,
     ])
     await expect(setup.getByRole('button', { name: 'Share invite' })).toHaveClass(/primary/)
     const code = await shareInvite(page)

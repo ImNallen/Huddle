@@ -362,7 +362,7 @@ Server badges are tinted by hash: a hue from a set of eight, with lightness set 
 - **Washes** (`hover`, `selected`, `message-hover`): Translucent white in dark and translucent near-black in light, at 5%, 11%, and 4% in dark and 5%, 9%, and 3% in light. They layer over whichever ground is below them.
 - **Hairlines** (`line`, `line-strong`): 7% and 13% white in dark, 9% and 16% near-black in light. Panel edges, dividers, and field borders.
 - **Text ramp** (`strong`: dark #ffffff, light #060607; `text`: dark #f2f2f3, light #1f2125; `muted`: dark #a09fa4, light #5c5e66; `faint`: dark #96959a, light #5c5e66; `placeholder`: dark #94969b, light #5c5e66): Names and headings, then message text, then secondary text, then timestamps. Light mode collapses the bottom three steps into one value to hold contrast.
-- **Access Field** (`access-field-from`: dark #1a1650, light #262a8c; `access-field-to`: dark #2b52d2, light #2a54c8; at 160 degrees): The blue gradient behind sign-in, setup, and join.
+- **Access Field** (`access-field-from`: dark #1a1650, light #262a8c; `access-field-to`: dark #2b52d2, light #2a54c8; at 160 degrees): The blue gradient behind setup, join, and the screens that explain a missing identity.
 - **Access Card** (`access-card`: dark #323339, light #ffffff; `access-input`: dark #27292d, light #ebedef): The lifted card on the access field and its filled inputs.
 - **Scrim** (70% black dark, 55% white light): The backdrop of every dialog, which also blurs the app behind it by 8px.
 
@@ -376,7 +376,7 @@ Server badges are tinted by hash: a hue from a set of eight, with lightness set 
 
 **Display Font:** Figtree Variable (with -apple-system, BlinkMacSystemFont, SF Pro Text, Inter, and system-ui as fallbacks)
 **Body Font:** Figtree Variable
-**Label/Mono Font:** ui-monospace (with SF Mono, SFMono-Regular, and Menlo as fallbacks), for hostnames, invite codes, and session values
+**Label/Mono Font:** ui-monospace (with SF Mono, SFMono-Regular, and Menlo as fallbacks), for hostnames, invite codes, and Tailscale logins
 
 **Character:** One friendly geometric sans at every level, bundled through `@fontsource-variable/figtree`, so the familiar layout does not depend on Discord's proprietary face. Hierarchy comes from weight and color more than size.
 
@@ -474,7 +474,7 @@ Compact and plain, with fill as the only emphasis.
 - **Direct message rows:** At Home, Members, and direct views the sidebar lists a "Direct Messages" section under Members, with a `New message` add button for everyone. Rows are 42px with a 24px avatar and the peer's name, and use the channel row states. The empty text is "No messages yet."
 - **Section labels:** "Text Channels", "Voice Channels", and "Direct Messages" at 12px, with a small 24px add button.
 - **Top bar:** 48px with the channel icon and name at 16px, and page actions at the right. It states the current place directly, with no breadcrumb trail.
-- **Settings:** A 200px side nav with the same row states under a "Settings" label, and a sign-out row in `danger` pinned to the column's bottom. The right column has a 48px top bar with the current tab's title and an icon button that closes the window.
+- **Settings:** A 200px side nav with the same row states under a "Settings" label. The right column has a 48px top bar with the current tab's title and an icon button that closes the window.
 
 ### Home
 
@@ -509,13 +509,13 @@ A 56px hairline-bordered panel across the rail and sidebar: 32px avatar, name at
 
 ### Menus and Dialogs
 
-- **Menu:** 220px on Raised Surface at 8px radius with an 8px inset, 32px items at 4px radius, and icons at the row's trailing edge. Sign out takes `danger`.
+- **Menu:** 220px on Raised Surface at 8px radius with an 8px inset, 32px items at 4px radius, and icons at the row's trailing edge.
 - **Dialog:** 460px on Raised Surface at 12px radius over the Scrim, with a centered 20px heading and description and right-aligned actions.
 - **Settings window:** Up to 920 by 680px on Account Panel Ground at 12px radius, with a hairline border and the Modal shadow, over the Scrim. It centers in the space below the window bar and keeps the app mounted behind it. The left column uses the `sidebar` ground behind a hairline, and the right column scrolls below its top bar.
 
 ### Access Screens
 
-Sign-in, setup, and join share one frame: the Access Field gradient, a logo and lowercase "huddle" wordmark in a 72px header, and a centered 480px Access Card. A server card at the top of the access card identifies the destination with a tile, name, and monospace host.
+Setup, join, and the screens that explain a missing identity share one frame: the Access Field gradient, a logo and lowercase "huddle" wordmark in a 72px header, and a centered 480px Access Card. A server card at the top of the access card identifies the destination with a tile, name, and monospace host.
 
 ## Do's and Don'ts
 

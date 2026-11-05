@@ -1,5 +1,5 @@
 import { Hash } from 'lucide-react'
-import type { Channel, Session } from '@huddle/contracts'
+import type { Channel, Me } from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { useServer } from './useServer'
 import type { DirectRow } from './ServerView'
@@ -9,7 +9,7 @@ import { Transcript } from './Transcript'
 
 type Shared = {
   client: Transport
-  session: Session
+  me: Me
   sync: ReturnType<typeof useServer>
   draft: string
   onDraft: (value: string) => void

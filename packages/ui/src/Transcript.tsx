@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { SendHorizontal } from 'lucide-react'
-import type { Avatar as AvatarValue, Session } from '@huddle/contracts'
+import type { Avatar as AvatarValue, Me } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import {
   threadKey,
@@ -81,7 +81,7 @@ function TimeSlot({ row }: { row: MessageRow }) {
 }
 export function Transcript({
   client,
-  session,
+  me,
   thread,
   label,
   topbar,
@@ -91,7 +91,7 @@ export function Transcript({
   onDraft,
 }: {
   client: Transport
-  session: Session
+  me: Me
   thread: Thread
   label: string
   topbar: ReactNode
@@ -139,7 +139,6 @@ export function Transcript({
       setError(errorText(failure))
     }
   }
-  const me = { id: session.user.id, name: session.user.name, avatar: session.user.avatar }
   return (
     <main className="main">
       {topbar}
@@ -179,7 +178,7 @@ export function Transcript({
               {error}
             </p>
           )}
-          {rows(messages, pending, me, new Date().toISOString(), day).map((row) =>
+          {rows(messages, pending, me.user, new Date().toISOString(), day).map((row) =>
             row.kind === 'day' ? (
               <div className="day-divider" key={row.key}>
                 <span>{row.label}</span>

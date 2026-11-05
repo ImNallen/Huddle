@@ -1,41 +1,71 @@
 # Host a Huddle server
 
-This page covers configuration beyond the basic setup in the [README](../README.md).
+This page covers configuration beyond the basic setup in the [README](../README.md). Every remote connection goes through `tailscale serve`, which provides the address, a trusted certificate, and each person's identity.
 
-## Ports and the friend key
+## Keep the machine to Huddle
 
-The server runs three listeners in one Node process:
+Run nothing else on the machine or in the container. The server cannot tell Serve from another local process, so any process that can reach its loopback port can claim to be any member. A browser on that machine cannot forge the `Host` header, and the server checks it, but a local program can. Give Huddle its own LXC, VM, or sidecar network namespace.
 
-- `PORT`, default 3000, serves the API, the login pages, and the browser app.
+## Never use userspace networking
+
+Run Tailscale with a TUN device. In userspace mode, `tailscaled` forwards a peer's direct connection to the node's IP onto `127.0.0.1`, past Serve. Any peer your access policy allows could then reach the server's ports and claim to be any member. The server refuses to start when the `tailscale` command reports userspace mode. `compose.yaml` pins kernel networking for its sidecar.
+
+As a second layer, let friends reach only port 443 on this machine in your tailnet's access policy.
+
+Run `pnpm --filter @huddle/server test:serve <address>` on the machine to check all of this.
+
+## Publish the server with Serve
+
+The server listens on two loopback ports, and both addresses are hard-coded to `127.0.0.1`:
+
+- `PORT`, default 3000, serves the API and the browser app.
 - `WS_PORT`, default 3001, serves WebSockets.
-- `FRIEND_PORT`, default `PORT + 1000`, serves the API and WebSockets to friends over TLS.
 
-Configure `PORT`, `WS_PORT`, `WS_PUBLIC_URL`, and `FRIEND_PORT` together if you change ports. `FRIEND_PORT` must differ from the other two.
-
-On first start, the server creates a TLS key and self-signed certificate in `apps/server/data/friend/<port>/`. Every invite pins that certificate. If you delete the folder, the server makes a new key, every old invite stops working, and you must share new invites.
-
-## How invites find your server
-
-Huddle builds one invite for each address a friend could use:
-
-- Each private IPv4 address of the host, for friends on the same network. This includes `100.64.0.0/10` addresses such as Tailscale's.
-- The router's public address, when the router accepts a NAT-PMP port mapping. The server renews the mapping before it expires. It finds the router only on macOS and Linux hosts.
-
-Forwarding the friend port by hand does not add an invite, because Huddle has no setting for a public address yet. Without NAT-PMP, use Tailscale or a similar network.
-
-## Run in Docker
-
-Docker invites do not work for friends yet. Inside the container, the server sees only the container's network, so it lists the container's `172.x` address and cannot reach your router for NAT-PMP. Run the server directly on the host to invite friends.
+Serve publishes both under one HTTPS address. Serve strips `/events`, so the WebSocket listener sees `/`.
 
 ```sh
-docker compose up -d db
+tailscale serve --bg --https=443 http://127.0.0.1:3000
+tailscale serve --bg --https=443 --set-path=/events http://127.0.0.1:3001
+```
+
+Set `SERVER_URL` to the exact address that Serve publishes, such as `https://huddle.your-tailnet.ts.net`. `WS_PUBLIC_URL` defaults to `wss://` plus that host plus `/events`. If you change a port, change the Serve commands to match. The server treats any request whose `Host` is not one of these two addresses as having no identity, so a wrong `SERVER_URL` shows every visitor the **Open Huddle through Tailscale** screen.
+
+Do not turn on Funnel, because Funnel traffic has no identity. Do not mount another app on this address with `--set-path`. That app would share Huddle's origin, and its pages could act as anyone who opens them.
+
+## Trust only your own origins
+
+The server accepts browser requests from `SERVER_URL` and from the desktop app's two origins, `tauri://localhost` and `https://tauri.localhost`. `TRUSTED_ORIGINS` is for development. On an HTTPS server, the server refuses to start if `TRUSTED_ORIGINS` lists a plain HTTP or loopback origin, because any page on a tailnet device acts as that device's person.
+
+## Run on a Proxmox LXC or VM
+
+1. Install Tailscale, Node.js 24, pnpm 11, and PostgreSQL or Docker.
+2. For an LXC, pass through `/dev/net/tun`. In the Proxmox interface, add it under the container's **Resources** as **Device Passthrough**, then restart the container. A VM needs nothing extra.
+3. Run `tailscale up`, and turn on HTTPS certificates in your tailnet's DNS settings.
+4. Follow the commands in the [README](../README.md). To use your own PostgreSQL instead of Docker, edit `DATABASE_URL` in `.env`.
+5. Run the server from a systemd unit as a dedicated user. From `apps/server`, the command is `node --env-file=../../.env --import tsx runtime/production.ts`.
+
+## Run in Docker with a Tailscale sidecar
+
+`compose.yaml` runs the server in the network namespace of a `tailscale` container. The two share loopback, and that mode cannot publish a port. The sidecar uses kernel networking, so it needs `/dev/net/tun` and `NET_ADMIN`. Inside an LXC, pass the device through first. `deploy/tailscale/serve.json` holds the Serve configuration.
+
+```sh
+pnpm setup:local --server-url https://huddle.your-tailnet.ts.net
+echo TS_AUTHKEY=tskey-your-key >> .env
+docker compose up -d db tailscale
 docker compose run --build --rm server node --import tsx scripts/migrate.ts
 docker compose up -d server
-curl --fail http://localhost:3000/api/health
 docker compose logs server
 ```
 
-Compose publishes port 4000 on every host interface and binds 3000 and 3001 to loopback. The friend key lives in the container under `/app/apps/server/data/friend/4000/` and is not on a volume, so recreating the container breaks every invite.
+If the sidecar restarts on its own, run `docker compose restart server`, because the server's network goes with the sidecar. The sidecar's node is named `huddle`, so `SERVER_URL` must use that name. Without `TS_AUTHKEY`, run `docker compose logs tailscale` and open the login link it prints. Use an auth key for a person rather than a tagged key until you confirm that sharing a tagged machine works for your tailnet.
+
+Compose publishes only PostgreSQL, on `127.0.0.1:5434`, for migrations from the host.
+
+## Give friends access in Tailscale
+
+Share the machine with a friend, or add them to your tailnet. A shared machine appears in the friend's tailnet under its own name, and it cannot start connections to them. ACLs can target the friend's email.
+
+Whether Serve reports a friend's own login for a machine shared into their tailnet is not verified. Try it with one friend first. If Serve reports nothing, that friend sees the screen for a device with no user, and they need to join your tailnet instead.
 
 ## Upgrade
 
@@ -43,25 +73,23 @@ PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgra
 
 Migrations are transactional and tracked in `huddle_migration`. Migration `007_single_server.sql` converts a database from the earlier workspace design. It keeps rooms, channels, messages, read markers, mentions, and events from zero or one workspace, and fails on a database with more than one. To start over from such a database, drop and recreate it, run the migrations, and set up the server again.
 
-Migration `011_channel_kind.sql` marks every existing channel as a text channel. Rooms, channels, and messages are otherwise unchanged. Channels are text or voice, and voice channels carry no audio yet.
+Migration `011_channel_kind.sql` marks every existing channel as a text channel. Channels are text or voice, and voice channels carry no audio yet.
 
-## Open Huddle in a browser from other machines
+Migration `013_tailscale_identity.sql` moves an older server to Tailscale identity. It cannot be undone, so back up first. It keeps every account ID, role, room, channel, message, direct message, read marker, mention, avatar, and photo. It drops usernames, stored credentials, and sessions, and it keeps each old username as a label for `account:link`. It issues a new join code, so old invites stop working.
 
-Friends need only the friend port. To also use the browser app from elsewhere, put an HTTPS reverse proxy in front of the server:
+After the upgrade:
 
-- Proxy normal HTTP requests to port 3000 and WebSocket upgrades to port 3001.
-- Set `SERVER_URL`, for example `https://chat.example.com`, and `WS_PUBLIC_URL`, for example `wss://events.example.com/`. An HTTPS server requires a WSS endpoint.
-- Allow long proxy idle timeouts, so WebSocket connections stay open.
-- Set `TRUSTED_ORIGINS` to the exact browser origins you serve plus `tauri://localhost`, `http://tauri.localhost`, and `https://tauri.localhost`. Do not use wildcards.
+1. Edit `.env`. Keep `DATABASE_URL` and `POSTGRES_PASSWORD`, set `SERVER_URL` to the Serve address, and delete every other line. A leftover loopback `TRUSTED_ORIGINS` stops the server from starting.
+2. Close the old friend port on your router, and delete `apps/server/data/friend/`.
+3. Start the server. It prints a reminder until an admin has a login.
+4. Bind accounts with `account:link`, as [accounts](accounts.md) describes.
 
-The desktop app also accepts an HTTPS server address instead of an invite. It allows plain HTTP only for localhost. Desktop sign-in tokens live in the OS credential store.
+## Check Serve after a Tailscale upgrade
 
-## Reset a forgotten password
-
-Huddle sends no email, so password resets go through people. An admin resets a friend's password on the **Members** page. If you run the server and forget your own password, reset it from the repository:
+Continuous integration has no tailnet, so its suites supply the identity headers themselves. To check that real Serve still behaves as Huddle expects, run this on a tailnet machine from a device signed in as a person:
 
 ```sh
-pnpm --filter @huddle/server account:reset USERNAME
+pnpm --filter @huddle/server test:serve https://your-node.your-tailnet.ts.net:8443
 ```
 
-The command asks for the new password and signs that account out everywhere. See [accounts and sign-in](accounts.md) for details.
+The command starts a scratch server, prints the two `tailscale serve` commands to run, and checks TLS, identity on HTTP and on upgrades, forged and underscore headers, the `/events` mapping, and loopback callers.

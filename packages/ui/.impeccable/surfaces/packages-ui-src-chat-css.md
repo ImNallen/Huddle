@@ -5,7 +5,7 @@ primary_target: 'packages/ui/src/chat.css'
 related_targets: ['packages/ui/src/access.css']
 ---
 
-Scope: every Huddle screen (chat shell, Home, Members, dialogs, account settings, sign-in, setup, join). Mode: Operate.
+Scope: every Huddle screen (chat shell, Home, Members, dialogs, settings, setup, join). Mode: Operate.
 Audience and job: a host and their friends chatting in a self-hosted, text-only server, mostly in the desktop app.
 Constraints: keeps the Huddle name and logo. No Discord logo, illustrations, or proprietary font. No controls for features that are not built. Voice channels list and open to a not-available notice, with no call controls.
 Theme: follows the system. Dark values sampled from Mobbin Discord references. Light values derived, because Mobbin had no light reference.

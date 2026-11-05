@@ -1,6 +1,7 @@
 import { test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import {
+  accountLink,
   Client,
   migratedDatabase,
   startServer,
@@ -10,40 +11,41 @@ import {
 const desktopPort = Number(process.env.HUDDLE_UI_DESKTOP_PORT ?? 1520)
 const serverPort = Number(process.env.HUDDLE_UI_SERVER_PORT ?? 3400)
 export const serverURL = `http://localhost:${serverPort}`
-export const browserLogin = `${serverURL}/login`
+export const browserApp = `${serverURL}/`
+export const websocketURL = `ws://localhost:${serverPort + 1}`
 export const setupCode = `ui-${randomUUID()}`
 export const serverName = 'Huddle UI'
 
-export function useScratchServer(setup: 'api' | 'ui') {
+export function useScratchServer(setup: 'api' | 'ui', env: NodeJS.ProcessEnv = {}) {
   let server: ServerProcess | undefined
+  let databaseUrl = ''
   let drop = async () => {}
   let admin: Client | undefined
   test.beforeAll(async () => {
     const database = await migratedDatabase()
+    databaseUrl = database.url
     drop = database.drop
     server = await startServer({
       databaseUrl: database.url,
       port: serverPort,
       env: {
+        ...env,
         SETUP_CODE: setupCode,
-        HUDDLE_INVITE_LOOPBACK: '1',
         TRUSTED_ORIGINS: [
           `http://127.0.0.1:${desktopPort}`,
           `http://localhost:${desktopPort}`,
-          'tauri://localhost',
         ].join(','),
       },
     })
     if (setup === 'api') {
-      admin = new Client(serverURL)
-      const view = await admin.act({
+      admin = new Client(serverURL, 'uiadmin@huddle.test')
+      const stage = await admin.act({
         kind: 'account.setup',
         code: setupCode,
         serverName,
-        username: 'uiadmin',
-        password: 'admin-secret',
+        name: 'uiadmin',
       })
-      if (view.stage.kind !== 'ready') throw new Error('API setup did not finish.')
+      if (stage.kind !== 'ready') throw new Error('API setup did not finish.')
     }
   })
   test.afterAll(async () => {
@@ -56,5 +58,6 @@ export function useScratchServer(setup: 'api' | 'ui') {
       return admin
     },
     logs: () => server?.logs() ?? '',
+    link: (...args: string[]) => accountLink(databaseUrl, ...args),
   }
 }

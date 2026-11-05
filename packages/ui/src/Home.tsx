@@ -1,5 +1,5 @@
 import { Check, MessageSquarePlus, UserPlus } from 'lucide-react'
-import type { Channel, ConversationId, Member, Room, Session, Server } from '@huddle/contracts'
+import type { Channel, ConversationId, Member, Room, Me, Server } from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { Dialog, DirectRow } from './ServerView'
 import { Avatar } from './Avatar'
@@ -14,7 +14,7 @@ function when(iso: string) {
 }
 export function Home({
   client,
-  session,
+  me,
   server,
   rooms,
   channels,
@@ -26,7 +26,7 @@ export function Home({
   onMemberList,
 }: {
   client: Transport
-  session: Session
+  me: Me
   server: Server
   rooms: Room[]
   channels: Channel[]
@@ -39,7 +39,7 @@ export function Home({
 }) {
   const now = new Date()
   const admin = server.role === 'admin'
-  const firstName = session.user.name.split(/\s+/)[0]
+  const firstName = me.user.name.split(/\s+/)[0]
   const memberCount = members?.length ?? server.memberCount
   const steps = admin ? adminSteps(rooms, channels, memberCount) : memberSteps(rooms, channels)
   const started = directs.flatMap((direct) =>
@@ -106,7 +106,7 @@ export function Home({
                           <span>{when(direct.latest.createdAt)}</span>
                         </span>
                         <span className="feed-body">
-                          {direct.latest.authorId === session.user.id && 'You: '}
+                          {direct.latest.authorId === me.user.id && 'You: '}
                           {direct.latest.body}
                         </span>
                       </span>
@@ -182,7 +182,7 @@ function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): St
       title: 'Share Huddle',
       detail: coworkers
         ? `${coworkers} ${coworkers === 1 ? 'friend has' : 'friends have'} joined.`
-        : 'Copy an invite. A friend pastes it into Huddle and creates a username.',
+        : 'Copy the invite link and send it to a friend. They need access to this machine in Tailscale first.',
       done: coworkers > 0,
       action: { label: 'Share invite', dialog: { kind: 'invite' } },
     },

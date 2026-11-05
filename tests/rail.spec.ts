@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { onboard, rail, railTile } from './accounts'
+import { apiPost, onboard, rail, railTile } from './accounts'
 import { useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -10,17 +10,7 @@ test('the rail scrolls with many rooms, the last tile is reachable, and tooltips
   await page.setViewportSize({ width: 1240, height: 600 })
   await onboard(page, 'railadmin', 'Crowded')
   const names = Array.from({ length: 30 }, (_, index) => `Room ${String(index).padStart(2, '0')}`)
-  await page.evaluate(async (names) => {
-    for (const name of names) {
-      const response = await fetch('/api/rooms', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      })
-      if (!response.ok) throw new Error(`Could not create ${name}.`)
-    }
-  }, names)
+  for (const name of names) await apiPost(page, '/api/rooms', { name })
   const last = railTile(page, 'Room 29')
   await expect(last).toBeAttached()
 

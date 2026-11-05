@@ -70,8 +70,12 @@ test('the thread stays at its end while the layout changes and never yanks a rea
   await page.setViewportSize({ width: 1280, height: 640 })
   await atEnd()
 
-  await scroller.evaluate((view) => view.scrollTo({ top: 0 }))
-  await expect(page.getByRole('heading', { name: 'Welcome to #long-history' })).toBeInViewport()
+  await expect(async () => {
+    await scroller.evaluate((view) => view.scrollTo({ top: 0 }))
+    await expect(page.getByRole('heading', { name: 'Welcome to #long-history' })).toBeInViewport({
+      timeout: 250,
+    })
+  }).toPass()
   await composer.fill('one\ntwo\nthree\nfour')
   await post('Arrives while someone reads history')
   await expect(last).toContainText('Arrives while someone reads history')

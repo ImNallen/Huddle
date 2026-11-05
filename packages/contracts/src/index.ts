@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Password, Username } from './invite'
+import { JoinCode } from './invite'
 
 export const MascotShape = z.enum(['circle', 'square', 'bean', 'hexagon', 'triangle', 'flower'])
 export const MascotColor = z.enum([
@@ -73,14 +73,7 @@ export const ServerEvent = z.discriminatedUnion('kind', [
     participants: z.tuple([UserId, UserId]),
   }),
 ])
-export const WatchFrame = z
-  .object({
-    kind: z.literal('watch'),
-    after: Cursor,
-    token: z.string().min(1).max(4096).optional(),
-    ticket: z.string().length(43).optional(),
-  })
-  .strict()
+export const WatchFrame = z.object({ kind: z.literal('watch'), after: Cursor }).strict()
 export const EventPage = z.object({ kind: z.literal('events'), events: z.array(ServerEvent) })
 export const Unread = z.object({
   channelId: ChannelId,
@@ -133,10 +126,11 @@ export const ServerName = z
   .regex(/^[^\x00-\x1f\x7f]+$/)
 export const SetupCode = z.string().trim().min(1).max(64)
 export const PublicUser = z.object({ id: UserId, name: z.string(), avatar: Avatar })
-export const Session = z.object({ user: PublicUser })
+export const Me = z.object({ user: PublicUser })
 export const ServerInfo = z.object({
   name: z.string(),
   setup: z.enum(['required', 'complete']),
+  serverUrl: z.url(),
   websocketUrl: z.url(),
 })
 export type Server = z.infer<typeof Server>
@@ -152,13 +146,12 @@ export type DirectMessage = z.infer<typeof DirectMessage>
 export type DirectConversation = z.infer<typeof DirectConversation>
 export type ServerEvent = z.infer<typeof ServerEvent>
 export type Snapshot = z.infer<typeof Snapshot>
-export type Session = z.infer<typeof Session>
+export type Me = z.infer<typeof Me>
 export type RoomId = z.infer<typeof RoomId>
 export type ChannelId = z.infer<typeof ChannelId>
 export type ConversationId = z.infer<typeof ConversationId>
 export type UserId = z.infer<typeof UserId>
 
-export const desktopUserAgent = 'Huddle desktop'
 export function defaultMascot(userId: string): Avatar {
   let hash = 0
   for (const char of userId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
@@ -174,21 +167,27 @@ export function serverInitials(name: string) {
     .join('')
     .toUpperCase()
 }
-export function serverOrigin(input: string): string {
-  const url = new URL(input)
-  if (url.username || url.password || url.search || url.hash || url.pathname !== '/')
-    throw new Error('Use a server origin without a path or credentials.')
-  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))
-    throw new Error('Use HTTPS for a remote server. HTTP is allowed only on localhost.')
-  return url.origin
-}
-
-export const Profile = z.object({ name: z.string().trim().min(1).max(80), avatar: Avatar }).strict()
+/** Compared exactly as Serve delivers it, after RFC 2047 decoding. Never case-folded. Commas are refused
+ *  because Node joins a repeated header with ', '. */
+export const TailscaleLogin = z
+  .string()
+  .min(3)
+  .max(320)
+  .regex(/^[^\s,\x00-\x1f\x7f]+@[^\s,@\x00-\x1f\x7f]+$/)
+  .brand<'TailscaleLogin'>()
+const DisplayName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[^\x00-\x1f\x7f]+$/)
+export const Profile = z.object({ name: DisplayName, avatar: Avatar }).strict()
+export const NoIdentityReason = z.enum(['no-user', 'funnel', 'direct'])
 export const AccessStage = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('setup') }),
-  z.object({ kind: z.literal('signin') }),
-  z.object({ kind: z.literal('ready'), user: PublicUser }),
+  z.object({ kind: z.literal('no-identity'), reason: NoIdentityReason }),
+  z.object({ kind: z.literal('setup'), login: TailscaleLogin, suggestedName: z.string() }),
+  z.object({ kind: z.literal('join'), login: TailscaleLogin, suggestedName: z.string() }),
+  z.object({ kind: z.literal('ready'), login: TailscaleLogin, user: PublicUser }),
 ])
 export const AccessCommand = z.discriminatedUnion('kind', [
   z
@@ -196,63 +195,26 @@ export const AccessCommand = z.discriminatedUnion('kind', [
       kind: z.literal('account.setup'),
       code: SetupCode,
       serverName: ServerName,
-      username: Username,
-      password: Password,
+      name: DisplayName,
     })
     .strict(),
-  z
-    .object({
-      kind: z.literal('account.join'),
-      code: z.string().regex(/^[A-Za-z0-9_-]{20,128}$/),
-      username: Username,
-      password: Password,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal('account.signin'),
-      username: Username,
-      password: Password,
-    })
-    .strict(),
+  z.object({ kind: z.literal('account.join'), code: JoinCode, name: DisplayName }).strict(),
   z.object({ kind: z.literal('profile.save'), profile: Profile }).strict(),
-  z.object({ kind: z.literal('session.revoke'), id: z.string().min(1).max(512) }).strict(),
-  z.object({ kind: z.literal('sessions.revoke-others') }).strict(),
-  z.object({ kind: z.literal('password.change'), current: Password, next: Password }).strict(),
-  z.object({ kind: z.literal('signout') }).strict(),
 ])
-export const AccessView = z.object({ stage: AccessStage, bearerToken: z.string().optional() })
 export const AccessError = z.object({
-  error: z.enum(['invalid', 'expired', 'rate_limited', 'unavailable', 'reauth_required']),
+  error: z.enum(['invalid', 'expired', 'rate_limited', 'unavailable', 'no_access']),
   retryAt: z.iso.datetime().optional(),
 })
-export const AccountSecurity = z.object({
-  user: PublicUser,
-  sessions: z.array(
-    z.object({
-      id: z.string(),
-      current: z.boolean(),
-      createdAt: z.iso.datetime(),
-      expiresAt: z.iso.datetime(),
-      userAgent: z.string().nullable(),
-    }),
-  ),
-})
+export const Account = z.object({ user: PublicUser, login: TailscaleLogin })
+export const ServerInvite = z.object({ invite: z.string().min(1).max(2048) })
 export const PhotoUpload = z.object({ uploadId: z.uuid() })
+export type TailscaleLogin = z.infer<typeof TailscaleLogin>
+export type NoIdentityReason = z.infer<typeof NoIdentityReason>
 export type Avatar = z.infer<typeof Avatar>
 export type Profile = z.infer<typeof Profile>
 export type PublicUser = z.infer<typeof PublicUser>
 export type AccessStage = z.infer<typeof AccessStage>
 export type AccessCommand = z.infer<typeof AccessCommand>
-export type AccessView = z.infer<typeof AccessView>
 export type AccessError = z.infer<typeof AccessError>
-export type AccountSecurity = z.infer<typeof AccountSecurity>
-export {
-  Username,
-  Password,
-  FriendInvites,
-  formatInvite,
-  parseInvite,
-  inviteOrigin,
-} from './invite'
-export type { Invite as FriendInvite } from './invite'
+export { JoinCode, formatInvite, parseInvite, serverOrigin } from './invite'
+export type { Invite } from './invite'

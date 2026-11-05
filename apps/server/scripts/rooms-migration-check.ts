@@ -2,14 +2,13 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import pg from 'pg'
-import { ServerEvent, UserId } from '@huddle/contracts'
-import { migrate, scratchDatabase } from './harness'
+import { JoinCode, ServerEvent, UserId } from '@huddle/contracts'
+import { migrate, migratedDatabase, scratchDatabase } from './harness'
 
 const database = await scratchDatabase()
 let closeDomain = async () => {}
 try {
   process.env.DATABASE_URL = database.url
-  const { auth } = await import('../src/lib/auth')
   const { db } = await import('../src/lib/db')
   const domain = await import('../src/lib/domain')
   const { pruneAccess } = await import('../src/lib/access-maintenance')
@@ -18,8 +17,6 @@ try {
     db.on('error', () => {})
     await db.end()
   }
-  const { getMigrations } = await import('better-auth/db/migration')
-  await (await getMigrations(auth.options)).runMigrations()
 
   const scratch = new pg.Client({ connectionString: database.url })
   await scratch.connect()
@@ -234,9 +231,7 @@ try {
       false,
       'a channel.created event without a kind fails the current schema before 011',
     )
-    const accepted = await migrate(database.url)
-    assert.equal(accepted.code, 0, accepted.output)
-    assert.match(accepted.output, /Huddle migrations applied/)
+    await applyThrough('012_direct_messages.sql')
     assert.deepEqual(
       await rows('SELECT id, room_id, name FROM channel ORDER BY id'),
       before.channels,
@@ -306,6 +301,150 @@ try {
       [{ audience: null }],
       '012 leaves every existing event open to every member',
     )
+
+    const seeded = {
+      conversation: randomUUID(),
+      photo: randomUUID(),
+      session: randomUUID(),
+    }
+    const [lowPair, highPair] = [owner, colleague].sort((a, b) => (a < b ? -1 : 1))
+    const photoAvatar = JSON.stringify({ kind: 'photo', uploadId: seeded.photo })
+    for (const [id, username] of [
+      [owner, 'legacy-owner'],
+      [colleague, 'legacy-colleague'],
+    ]) {
+      await scratch.query(
+        'INSERT INTO login(user_id, username, password_hash) VALUES ($1, $2, $3)',
+        [id, username, 'scrypt$16384$8$1$salt$key'],
+      )
+      await scratch.query('INSERT INTO account_security(user_id) VALUES ($1)', [id])
+      await scratch.query(
+        `INSERT INTO account(id, "accountId", "providerId", "userId", "updatedAt") VALUES ($1, $2, 'credential', $2, now())`,
+        [randomUUID(), id],
+      )
+    }
+    await scratch.query(`INSERT INTO account_photo(id, user_id, bytes) VALUES ($1, $2, '\\x00')`, [
+      seeded.photo,
+      owner,
+    ])
+    await scratch.query('UPDATE account_security SET avatar = $2 WHERE user_id = $1', [
+      owner,
+      photoAvatar,
+    ])
+    await scratch.query(
+      `INSERT INTO session(id, "expiresAt", token, "updatedAt", "userId") VALUES ($1, now() + interval '1 day', 'legacy-token', now(), $2)`,
+      [seeded.session, owner],
+    )
+    await scratch.query(
+      `INSERT INTO watch_ticket(hash, session_id, expires_at) VALUES ('legacy-ticket', $1, now() + interval '1 minute')`,
+      [seeded.session],
+    )
+    await scratch.query(
+      `INSERT INTO verification(id, identifier, value, "expiresAt") VALUES ($1, 'legacy', 'legacy', now())`,
+      [randomUUID()],
+    )
+    await scratch.query(
+      "INSERT INTO join_code(code_hash, sealed_code) VALUES ('legacy-hash', 'legacy-sealed')",
+    )
+    await scratch.query(
+      "INSERT INTO setup_code(code_hash, expires_at) VALUES ('legacy-hash', now() + interval '1 day')",
+    )
+    await scratch.query("INSERT INTO access_limit(key) VALUES ('legacy-limit')")
+    await scratch.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $3)', [
+      seeded.conversation,
+      lowPair,
+      highPair,
+    ])
+    await scratch.query(
+      "INSERT INTO direct_message(id, conversation_id, author_id, author_name, author_avatar, retry_id, body, cursor) VALUES ($1, $2, $3, 'Legacy owner', $4, $5, 'Kept private', 6)",
+      [randomUUID(), seeded.conversation, owner, photoAvatar, randomUUID()],
+    )
+    await scratch.query(
+      'INSERT INTO direct_read(user_id, conversation_id, cursor) VALUES ($1, $2, 6)',
+      [colleague, seeded.conversation],
+    )
+    const survivors = {
+      users: 'SELECT id, name, "createdAt", "updatedAt" FROM "user" ORDER BY id',
+      members: 'SELECT user_id, role, created_at FROM member ORDER BY user_id',
+      server: 'SELECT singleton, name, cursor::text, created_at FROM server',
+      rooms: 'SELECT * FROM room ORDER BY id',
+      channels: 'SELECT * FROM channel ORDER BY id',
+      messages: 'SELECT * FROM message ORDER BY id',
+      mentions: 'SELECT * FROM message_mention ORDER BY message_id, user_id',
+      reads: 'SELECT * FROM channel_read ORDER BY user_id, channel_id',
+      events: 'SELECT * FROM event ORDER BY cursor',
+      conversations: 'SELECT * FROM direct_conversation ORDER BY id',
+      directMessages: 'SELECT * FROM direct_message ORDER BY id',
+      directReads: 'SELECT * FROM direct_read ORDER BY user_id, conversation_id',
+      security: 'SELECT * FROM account_security ORDER BY user_id',
+      photos: 'SELECT * FROM account_photo ORDER BY id',
+    }
+    const before013 = Object.fromEntries(
+      await Promise.all(
+        Object.entries(survivors).map(async ([key, query]) => [key, await rows(query)]),
+      ),
+    )
+    const accepted = await migrate(database.url)
+    assert.equal(accepted.code, 0, accepted.output)
+    assert.match(accepted.output, /Huddle migrations applied/)
+    for (const [key, query] of Object.entries(survivors)) {
+      assert.ok(before013[key].length > 0, `the 013 fixture holds ${key}`)
+      assert.deepEqual(await rows(query), before013[key], `013 keeps every ${key} row and ID`)
+    }
+    assert.deepEqual(
+      await rows(
+        'SELECT id, tailscale_login, legacy_username FROM "user" ORDER BY legacy_username',
+      ),
+      [
+        { id: colleague, tailscale_login: null, legacy_username: 'legacy-colleague' },
+        { id: owner, tailscale_login: null, legacy_username: 'legacy-owner' },
+      ],
+      'every account waits for a link and keeps its old username as a label',
+    )
+    assert.deepEqual(
+      await rows(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('session', 'account', 'verification', 'login', 'watch_ticket')",
+      ),
+      [],
+      '013 drops every credential table',
+    )
+    assert.deepEqual(
+      await rows(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'user' AND column_name IN ('email', 'emailVerified', 'image')",
+      ),
+      [],
+      '013 drops the placeholder email and the unused profile columns',
+    )
+    const codes = await rows('SELECT * FROM join_code')
+    assert.equal(codes.length, 1, 'a server keeps exactly one join code')
+    JoinCode.parse(codes[0].code)
+    assert.deepEqual(Object.keys(codes[0]).sort(), ['code', 'singleton'], 'no sealed value is left')
+    assert.deepEqual(await rows('SELECT * FROM setup_code'), [], 'a keyed setup code is gone')
+    assert.deepEqual(await rows('SELECT * FROM access_limit'), [], 'keyed limits are gone')
+    await scratch.query('UPDATE "user" SET tailscale_login = $2 WHERE id = $1', [
+      owner,
+      'owner@huddle.test',
+    ])
+    await assert.rejects(
+      scratch.query('UPDATE "user" SET tailscale_login = $2 WHERE id = $1', [
+        colleague,
+        'owner@huddle.test',
+      ]),
+      /user_tailscale_login_key/,
+      'a login belongs to one account',
+    )
+    await assert.rejects(
+      scratch.query(`UPDATE "user" SET tailscale_login = 'ab' WHERE id = $1`, [colleague]),
+      /user_tailscale_login_check/,
+    )
+    await scratch.query('UPDATE "user" SET tailscale_login = NULL WHERE id = $1', [owner])
+    await scratch.query('DELETE FROM direct_conversation WHERE id = $1', [seeded.conversation])
+    await scratch.query('UPDATE account_security SET avatar = $2 WHERE user_id = $1', [
+      owner,
+      JSON.stringify({ kind: 'mascot', shape: 'circle', color: 'indigo' }),
+    ])
+    await scratch.query('DELETE FROM account_photo WHERE id = $1', [seeded.photo])
+
     const events = stored.map((row) => ServerEvent.parse(row.event))
     assert.deepEqual(
       events.flatMap((event) => (event.kind === 'message.created' ? event.mentions : [])),
@@ -357,7 +496,6 @@ try {
       'a pair has one conversation',
     )
     const [keptPhoto, prunedPhoto] = [randomUUID(), randomUUID()]
-    await scratch.query('INSERT INTO account_security(user_id) VALUES ($1)', [owner])
     await scratch.query(
       "INSERT INTO account_photo(id, user_id, bytes, created_at) VALUES ($1, $3, '\\x00', now() - interval '2 days'), ($2, $3, '\\x00', now() - interval '2 days')",
       [keptPhoto, prunedPhoto, owner],
@@ -428,11 +566,33 @@ try {
       { events: [], scanned: hidden },
       'a watcher at the head stays there',
     )
+
+    const shape = `SELECT table_name, column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns WHERE table_schema = 'public'
+      ORDER BY table_name, column_name`
+    const fresh = await migratedDatabase()
+    const installed = new pg.Client({ connectionString: fresh.url })
+    await installed.connect()
+    try {
+      assert.deepEqual(
+        (await installed.query(shape)).rows,
+        await rows(shape),
+        'a fresh install from 000 reaches the same shape as an upgrade',
+      )
+      assert.deepEqual(
+        (await installed.query('SELECT * FROM join_code')).rows,
+        [],
+        'a server that is not set up has no join code',
+      )
+    } finally {
+      await installed.end()
+      await fresh.drop()
+    }
   } finally {
     await scratch.end()
   }
   process.stdout.write(
-    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages, and snapshot and replay work on the result.\n',
+    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
   )
 } finally {
   await closeDomain()
