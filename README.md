@@ -23,7 +23,7 @@ pnpm --filter @huddle/server start
 
 From a device signed in to Tailscale as you, open `https://huddle.your-tailnet.ts.net`. Enter the setup code, a server name, and your name. You are now the admin, as your Tailscale login. Create a room and a channel so your friends have somewhere to talk.
 
-To run the server in Docker with a Tailscale sidecar instead, see [hosting](docs/hosting.md).
+To run the server in Docker with a Tailscale sidecar instead, see [hosting](docs/hosting.md). To have a VM deploy each new version by itself, see [Deploy updates automatically](docs/hosting.md#deploy-updates-automatically).
 
 ## Invite friends
 

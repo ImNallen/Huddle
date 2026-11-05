@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy the newest Huddle image
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/huddle/deploy/update.sh
