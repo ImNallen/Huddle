@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:18.3
+        image: postgres:17-bookworm
         env:
           POSTGRES_USER: huddle
           POSTGRES_PASSWORD: huddle-ci
