@@ -1,11 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { Application, Connecting, Connection, takeInviteFromAddress } from '@huddle/ui'
+import {
+  Application,
+  Connecting,
+  Connection,
+  startAppearance,
+  takeInviteFromAddress,
+} from '@huddle/ui'
 
 export const Route = createFileRoute('/')({ component: Home })
 
 function Home() {
   const [client, setClient] = useState<Connection | null>(null)
+  useEffect(() => startAppearance(), [])
   useEffect(() => {
     takeInviteFromAddress(window.location.origin)
     const connection = new Connection(window.location.origin)

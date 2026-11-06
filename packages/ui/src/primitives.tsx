@@ -29,11 +29,13 @@ export function Overlay({
   className,
   labelledBy,
   onClose,
+  dismissOnBackdrop = true,
   children,
 }: {
   className: string
   labelledBy: string
   onClose: () => void
+  dismissOnBackdrop?: boolean
   children: ReactNode
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -57,7 +59,12 @@ export function Overlay({
       }}
       onClick={(event) => {
         // A drag across the dialog's edge and a click on its padding also target the dialog.
-        if (pressedBackdrop.current && event.target === event.currentTarget && outside(event))
+        if (
+          dismissOnBackdrop &&
+          pressedBackdrop.current &&
+          event.target === event.currentTarget &&
+          outside(event)
+        )
           onClose()
       }}
     >
@@ -204,24 +211,47 @@ export function useNow() {
   }, [])
   return now
 }
-export function CopyButton({ value, label = 'Copy' }: { value: string; label?: string }) {
+export function CopyButton({
+  value,
+  label = 'Copy',
+  iconOnly = false,
+}: {
+  value: string | (() => string)
+  label?: string
+  iconOnly?: boolean
+}) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   async function copy() {
     try {
-      await navigator.clipboard.writeText(value)
+      await navigator.clipboard.writeText(typeof value === 'function' ? value() : value)
       setState('copied')
     } catch {
       setState('failed')
     }
   }
   const text = state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label
+  const icon =
+    state === 'copied' ? <Check size={iconOnly ? 15 : 13} /> : <Copy size={iconOnly ? 15 : 13} />
+  if (iconOnly) {
+    return (
+      <button
+        type="button"
+        className={`icon-button ${state === 'copied' ? 'is-copied' : ''}`}
+        aria-label={label}
+        title={text}
+        onClick={() => void copy()}
+      >
+        {icon}
+      </button>
+    )
+  }
   return (
     <button
       type="button"
       className={`access-tool ${state === 'copied' ? 'is-copied' : ''}`}
       onClick={() => void copy()}
     >
-      {state === 'copied' ? <Check size={13} /> : <Copy size={13} />}
+      {icon}
       {text}
     </button>
   )

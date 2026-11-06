@@ -143,6 +143,9 @@ importers:
       '@types/react':
         specifier: 19.2.2
         version: 19.2.2
+      tsx:
+        specifier: 4.20.6
+        version: 4.20.6
 
 packages:
 

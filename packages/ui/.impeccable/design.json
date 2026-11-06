@@ -1,42 +1,87 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-04T18:08:59.263Z",
+  "generatedAt": "2026-11-05T23:37:08.132Z",
   "title": "Design System: Huddle",
   "extensions": {
     "colorMeta": {
-      "accent": {
+      "accent-dark": {
         "role": "primary",
-        "displayName": "Huddle Indigo",
-        "canonical": "#5865f2",
+        "displayName": "Huddle Blue (Dark)",
+        "canonical": "#346bf1",
         "tonalRamp": [
-          "#060821",
-          "#171562",
-          "#2c2b9f",
-          "#434ad3",
-          "#606ffb",
-          "#899dff",
-          "#b8c6ff",
-          "#e9eefe"
+          "#020921",
+          "#031a63",
+          "#0b32a0",
+          "#1f52d5",
+          "#4077fb",
+          "#76a2ff",
+          "#afc9ff",
+          "#e6efff"
         ]
       },
-      "accent-hover": {
+      "accent-light": {
         "role": "primary",
-        "displayName": "Pressed Indigo",
-        "canonical": "#4752c4",
+        "displayName": "Huddle Blue (Light)",
+        "canonical": "#1b4ed8",
         "tonalRamp": [
-          "#06091d",
-          "#181b58",
-          "#2d3390",
-          "#4651c1",
-          "#6475e8",
-          "#899dfe",
-          "#b8c6fe",
-          "#eaeefe"
+          "#020922",
+          "#021965",
+          "#0931a3",
+          "#1d50d9",
+          "#3e76ff",
+          "#77a2ff",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
-      "on-accent": {
+      "accent-hover-dark": {
         "role": "primary",
-        "displayName": "On Indigo White",
+        "displayName": "Pressed Blue (Dark)",
+        "canonical": "#3061d9",
+        "tonalRamp": [
+          "#03091f",
+          "#051d5d",
+          "#113698",
+          "#2655cb",
+          "#467af1",
+          "#77a2ff",
+          "#afc9ff",
+          "#e7efff"
+        ]
+      },
+      "accent-hover-light": {
+        "role": "primary",
+        "displayName": "Pressed Blue (Light)",
+        "canonical": "#3160db",
+        "tonalRamp": [
+          "#03091f",
+          "#061c5e",
+          "#133599",
+          "#2854cd",
+          "#4779f3",
+          "#78a2ff",
+          "#afc9ff",
+          "#e7efff"
+        ]
+      },
+      "on-accent-dark": {
+        "role": "primary",
+        "displayName": "On Accent White (Dark)",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "on-accent-light": {
+        "role": "primary",
+        "displayName": "On Accent White (Light)",
         "canonical": "#ffffff",
         "tonalRamp": [
           "#0b0b0b",
@@ -52,121 +97,121 @@
       "focus-dark": {
         "role": "primary",
         "displayName": "Focus Ring (Dark)",
-        "canonical": "#8a93f6",
+        "canonical": "#346bf1",
         "tonalRamp": [
-          "#08091a",
-          "#1d1d4f",
-          "#353682",
-          "#5154b0",
-          "#7077d6",
-          "#939cf2",
-          "#bcc5fe",
-          "#ebedfe"
+          "#020921",
+          "#031a63",
+          "#0b32a0",
+          "#1f52d5",
+          "#4077fb",
+          "#76a2ff",
+          "#afc9ff",
+          "#e6efff"
         ]
       },
       "focus-light": {
         "role": "primary",
         "displayName": "Focus Ring (Light)",
-        "canonical": "#5865f2",
+        "canonical": "#1b4ed8",
         "tonalRamp": [
-          "#060821",
-          "#171562",
-          "#2c2b9f",
-          "#434ad3",
-          "#606ffb",
-          "#899dff",
-          "#b8c6ff",
-          "#e9eefe"
+          "#020922",
+          "#021965",
+          "#0931a3",
+          "#1d50d9",
+          "#3e76ff",
+          "#77a2ff",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
       "link-dark": {
         "role": "primary",
-        "displayName": "Link Periwinkle (Dark)",
-        "canonical": "#afbeed",
+        "displayName": "Link Blue (Dark)",
+        "canonical": "#51a2ff",
         "tonalRamp": [
-          "#080b12",
-          "#1d243a",
-          "#364062",
-          "#535f88",
-          "#7380ac",
-          "#97a4cb",
-          "#bfc8e6",
-          "#eaeefa"
+          "#010b1b",
+          "#00254c",
+          "#00417f",
+          "#0160b6",
+          "#3384dc",
+          "#64a8f8",
+          "#a4cdff",
+          "#e4f0ff"
         ]
       },
       "link-light": {
         "role": "primary",
-        "displayName": "Link Periwinkle (Light)",
-        "canonical": "#4752c4",
+        "displayName": "Link Blue (Light)",
+        "canonical": "#1b4ed8",
         "tonalRamp": [
-          "#06091d",
-          "#181b58",
-          "#2d3390",
-          "#4651c1",
-          "#6475e8",
-          "#899dfe",
-          "#b8c6fe",
-          "#eaeefe"
+          "#020922",
+          "#021965",
+          "#0931a3",
+          "#1d50d9",
+          "#3e76ff",
+          "#77a2ff",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
       "mention-dark": {
         "role": "primary",
         "displayName": "Mention Text (Dark)",
-        "canonical": "#c9cdfb",
+        "canonical": "#b4cbff",
         "tonalRamp": [
-          "#0a0a12",
-          "#222338",
-          "#3d3e5f",
-          "#5b5d85",
-          "#7b7ea8",
-          "#9ea2c8",
-          "#c4c7e3",
-          "#ecedf9"
+          "#080b13",
+          "#1a243c",
+          "#314165",
+          "#4d608d",
+          "#6d81b0",
+          "#92a5d0",
+          "#bbc9e9",
+          "#e8effc"
         ]
       },
       "mention-light": {
         "role": "primary",
         "displayName": "Mention Text (Light)",
-        "canonical": "#3c45a5",
+        "canonical": "#1a43b8",
         "tonalRamp": [
-          "#07091b",
-          "#191d52",
-          "#2f3786",
-          "#4955b5",
-          "#6878db",
-          "#8c9ef7",
-          "#b9c6fe",
-          "#eaeefe"
+          "#03091f",
+          "#071d5d",
+          "#143697",
+          "#2955ca",
+          "#497af0",
+          "#78a2ff",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
       "mention-bg-dark": {
         "role": "primary",
         "displayName": "Mention Tint (Dark)",
-        "canonical": "rgb(88 101 242 / 0.3)",
+        "canonical": "rgb(52 107 241 / 0.28)",
         "tonalRamp": [
-          "#060821",
-          "#171562",
-          "#2c2b9f",
-          "#434ad3",
-          "#606ffb",
-          "#899dff",
-          "#b8c6ff",
-          "#e9eefe"
+          "#020921",
+          "#031a63",
+          "#0b32a0",
+          "#1f52d5",
+          "#4077fb",
+          "#76a2ff",
+          "#afc9ff",
+          "#e6efff"
         ]
       },
       "mention-bg-light": {
         "role": "primary",
         "displayName": "Mention Tint (Light)",
-        "canonical": "rgb(88 101 242 / 0.15)",
+        "canonical": "rgb(27 78 216 / 0.12)",
         "tonalRamp": [
-          "#060821",
-          "#171562",
-          "#2c2b9f",
-          "#434ad3",
-          "#606ffb",
-          "#899dff",
-          "#b8c6ff",
-          "#e9eefe"
+          "#020922",
+          "#021965",
+          "#0931a3",
+          "#1d50d9",
+          "#3e76ff",
+          "#77a2ff",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
       "green-dark": {
@@ -187,91 +232,106 @@
       "green-light": {
         "role": "secondary",
         "displayName": "Connected Green (Light)",
-        "canonical": "#1c8548",
+        "canonical": "#116b36",
         "tonalRamp": [
-          "#020f05",
-          "#002e13",
-          "#005026",
-          "#04753b",
-          "#38985b",
-          "#6aba82",
-          "#a1d9b0",
-          "#dff5e4"
+          "#030f06",
+          "#002e12",
+          "#015025",
+          "#1f733e",
+          "#47965f",
+          "#74b785",
+          "#a7d7b2",
+          "#e1f4e5"
         ]
       },
       "amber-dark": {
         "role": "secondary",
         "displayName": "Waiting Amber (Dark)",
-        "canonical": "#f0b232",
+        "canonical": "#ffb900",
         "tonalRamp": [
-          "#130900",
-          "#332100",
-          "#573c00",
-          "#7f5a02",
-          "#a97902",
-          "#cf9b34",
-          "#e9c382",
-          "#fcecd3"
+          "#120900",
+          "#322200",
+          "#573d00",
+          "#7e5a01",
+          "#a87900",
+          "#d4990a",
+          "#edc276",
+          "#feeccf"
         ]
       },
       "amber-light": {
         "role": "secondary",
         "displayName": "Waiting Amber (Light)",
-        "canonical": "#a96a00",
+        "canonical": "#a34300",
         "tonalRamp": [
-          "#140800",
-          "#371f00",
-          "#5e3800",
-          "#875403",
-          "#b17319",
-          "#d19855",
-          "#ebc192",
-          "#fdebd8"
+          "#170601",
+          "#411600",
+          "#6e2b00",
+          "#9e4100",
+          "#c46331",
+          "#e48b61",
+          "#fab899",
+          "#ffeae0"
         ]
       },
       "danger-dark": {
         "role": "secondary",
         "displayName": "Soft Danger (Dark)",
-        "canonical": "#f87171",
+        "canonical": "#ff6467",
         "tonalRamp": [
-          "#190404",
-          "#4b030c",
-          "#7d0c1b",
-          "#ab2b33",
-          "#d25154",
-          "#f17d7b",
+          "#1b0303",
+          "#4d000a",
+          "#800018",
+          "#b3162b",
+          "#db464c",
+          "#fa7675",
           "#ffb2ae",
-          "#fee9e7"
+          "#ffe8e7"
         ]
       },
       "danger-light": {
         "role": "secondary",
         "displayName": "Soft Danger (Light)",
-        "canonical": "#c02e33",
+        "canonical": "#c10007",
         "tonalRamp": [
-          "#1b0303",
-          "#4d0006",
-          "#800012",
-          "#b11f28",
-          "#d94a49",
-          "#f87973",
-          "#ffb2ac",
-          "#fee9e7"
+          "#1c0201",
+          "#4d0001",
+          "#810003",
+          "#b80107",
+          "#e33d32",
+          "#ff7364",
+          "#ffb3a8",
+          "#ffe9e5"
         ]
       },
-      "danger-fill": {
+      "danger-fill-dark": {
         "role": "secondary",
-        "displayName": "Count Red",
-        "canonical": "#da373c",
+        "displayName": "Count Red (Dark)",
+        "canonical": "#d92d36",
         "tonalRamp": [
-          "#1c0203",
-          "#4d0006",
+          "#1c0202",
+          "#4d0007",
           "#800012",
-          "#b70820",
-          "#e04043",
-          "#fe736e",
-          "#feb3ad",
-          "#fee9e7"
+          "#b8001f",
+          "#e23c40",
+          "#ff726d",
+          "#ffb2ac",
+          "#ffe9e6"
+        ]
+      },
+      "danger-fill-light": {
+        "role": "secondary",
+        "displayName": "Count Red (Light)",
+        "canonical": "#c10007",
+        "tonalRamp": [
+          "#1c0201",
+          "#4d0001",
+          "#810003",
+          "#b80107",
+          "#e33d32",
+          "#ff7364",
+          "#ffb3a8",
+          "#ffe9e5"
         ]
       },
       "mascot-indigo": {
@@ -396,83 +456,83 @@
       },
       "chrome-dark": {
         "role": "neutral",
-        "displayName": "Graphite Shell (Dark)",
-        "canonical": "#131215",
+        "displayName": "Shell (Dark)",
+        "canonical": "#000000",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252527",
-          "#424144",
-          "#626064",
-          "#838185",
-          "#a5a4a8",
-          "#c9c8cb",
-          "#eeeeef"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "chrome-light": {
         "role": "neutral",
-        "displayName": "Graphite Shell (Light)",
-        "canonical": "#e3e5e8",
+        "displayName": "Shell (Light)",
+        "canonical": "#f4f4f5",
         "tonalRamp": [
-          "#0b0b0c",
-          "#242526",
-          "#414244",
-          "#606164",
-          "#818285",
-          "#a3a5a7",
-          "#c8c9cb",
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616162",
+          "#828283",
+          "#a5a5a6",
+          "#c9c9c9",
           "#eeeeef"
         ]
       },
       "sidebar-dark": {
         "role": "neutral",
         "displayName": "Channel Column (Dark)",
-        "canonical": "#131215",
+        "canonical": "#000000",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252527",
-          "#424144",
-          "#626064",
-          "#838185",
-          "#a5a4a8",
-          "#c9c8cb",
-          "#eeeeef"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "sidebar-light": {
         "role": "neutral",
         "displayName": "Channel Column (Light)",
-        "canonical": "#f2f3f5",
+        "canonical": "#fafafa",
         "tonalRamp": [
           "#0b0b0b",
-          "#252526",
-          "#414243",
-          "#606163",
-          "#818284",
-          "#a4a5a7",
-          "#c8c9ca",
-          "#eeeeef"
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "bg-dark": {
         "role": "neutral",
         "displayName": "Chat Ground (Dark)",
-        "canonical": "#1b1a1f",
+        "canonical": "#0a0a0a",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252428",
-          "#424146",
-          "#616066",
-          "#828188",
-          "#a5a4aa",
-          "#c9c8cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "bg-light": {
         "role": "neutral",
         "displayName": "Chat Ground (Light)",
-        "canonical": "#ffffff",
+        "canonical": "#fcfcfc",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -487,46 +547,46 @@
       "panel-dark": {
         "role": "neutral",
         "displayName": "Account Panel Ground (Dark)",
-        "canonical": "#212025",
+        "canonical": "#111111",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252428",
-          "#424146",
-          "#616066",
-          "#828187",
-          "#a5a4aa",
-          "#c9c8cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "panel-light": {
         "role": "neutral",
         "displayName": "Account Panel Ground (Light)",
-        "canonical": "#ebedef",
+        "canonical": "#f4f4f5",
         "tonalRamp": [
           "#0b0b0b",
-          "#242526",
-          "#414243",
-          "#606163",
-          "#818284",
-          "#a3a5a7",
-          "#c8c9ca",
+          "#252525",
+          "#424242",
+          "#616162",
+          "#828283",
+          "#a5a5a6",
+          "#c9c9c9",
           "#eeeeef"
         ]
       },
       "rail-tile-dark": {
         "role": "neutral",
         "displayName": "Rail Tile (Dark)",
-        "canonical": "#212025",
+        "canonical": "#141414",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252428",
-          "#424146",
-          "#616066",
-          "#828187",
-          "#a5a4aa",
-          "#c9c8cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "rail-tile-light": {
@@ -547,16 +607,16 @@
       "raised-dark": {
         "role": "neutral",
         "displayName": "Raised Surface (Dark)",
-        "canonical": "#242328",
+        "canonical": "#141414",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252428",
-          "#424146",
-          "#616066",
-          "#828187",
-          "#a5a4aa",
-          "#c9c8cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "raised-light": {
@@ -577,16 +637,16 @@
       "card-dark": {
         "role": "neutral",
         "displayName": "Card Surface (Dark)",
-        "canonical": "#1c1b20",
+        "canonical": "#0e0e0e",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252428",
-          "#424146",
-          "#616066",
-          "#828188",
-          "#a5a4aa",
-          "#c9c8cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "card-light": {
@@ -607,120 +667,120 @@
       "input-dark": {
         "role": "neutral",
         "displayName": "Composer Fill (Dark)",
-        "canonical": "#212327",
+        "canonical": "#141414",
         "tonalRamp": [
-          "#0b0b0c",
-          "#242528",
-          "#404246",
-          "#5f6166",
-          "#808287",
-          "#a3a5a9",
-          "#c7c9cc",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "input-light": {
         "role": "neutral",
         "displayName": "Composer Fill (Light)",
-        "canonical": "#ebedef",
+        "canonical": "#f4f4f5",
         "tonalRamp": [
           "#0b0b0b",
-          "#242526",
-          "#414243",
-          "#606163",
-          "#818284",
-          "#a3a5a7",
-          "#c8c9ca",
+          "#252525",
+          "#424242",
+          "#616162",
+          "#828283",
+          "#a5a5a6",
+          "#c9c9c9",
           "#eeeeef"
         ]
       },
       "secondary-dark": {
         "role": "neutral",
         "displayName": "Secondary Fill (Dark)",
-        "canonical": "#2a292e",
+        "canonical": "#1e1e1e",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252528",
-          "#424146",
-          "#616066",
-          "#828187",
-          "#a5a4aa",
-          "#c9c8cc",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "secondary-light": {
         "role": "neutral",
         "displayName": "Secondary Fill (Light)",
-        "canonical": "#e3e5e8",
+        "canonical": "#e4e4e7",
         "tonalRamp": [
           "#0b0b0c",
-          "#242526",
-          "#414244",
-          "#606164",
-          "#818285",
-          "#a3a5a7",
-          "#c8c9cb",
+          "#252526",
+          "#424244",
+          "#616163",
+          "#828285",
+          "#a5a5a7",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "secondary-hover-dark": {
         "role": "neutral",
         "displayName": "Secondary Fill Hover (Dark)",
-        "canonical": "#38373d",
+        "canonical": "#2a2a2a",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252428",
-          "#424146",
-          "#616067",
-          "#828188",
-          "#a5a4aa",
-          "#c9c8cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "secondary-hover-light": {
         "role": "neutral",
         "displayName": "Secondary Fill Hover (Light)",
-        "canonical": "#d7d9dc",
+        "canonical": "#d4d4d8",
         "tonalRamp": [
           "#0b0b0c",
-          "#242526",
-          "#414244",
-          "#606164",
-          "#818285",
-          "#a3a5a7",
-          "#c8c9cb",
+          "#252527",
+          "#424244",
+          "#616164",
+          "#828285",
+          "#a5a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "tile-dark": {
         "role": "neutral",
         "displayName": "Icon Tile (Dark)",
-        "canonical": "#393a40",
+        "canonical": "#262626",
         "tonalRamp": [
-          "#0b0b0c",
-          "#242528",
-          "#414247",
-          "#606167",
-          "#818289",
-          "#a3a5ab",
-          "#c8c9cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "tile-light": {
         "role": "neutral",
         "displayName": "Icon Tile (Light)",
-        "canonical": "#dfe1e5",
+        "canonical": "#e4e4e7",
         "tonalRamp": [
           "#0b0b0c",
-          "#242527",
-          "#414245",
-          "#5f6165",
-          "#808286",
-          "#a3a5a8",
-          "#c8c9cb",
+          "#252526",
+          "#424244",
+          "#616163",
+          "#828285",
+          "#a5a5a7",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
@@ -742,22 +802,22 @@
       "hover-light": {
         "role": "neutral",
         "displayName": "Hover Wash (Light)",
-        "canonical": "rgb(6 6 7 / 0.05)",
+        "canonical": "rgb(24 24 27 / 0.05)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "selected-dark": {
         "role": "neutral",
         "displayName": "Selected Wash (Dark)",
-        "canonical": "rgb(255 255 255 / 0.11)",
+        "canonical": "rgb(255 255 255 / 0.09)",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -772,22 +832,22 @@
       "selected-light": {
         "role": "neutral",
         "displayName": "Selected Wash (Light)",
-        "canonical": "rgb(6 6 7 / 0.09)",
+        "canonical": "rgb(24 24 27 / 0.08)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "message-hover-dark": {
         "role": "neutral",
         "displayName": "Message Wash (Dark)",
-        "canonical": "rgb(255 255 255 / 0.04)",
+        "canonical": "rgb(255 255 255 / 0.03)",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -802,22 +862,22 @@
       "message-hover-light": {
         "role": "neutral",
         "displayName": "Message Wash (Light)",
-        "canonical": "rgb(6 6 7 / 0.03)",
+        "canonical": "rgb(24 24 27 / 0.03)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "line-dark": {
         "role": "neutral",
         "displayName": "Hairline (Dark)",
-        "canonical": "rgb(255 255 255 / 0.07)",
+        "canonical": "rgb(255 255 255 / 0.06)",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -832,22 +892,22 @@
       "line-light": {
         "role": "neutral",
         "displayName": "Hairline (Light)",
-        "canonical": "rgb(6 6 7 / 0.09)",
+        "canonical": "rgb(24 24 27 / 0.11)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "line-strong-dark": {
         "role": "neutral",
         "displayName": "Strong Hairline (Dark)",
-        "canonical": "rgb(255 255 255 / 0.13)",
+        "canonical": "rgb(255 255 255 / 0.12)",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -862,46 +922,46 @@
       "line-strong-light": {
         "role": "neutral",
         "displayName": "Strong Hairline (Light)",
-        "canonical": "rgb(6 6 7 / 0.16)",
+        "canonical": "rgb(24 24 27 / 0.18)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "text-dark": {
         "role": "neutral",
         "displayName": "Message Text (Dark)",
-        "canonical": "#f2f2f3",
+        "canonical": "#f5f5f5",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
           "#424242",
-          "#616162",
-          "#828283",
-          "#a5a5a6",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
           "#c9c9c9",
-          "#eeeeef"
+          "#eeeeee"
         ]
       },
       "text-light": {
         "role": "neutral",
         "displayName": "Message Text (Light)",
-        "canonical": "#1f2125",
+        "canonical": "#27272a",
         "tonalRamp": [
           "#0b0b0c",
-          "#242528",
-          "#404246",
-          "#5f6166",
-          "#808287",
-          "#a3a5aa",
-          "#c7c9cc",
-          "#eeeef0"
+          "#252527",
+          "#424244",
+          "#616164",
+          "#828285",
+          "#a5a5a8",
+          "#c9c9cb",
+          "#eeeeef"
         ]
       },
       "strong-dark": {
@@ -922,105 +982,105 @@
       "strong-light": {
         "role": "neutral",
         "displayName": "Strong Text (Light)",
-        "canonical": "#060607",
+        "canonical": "#18181b",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "muted-dark": {
         "role": "neutral",
         "displayName": "Muted Text (Dark)",
-        "canonical": "#a09fa4",
+        "canonical": "#a3a3a3",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252527",
-          "#424145",
-          "#616065",
-          "#828186",
-          "#a5a4a9",
-          "#c9c8cc",
-          "#eeeeef"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "muted-light": {
         "role": "neutral",
         "displayName": "Muted Text (Light)",
-        "canonical": "#5c5e66",
+        "canonical": "#62626c",
         "tonalRamp": [
           "#0b0b0d",
-          "#242529",
-          "#404248",
-          "#5f6169",
-          "#80828a",
-          "#a3a5ac",
-          "#c7c9ce",
+          "#24242a",
+          "#414149",
+          "#60606a",
+          "#81818b",
+          "#a4a4ad",
+          "#c8c8cf",
           "#eeeef1"
         ]
       },
       "faint-dark": {
         "role": "neutral",
         "displayName": "Faint Text (Dark)",
-        "canonical": "#96959a",
+        "canonical": "#909090",
         "tonalRamp": [
-          "#0b0b0c",
-          "#252527",
-          "#424145",
-          "#616065",
-          "#828186",
-          "#a5a4a9",
-          "#c9c8cc",
-          "#eeeeef"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "faint-light": {
         "role": "neutral",
         "displayName": "Faint Text (Light)",
-        "canonical": "#5c5e66",
+        "canonical": "#62626c",
         "tonalRamp": [
           "#0b0b0d",
-          "#242529",
-          "#404248",
-          "#5f6169",
-          "#80828a",
-          "#a3a5ac",
-          "#c7c9ce",
+          "#24242a",
+          "#414149",
+          "#60606a",
+          "#81818b",
+          "#a4a4ad",
+          "#c8c8cf",
           "#eeeef1"
         ]
       },
       "placeholder-dark": {
         "role": "neutral",
         "displayName": "Placeholder Text (Dark)",
-        "canonical": "#94969b",
+        "canonical": "#909090",
         "tonalRamp": [
-          "#0b0b0c",
-          "#242527",
-          "#404246",
-          "#5f6166",
-          "#808287",
-          "#a3a5a9",
-          "#c8c9cc",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "placeholder-light": {
         "role": "neutral",
         "displayName": "Placeholder Text (Light)",
-        "canonical": "#5c5e66",
+        "canonical": "#62626c",
         "tonalRamp": [
           "#0b0b0d",
-          "#242529",
-          "#404248",
-          "#5f6169",
-          "#80828a",
-          "#a3a5ac",
-          "#c7c9ce",
+          "#24242a",
+          "#414149",
+          "#60606a",
+          "#81818b",
+          "#a4a4ad",
+          "#c8c8cf",
           "#eeeef1"
         ]
       },
@@ -1042,91 +1102,91 @@
       "scroll-thumb-light": {
         "role": "neutral",
         "displayName": "Scroll Thumb (Light)",
-        "canonical": "rgb(6 6 7 / 0.22)",
+        "canonical": "rgb(24 24 27 / 0.22)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252526",
-          "#424243",
-          "#616163",
-          "#828284",
-          "#a5a5a6",
-          "#c9c9ca",
+          "#0b0b0c",
+          "#252527",
+          "#424245",
+          "#616164",
+          "#828286",
+          "#a4a5a8",
+          "#c9c9cb",
           "#eeeeef"
         ]
       },
       "access-field-from-dark": {
         "role": "neutral",
         "displayName": "Access Field Start (Dark)",
-        "canonical": "#1a1650",
+        "canonical": "#0c1a4d",
         "tonalRamp": [
-          "#090a16",
-          "#1f2143",
-          "#393b70",
-          "#565a99",
-          "#767bbe",
-          "#99a0dc",
-          "#c0c6f2",
-          "#ebedff"
+          "#070b15",
+          "#182342",
+          "#2e3f6e",
+          "#495f97",
+          "#6980bb",
+          "#8ea4da",
+          "#b8c9f1",
+          "#e7eeff"
         ]
       },
       "access-field-from-light": {
         "role": "neutral",
         "displayName": "Access Field Start (Light)",
-        "canonical": "#262a8c",
+        "canonical": "#12307f",
         "tonalRamp": [
-          "#06091c",
-          "#171d53",
-          "#2d3689",
-          "#4755b8",
-          "#6578de",
-          "#899efa",
-          "#b8c6fe",
-          "#e9eeff"
+          "#050a1a",
+          "#0f214e",
+          "#213d80",
+          "#395cae",
+          "#597fd3",
+          "#7fa3f0",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
       "access-field-to-dark": {
         "role": "neutral",
         "displayName": "Access Field End (Dark)",
-        "canonical": "#2b52d2",
+        "canonical": "#346bf1",
         "tonalRamp": [
-          "#030920",
-          "#091a60",
-          "#16339c",
-          "#2b52d0",
-          "#4977f7",
-          "#7ba1fe",
-          "#b1c9ff",
-          "#e7effe"
+          "#020921",
+          "#031a63",
+          "#0b32a0",
+          "#1f52d5",
+          "#4077fb",
+          "#76a2ff",
+          "#afc9ff",
+          "#e6efff"
         ]
       },
       "access-field-to-light": {
         "role": "neutral",
         "displayName": "Access Field End (Light)",
-        "canonical": "#2a54c8",
+        "canonical": "#1b4ed8",
         "tonalRamp": [
-          "#03091f",
-          "#081d5c",
-          "#163696",
-          "#2c56c8",
-          "#4b7aef",
-          "#79a2fe",
-          "#b0c9fe",
-          "#e7effe"
+          "#020922",
+          "#021965",
+          "#0931a3",
+          "#1d50d9",
+          "#3e76ff",
+          "#77a2ff",
+          "#afc9ff",
+          "#e7efff"
         ]
       },
       "access-card-dark": {
         "role": "neutral",
         "displayName": "Access Card (Dark)",
-        "canonical": "#323339",
+        "canonical": "#141414",
         "tonalRamp": [
-          "#0b0b0c",
-          "#242528",
-          "#414247",
-          "#606167",
-          "#818289",
-          "#a3a5ab",
-          "#c8c9cd",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "access-card-light": {
@@ -1147,37 +1207,52 @@
       "access-input-dark": {
         "role": "neutral",
         "displayName": "Access Input (Dark)",
-        "canonical": "#27292d",
+        "canonical": "#1e1e1e",
         "tonalRamp": [
-          "#0b0b0c",
-          "#242527",
-          "#404246",
-          "#5f6166",
-          "#808287",
-          "#a3a5a9",
-          "#c7c9cc",
-          "#eeeef0"
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
         ]
       },
       "access-input-light": {
         "role": "neutral",
         "displayName": "Access Input (Light)",
-        "canonical": "#ebedef",
+        "canonical": "#f4f4f5",
         "tonalRamp": [
           "#0b0b0b",
-          "#242526",
-          "#414243",
-          "#606163",
-          "#818284",
-          "#a3a5a7",
-          "#c8c9ca",
+          "#252525",
+          "#424242",
+          "#616162",
+          "#828283",
+          "#a5a5a6",
+          "#c9c9c9",
           "#eeeeef"
         ]
       },
-      "scrim": {
+      "scrim-dark": {
         "role": "neutral",
-        "displayName": "Scrim",
+        "displayName": "Scrim (Dark)",
         "canonical": "rgb(0 0 0 / 0.7)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "scrim-light": {
+        "role": "neutral",
+        "displayName": "Scrim (Light)",
+        "canonical": "rgb(255 255 255 / 0.55)",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -1197,7 +1272,7 @@
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Home greeting, the Members page, and settings pages."
+        "purpose": "Home greeting and the Members page."
       },
       "headline-access": {
         "displayName": "Headline Access",
@@ -1252,18 +1327,18 @@
       },
       {
         "name": "menu-light",
-        "value": "0 8px 24px rgb(6 6 7 / 0.16)",
+        "value": "0 8px 24px rgb(24 24 27 / 0.16)",
         "purpose": "Server menu and rail tooltips in light."
       },
       {
         "name": "modal-dark",
         "value": "0 16px 48px rgb(0 0 0 / 0.5)",
-        "purpose": "Dialogs in dark, over the scrim."
+        "purpose": "Dialogs in dark, over the scrim, and the create panel."
       },
       {
         "name": "modal-light",
-        "value": "0 16px 48px rgb(6 6 7 / 0.24)",
-        "purpose": "Dialogs in light, over the scrim."
+        "value": "0 16px 48px rgb(24 24 27 / 0.24)",
+        "purpose": "Dialogs in light, over the scrim, and the create panel."
       },
       {
         "name": "card-dark",
@@ -1272,7 +1347,7 @@
       },
       {
         "name": "card-light",
-        "value": "0 4px 16px rgb(6 6 7 / 0.2)",
+        "value": "0 4px 16px rgb(24 24 27 / 0.2)",
         "purpose": "The access card on the access field in light."
       }
     ],
@@ -1374,7 +1449,7 @@
       "kind": "custom",
       "refersTo": "account-panel",
       "description": "The floating panel with the product’s only presence dot, showing connection state.",
-      "html": "<div class=\"ds-account\"><span class=\"ds-account-avatar\"><span class=\"ds-mascot\"></span><i class=\"ds-presence\"></i></span><span class=\"ds-account-name\"><strong>alex</strong><span>Admin</span></span><button class=\"ds-icon-button\" aria-label=\"Account security\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg></button></div>",
+      "html": "<div class=\"ds-account\"><span class=\"ds-account-avatar\"><span class=\"ds-mascot\"></span><i class=\"ds-presence\"></i></span><span class=\"ds-account-name\"><strong>alex</strong><span>Admin</span></span><button class=\"ds-icon-button\" aria-label=\"Settings\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></svg></button></div>",
       "css": ".ds-account { display: flex; align-items: center; gap: 8px; width: 304px; height: 56px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-family: var(--font); } .ds-account-avatar { position: relative; display: flex; } .ds-account-avatar .ds-mascot { width: 32px; height: 32px; } .ds-presence { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border: 2px solid var(--panel); border-radius: 50%; background: var(--green); } .ds-account-name { display: grid; flex: 1; min-width: 0; line-height: 1.3; } .ds-account-name strong { color: var(--strong); font-size: 14px; font-weight: 600; } .ds-account-name span { color: var(--muted); font-size: 12px; } .ds-icon-button { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; } .ds-icon-button:hover { background: var(--hover); color: var(--text); } .ds-icon-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; } .ds-mascot { position: relative; display: inline-grid; flex: none; width: 40px; height: 40px; border-radius: 50%; background: #fb923c; } .ds-mascot::before, .ds-mascot::after { content: \"\"; position: absolute; top: 37%; width: 9%; height: 26%; border-radius: 99px; background: white; } .ds-mascot::before { left: 35%; } .ds-mascot::after { right: 35%; }"
     },
     {
@@ -1396,24 +1471,29 @@
   ],
   "narrative": {
     "northStar": "The Known Floor Plan",
-    "overview": "A Discord user should know where everything is at first sight. Huddle deliberately follows Discord's desktop shell, at the user's request, and plays it straight: a rail of rounded-square tiles, a channel sidebar, a flexible chat, a member list, a composer at the bottom, and an account panel floating across the rail and sidebar. Recognition is the design. Nothing here competes with that layout for attention, and the shell asks nothing of the people chatting in it.\n\nHuddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat, near-black room: a graphite shell around a slightly lifted chat ground, one indigo accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.\n\nThe interface shows only what exists. Controls for unbuilt features (voice calls, search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. Voice channels are the one exception: they can be created and listed, and opening one says voice isn't available yet, with no call controls. The theme follows the system. Dark values were sampled from Mobbin captures of Discord; the light palette is derived, with no reference.",
+    "overview": "A Discord user should know where everything is at first sight. Huddle deliberately follows Discord's desktop shell, at the user's request, and plays it straight: a rail of rounded-square tiles, a channel sidebar, a flexible chat, a member list, a composer at the bottom, and an account panel floating across the rail and sidebar. Recognition is the design. Nothing here competes with that layout for attention, and the shell asks nothing of the people chatting in it.\n\nHuddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat room: a shell around a slightly lifted chat ground, one blue accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.\n\nThe interface shows only what exists. Controls for unbuilt features (voice calls, search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. Voice channels are the one exception: they can be created and listed, and opening one says voice isn't available yet, with no call controls. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.",
     "keyCharacteristics": [
       "A fixed floor plan that a Discord user reads without learning it.",
       "Flat, full-width messages on a slightly lifted ground inside a darker shell.",
-      "One indigo accent for action, focus, and the current place on the rail.",
+      "One accent for action, focus, and the current place on the rail.",
       "Hairlines and tonal steps for structure; shadows only where something floats.",
       "Figtree throughout, with a tight type ramp and a 14px interface base.",
       "Only built features have controls."
     ],
     "rules": [
       {
-        "name": "The Sampled Ground Rule",
-        "body": "Dark values were sampled from Mobbin captures of Discord. The light palette is derived, with no reference, so check a light value by contrast and by capture rather than by comparison to a source.",
+        "name": "The T3 Reference Rule",
+        "body": "Huddle's values are T3 Code's where T3 has that role. A departure needs a measured reason. T3's light `textMuted` #71717b reaches only 4.39:1 on #f4f4f5, which Huddle uses for the panel, shell, and composer, so light uses #62626c. White on T3's `error` reaches 3.81:1 in light and 3.53:1 in dark, and the unread count is white on `danger-fill`, so those are darkened. T3's `input` is a border, so it maps to `line-strong`.",
+        "section": "colors"
+      },
+      {
+        "name": "The Readable Theme Rule",
+        "body": "Body text, muted text, and accent foreground keep at least 4.5:1 on every ground, and the focus ring 3:1, in every theme. Comparison runs on the 8-bit value that will be written. Derivation seats a seed background so that pure white or black reaches 4.75:1, and a guarded token moves until it clears its floor. An imported file's overrides are guarded too, because a file is not a person's choice. Advanced edits are the one exception: they stay verbatim and show their ratio.",
         "section": "colors"
       },
       {
         "name": "The One Accent Rule",
-        "body": "Indigo marks action, focus, and the current place on the rail. It is never a panel ground, and no second accent exists.",
+        "body": "The accent marks action, focus, and the current place on the rail. It is never a panel ground, and no second accent exists.",
         "section": "colors"
       },
       {
@@ -1437,7 +1517,7 @@
       "Do keep the Huddle name and logo on the rail and access screens.",
       "Do set messages flat and full width, with authors grouped and continuation lines flush.",
       "Do use the Rail Pill lengths exactly: 8px unread, 20px hover or focus, 32px current.",
-      "Do read every color from the tokens in `src/chat.css` so both modes resolve, and define a new role in both.",
+      "Do read every color from the tokens so every theme resolves, and define a new role as one `light-dark()` line in `src/chat.css` and one row in `TOKENS`.",
       "Do use Lucide line icons, mostly at 16 to 20px, in `muted`, moving to `text` or `strong` with state.",
       "Do build separation from hairlines and tonal steps before reaching for a shadow.",
       "Do draw the merged 32px window bar over every desktop screen, with traffic lights on macOS and drawn controls elsewhere."
@@ -1450,7 +1530,9 @@
       "Don't add breadcrumbs to the top bar.",
       "Don't uppercase labels in the shell.",
       "Don't add a resting shadow to the rail, sidebar, chat, member list, or account panel.",
-      "Don't use a gradient outside the access field."
+      "Don't use a gradient outside the access field and the Appearance swatches, the one exception, whose gradient is built from that half's own `--bg` and `--accent`.",
+      "Don't branch on the scheme with a media query. Use `light-dark()`, which accepts colors only, so a lightness or shadow pair is written as two full colors.",
+      "Don't paint a theme's value from a string that has not been through `parseColor`."
     ]
   }
 }
