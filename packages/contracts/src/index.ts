@@ -132,7 +132,10 @@ export const ServerInfo = z.object({
   setup: z.enum(['required', 'complete']),
   serverUrl: z.url(),
   websocketUrl: z.url(),
+  voice: z.boolean().default(false),
 })
+export const JoinVoice = z.object({ channelId: ChannelId }).strict()
+export const VoiceGrant = z.object({ url: z.url(), token: z.string().min(1) })
 export type Server = z.infer<typeof Server>
 export type Member = z.infer<typeof Member>
 export type MemberRole = z.infer<typeof MemberRole>

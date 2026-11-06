@@ -19,7 +19,7 @@ tailscale serve --bg --https=443 --set-path=/events http://127.0.0.1:3001
 pnpm --filter @huddle/server start
 ```
 
-`pnpm setup:local` writes a `.env` with a generated database password and a database port, 5434 unless that port is taken. The server prints a setup code to its log.
+`pnpm setup:local` writes a `.env` with generated secrets and a database port, 5434 unless that port is taken. The server prints a setup code to its log.
 
 From a device signed in to Tailscale as you, open `https://huddle.your-tailnet.ts.net`. Enter the setup code, a server name, and your name. You are now the admin, as your Tailscale login. Create a room and a channel so your friends have somewhere to talk.
 

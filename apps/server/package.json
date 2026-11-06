@@ -20,6 +20,7 @@
     "@huddle/contracts": "workspace:*",
     "@tanstack/react-router": "1.170.41",
     "@tanstack/react-start": "1.168.60",
+    "livekit-server-sdk": "2.19.2",
     "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",

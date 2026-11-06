@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { AccessToken, TrackSource } from 'livekit-server-sdk'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
@@ -13,16 +14,19 @@ import {
   Server,
   ServerEvent,
   UserId,
+  VoiceGrant,
   type ChannelId,
   type ConversationId,
   type SendMessage,
   type SendDirectMessage,
   type CreateChannel,
   type CreateRoom,
+  type JoinVoice,
   type MarkRead,
   type MarkDirectRead,
   type OpenDirect,
 } from '@huddle/contracts'
+import { config } from './config'
 import { db } from './db'
 
 export class DomainError extends Error {
@@ -406,6 +410,29 @@ export async function members(userId: UserId) {
     )
     return Members.parse({ members: rows.rows })
   }, true)
+}
+export async function voiceGrant(
+  user: { id: UserId; name: string },
+  input: z.infer<typeof JoinVoice>,
+) {
+  if (!config.voice) throw new DomainError(503, 'Voice is not set up on this server.')
+  const { key, secret, url } = config.voice
+  await transaction(async (sql) => {
+    const channel = await findChannel(sql, input.channelId)
+    await requireMember(sql, user.id)
+    if (channel.kind === 'text') throw new DomainError(409, 'Text channels do not carry voice.')
+  }, true)
+  const token = new AccessToken(key, secret, { identity: user.id, name: user.name, ttl: 60 })
+  token.addGrant({
+    room: input.channelId,
+    roomJoin: true,
+    canSubscribe: true,
+    canPublish: true,
+    canPublishSources: [TrackSource.MICROPHONE],
+    canPublishData: false,
+    canUpdateOwnMetadata: false,
+  })
+  return VoiceGrant.parse({ url, token: await token.toJwt() })
 }
 async function findChannel(sql: PoolClient, channelId: ChannelId) {
   const rows = await sql.query<Record<string, unknown>>(

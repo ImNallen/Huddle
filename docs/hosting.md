@@ -10,27 +10,60 @@ Run nothing else on the machine or in the container. The server cannot tell Serv
 
 Run Tailscale with a TUN device. In userspace mode, `tailscaled` forwards a peer's direct connection to the node's IP onto `127.0.0.1`, past Serve. Any peer your access policy allows could then reach the server's ports and claim to be any member. The server refuses to start when the `tailscale` command reports userspace mode. `compose.yaml` pins kernel networking for its sidecar.
 
-As a second layer, let friends reach only port 443 on this machine in your tailnet's access policy.
+As a second layer, let friends reach only `tcp:443`, `tcp:8443`, and `udp:7882` on this machine in your tailnet's access policy.
 
 Run `pnpm --filter @huddle/server test:serve <address>` on the machine to check all of this.
 
 ## Publish the server with Serve
 
-The server listens on two loopback ports, and both addresses are hard-coded to `127.0.0.1`:
+Huddle uses three loopback ports:
 
-- `PORT`, default 3000, serves the API and the browser app.
-- `WS_PORT`, default 3001, serves WebSockets.
+- `PORT`, default 3000, serves the API and the browser app. Its address is hard-coded to `127.0.0.1`.
+- `WS_PORT`, default 3001, serves WebSockets. Its address is hard-coded to `127.0.0.1`.
+- 7880 is LiveKit's signalling port. LiveKit's configuration binds it to `127.0.0.1`.
 
-Serve publishes both under one HTTPS address. Serve strips `/events`, so the WebSocket listener sees `/`.
+Serve publishes the first two under one HTTPS address, and LiveKit on HTTPS port 8443 of the same name. Serve strips `/events`, so the WebSocket listener sees `/`.
 
 ```sh
 tailscale serve --bg --https=443 http://127.0.0.1:3000
 tailscale serve --bg --https=443 --set-path=/events http://127.0.0.1:3001
+tailscale serve --bg --https=8443 http://127.0.0.1:7880
 ```
 
 Set `SERVER_URL` to the exact address that Serve publishes, such as `https://huddle.your-tailnet.ts.net`. `WS_PUBLIC_URL` defaults to `wss://` plus that host plus `/events`. If you change a port, change the Serve commands to match. The server treats any request whose `Host` is not one of these two addresses as having no identity, so a wrong `SERVER_URL` shows every visitor the **Open Huddle through Tailscale** screen.
 
 Do not turn on Funnel, because Funnel traffic has no identity. Do not mount another app on this address with `--set-path`. That app would share Huddle's origin, and its pages could act as anyone who opens them.
+
+## Run LiveKit
+
+Voice channels carry no audio yet. LiveKit is the service they will use, and the server already issues tokens for it, so set it up with the rest of the server.
+
+One LiveKit server relays everyone's audio, because friends on a shared Tailscale node have no route to each other.
+
+- **Signalling goes through Serve on port 8443.** HTTPS port 8443 is a separate origin from Huddle's address, so nothing LiveKit serves can act as a member. Mounting it under Huddle's address with `--set-path` would share Huddle's origin.
+- **Audio uses one UDP port, 7882, on the node's Tailscale address.** Serve does not carry UDP. `rtc.interfaces.includes: [tailscale0]` binds that port only on the Tailscale addresses, so the rest of your network cannot reach it. Keeping it to one port keeps the access policy to one line.
+- **ICE over TCP stays off, with `rtc.tcp_port: 0`.** LiveKit binds that port on every interface and ignores the interface filter, so turning it on would open a port to your whole network. A friend whose access policy does not allow `udp:7882` gets no audio.
+
+LiveKit binds its UDP port once, when it starts, and only if `tailscale0` is already up. Started any earlier, it still answers on 8443 and carries no audio, and it does not recover by itself. Start LiveKit after Tailscale is up, and restart it if Tailscale was down when it started.
+
+`pnpm setup:local` and `deploy/install.sh` write `LIVEKIT_API_SECRET` to a new `.env`, and `pnpm setup:local` adds it to an existing one. The server and LiveKit must share this value, which must be at least 32 characters. The server offers voice only when it is set, so leave it empty to turn voice off. `LIVEKIT_PUBLIC_URL` defaults to `wss://` plus the name in `SERVER_URL` plus `:8443`, and an HTTPS server refuses a plain `ws:` value.
+
+Without the Docker sidecar, run LiveKit on the host's network from the directory that holds `.env`:
+
+```sh
+docker run -d --name huddle-livekit --restart unless-stopped --network host \
+  -e LIVEKIT_CONFIG="port: 7880
+bind_addresses: [127.0.0.1]
+rtc:
+  udp_port: 7882
+  tcp_port: 0
+  use_external_ip: false
+  interfaces:
+    includes: [tailscale0]
+keys:
+  huddle: $(sed -n 's/^LIVEKIT_API_SECRET=//p' .env)" \
+  livekit/livekit-server:v1.13.11
+```
 
 ## Trust only your own origins
 
@@ -53,13 +86,13 @@ pnpm setup:local --server-url https://huddle.your-tailnet.ts.net
 echo TS_AUTHKEY=tskey-your-key >> .env
 docker compose up -d db tailscale
 docker compose run --build --rm server node --import tsx scripts/migrate.ts
-docker compose up -d server
+docker compose up -d server livekit
 docker compose logs server
 ```
 
-If the sidecar restarts on its own, run `docker compose restart server`, because the server's network goes with the sidecar. The sidecar's node is named `huddle`, so `SERVER_URL` must use that name. Without `TS_AUTHKEY`, run `docker compose logs tailscale` and open the login link it prints. Use an auth key for a person rather than a tagged key until you confirm that sharing a tagged machine works for your tailnet.
+If the sidecar restarts on its own, run `docker compose restart server livekit`, because their network goes with the sidecar. The sidecar's node is named `huddle`, so `SERVER_URL` must use that name. Without `TS_AUTHKEY`, run `docker compose logs tailscale` and open the login link it prints. Use an auth key for a person rather than a tagged key until you confirm that sharing a tagged machine works for your tailnet.
 
-Compose publishes only PostgreSQL, on `127.0.0.1` at `POSTGRES_PORT` (5434 by default), for migrations from the host.
+Compose publishes only PostgreSQL, on `127.0.0.1` at `POSTGRES_PORT` (5434 by default), for migrations from the host. The `livekit` service shares the sidecar's network, and Serve publishes it from `serve.json`. The `livekit-dev` service, behind the `dev` profile, is for development and tests on a machine with no `tailscale0`.
 
 ## Deploy updates automatically
 
@@ -68,7 +101,7 @@ An Ubuntu VM can run the Docker sidecar setup and deploy each commit that passes
 1. After the checks pass on `main`, GitHub Actions publishes `ghcr.io/imnallen/huddle:main`. Pull requests and forks cannot publish this image.
 2. Every five minutes, a systemd timer on the VM runs `deploy/update.sh`, which pulls the image. If the server already runs that image, it stops there.
 3. For a new image, it takes `compose.yaml` and `deploy/` out of the image, backs up the database, runs the migrations, and starts the new server. The VM has no Git checkout, so the Compose file always matches the code.
-4. If the migrations fail, or the server is not healthy within three minutes, it restores the previous image and skips the new one.
+4. If the migrations fail, or the server is not healthy within three minutes, it restores the previous image and skips the new one. LiveKit starts after the server, and a LiveKit failure does not fail the deploy.
 
 Anyone who can merge to `main` controls this VM, because the updater runs what `main` publishes as root. Decide who can merge with that in mind.
 
@@ -88,7 +121,7 @@ systemctl start huddle-update.service
 docker compose --project-directory /opt/huddle logs tailscale
 ```
 
-`install.sh` writes `.env` with a generated database password if `.env` does not exist, and it never changes an existing one. It also installs and starts the timer.
+`install.sh` writes `.env` with a generated database password and LiveKit secret if `.env` does not exist, and it never changes an existing one. It also installs and starts the timer.
 
 Open the newest login link from the `tailscale` log to add the node to your tailnet. Until you do, the sidecar restarts every minute with a new link, and the updater waits instead of deploying. In the Tailscale admin console, turn off key expiry for this machine, or friends lose access when the key expires. Then deploy and read the setup code from the `server` log:
 
@@ -102,7 +135,9 @@ docker compose --project-directory /opt/huddle logs server
 - `journalctl -u huddle-update` shows what each run did.
 - `systemctl start huddle-update` deploys now instead of waiting for the timer.
 - `systemctl stop huddle-update.timer` pauses deploys until you start it again.
-- Each run also restarts the server if it is unhealthy, which covers a sidecar restart cutting off its network.
+- Each run also restarts the server and LiveKit if the server is unhealthy, which covers a sidecar restart cutting off their network.
+- Each run restarts LiveKit if it has no UDP port, which covers a reboot that started it before `tailscale0` was up.
+- Each run adds `LIVEKIT_API_SECRET` to an `.env` that lacks the line and starts LiveKit with it. On a VM from before voice, this happens on the run after the deploy that introduces LiveKit, and it restarts the server once. An existing line is never changed, so an empty one keeps voice off.
 - An image that fails its deploy is tagged `huddle:failed`, and the updater skips it until a newer image is published. To retry it, run `docker rmi huddle:failed`. If it was the first deploy, there is no earlier image to restore, so also run `docker compose rm -sf server`.
 - A published change to the systemd units takes effect only after you run `install.sh` again.
 
@@ -139,7 +174,7 @@ Whether Serve reports a friend's own login for a machine shared into their tailn
 
 ## Upgrade
 
-PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgrade. Run `pnpm db:migrate` before you start the new server. A VM that [deploys updates automatically](#deploy-updates-automatically) does both for you.
+PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgrade. Run `pnpm db:migrate` before you start the new server. A VM that [deploys updates automatically](#deploy-updates-automatically) does both for you. Run `pnpm setup:local` to add any missing LiveKit lines to `.env`. It changes nothing else in the file.
 
 Migrations are transactional and tracked in `huddle_migration`. Migration `007_single_server.sql` converts a database from the earlier workspace design. It keeps rooms, channels, messages, read markers, mentions, and events from zero or one workspace, and fails on a database with more than one. To start over from such a database, drop and recreate it, run the migrations, and set up the server again.
 
@@ -159,7 +194,9 @@ After the upgrade:
 Continuous integration has no tailnet, so its suites supply the identity headers themselves. To check that real Serve still behaves as Huddle expects, run this on a tailnet machine from a device signed in as a person:
 
 ```sh
-pnpm --filter @huddle/server test:serve https://your-node.your-tailnet.ts.net:8443
+pnpm --filter @huddle/server test:serve https://your-node.your-tailnet.ts.net:10000
 ```
 
-The command starts a scratch server, prints the two `tailscale serve` commands to run, and checks TLS, identity on HTTP and on upgrades, forged and underscore headers, the `/events` mapping, and loopback callers.
+Port 8443 is LiveKit's, so the command refuses it. If you set `LIVEKIT_PUBLIC_URL`, the command checks that address instead. LiveKit must already be running, as [Run LiveKit](#run-livekit) describes.
+
+The command starts a scratch server, prints the three `tailscale serve` commands to run, and checks TLS, identity on HTTP and on upgrades, forged and underscore headers, the `/events` mapping, and loopback callers. It also checks that LiveKit accepts the server's token over `wss` on 8443, and that 7880 is closed on the Tailscale address.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
@@ -25,6 +25,7 @@ import {
   ServerInfo,
   Snapshot,
   UserId,
+  VoiceGrant,
   type ServerEvent,
 } from '@huddle/contracts'
 import { mentionedUsers } from '../src/lib/domain'
@@ -34,18 +35,24 @@ import {
   inviteCode,
   joinFriend,
   migratedDatabase,
+  runningLivekit,
   setupFriend,
   startServer,
   tailscale,
 } from './harness'
 
+const livekit = await runningLivekit()
 const setupCode = `integration-${randomUUID()}`
 const database = await migratedDatabase()
 const port = Number(process.env.TEST_PORT ?? 3100)
 const server = await startServer({
   databaseUrl: database.url,
   port,
-  env: { SETUP_CODE: setupCode },
+  env: {
+    SETUP_CODE: setupCode,
+    LIVEKIT_API_SECRET: livekit.secret,
+    LIVEKIT_PUBLIC_URL: livekit.url,
+  },
 }).catch(async (error: unknown) => {
   await database.drop()
   throw error
@@ -939,6 +946,121 @@ try {
     'voice channels list and replay with their kind, share the room namespace, and reject messages',
   )
 
+  const askForVoice = (headers: Headers, body: string) =>
+    fetch(`${origin}/api/voice/token`, { method: 'POST', headers, body })
+  const joinHangout = JSON.stringify({ channelId: hangout.id })
+  assert.equal(
+    (await askForVoice(headersFor(undefined, origin, true), joinHangout)).status,
+    401,
+    'anonymous cannot ask for a voice token',
+  )
+  assert.equal(
+    (await askForVoice(headersFor('stranger@huddle.test', origin, true), joinHangout)).status,
+    401,
+    'a login with no account cannot ask for a voice token',
+  )
+  assert.equal(
+    (await askForVoice(headersFor(member.login, origin, false), joinHangout)).status,
+    401,
+    'a voice token request must carry X-Huddle-User',
+  )
+  assert.equal(
+    (await askForVoice(headersFor(member.login, 'https://evil.test', true), joinHangout)).status,
+    403,
+    'a page on another site cannot ask for a voice token',
+  )
+  const textVoice = await request('/api/voice/token', {
+    login: member.login,
+    body: { channelId: lobby.id },
+  })
+  assert.equal(textVoice.response.status, 409)
+  assert.deepEqual(textVoice.data, { message: 'Text channels do not carry voice.' })
+  for (const who of [member.login, owner.login, member.login]) {
+    const unknown = await request('/api/voice/token', {
+      login: who,
+      body: { channelId: randomUUID() },
+    })
+    assert.equal(unknown.response.status, 404)
+    assert.deepEqual(unknown.data, { message: 'Channel not found.' })
+  }
+  for (const body of [
+    '{',
+    '{}',
+    JSON.stringify({ channelId: 'not-a-uuid' }),
+    JSON.stringify({ channelId: hangout.id, room: 'another' }),
+  ])
+    assert.equal(
+      (await askForVoice(headersFor(member.login, origin, true), body)).status,
+      400,
+      `a malformed voice token request: ${body}`,
+    )
+  pass('a voice token needs an account, this origin, X-Huddle-User, and a known voice channel')
+
+  const validateVoice = (token: string) =>
+    fetch(`${livekit.http}/rtc/validate?access_token=${encodeURIComponent(token)}`)
+  for (const person of [member, owner]) {
+    const grant = await call('/api/voice/token', VoiceGrant, person.login, {
+      channelId: hangout.id,
+    })
+    assert.equal(grant.url, livekit.url)
+    const [header = '', payload = '', signature = ''] = grant.token.split('.')
+    assert.equal(
+      signature,
+      createHmac('sha256', livekit.secret).update(`${header}.${payload}`).digest('base64url'),
+      'the token is signed with the shared secret',
+    )
+    const decode = (part: string): unknown =>
+      JSON.parse(Buffer.from(part, 'base64url').toString('utf8'))
+    assert.deepEqual(decode(header), { alg: 'HS256' })
+    const { exp, nbf, ...claims } = z
+      .looseObject({ exp: z.number(), nbf: z.number() })
+      .parse(decode(payload))
+    assert.deepEqual(claims, {
+      iss: livekit.key,
+      sub: person.user.id,
+      name: person.user.name,
+      video: {
+        room: hangout.id,
+        roomJoin: true,
+        canSubscribe: true,
+        canPublish: true,
+        canPublishSources: ['microphone'],
+        canPublishData: false,
+        canUpdateOwnMetadata: false,
+      },
+    })
+    assert.equal(exp - nbf, 60, 'a voice token lives for 60 seconds')
+    assert.ok(Math.abs(nbf - Date.now() / 1000) < 10, 'a voice token starts now')
+
+    const accepted = await validateVoice(grant.token)
+    assert.equal(accepted.status, 200, `LiveKit: ${await accepted.text()}`)
+    const flipped = signature.startsWith('A') ? `B${signature.slice(1)}` : `A${signature.slice(1)}`
+    const forgedClaims = Buffer.from(
+      JSON.stringify({ ...claims, exp, nbf, video: { room: hangout.id, roomAdmin: true } }),
+    ).toString('base64url')
+    const wrongSecret = createHmac('sha256', 'x'.repeat(64))
+      .update(`${header}.${payload}`)
+      .digest('base64url')
+    for (const [label, token] of [
+      ['a changed signature', `${header}.${payload}.${flipped}`],
+      ['changed claims', `${header}.${forgedClaims}.${signature}`],
+      ['another secret', `${header}.${payload}.${wrongSecret}`],
+    ] as const)
+      assert.equal((await validateVoice(token)).status, 401, `LiveKit refuses ${label}`)
+  }
+  assert.equal((await call('/api/info', ServerInfo)).voice, true)
+  assert.equal(
+    ServerInfo.parse({
+      name: 'Older server',
+      setup: 'complete',
+      serverUrl: origin,
+      websocketUrl: wsURL,
+    }).voice,
+    false,
+    'a new client reads an older server as having no voice',
+  )
+  pass('members and admins get a 60-second microphone token that real LiveKit accepts untampered')
+
   const sent: Message[] = []
   for (const body of ['First unread', 'Second unread', '@integration OWNER, can you look?'])
     sent.push(
@@ -1426,7 +1548,7 @@ try {
   const aging = await startServer({
     databaseUrl: database.url,
     port: port + 2,
-    env: { SOCKET_MAX_AGE_SECONDS: '2' },
+    env: { SOCKET_MAX_AGE_SECONDS: '2', LIVEKIT_API_SECRET: undefined },
   })
   try {
     const opened = Date.now()
@@ -1463,10 +1585,18 @@ try {
       'the reconnected socket replays what it missed',
     )
     again.terminate()
+    pass('a socket ages out with code 4001 and a reconnect replays the gap under fresh attestation')
+
+    const voiceless = new Client(aging.origin, owner.login)
+    await voiceless.stage()
+    assert.equal(ServerInfo.parse((await voiceless.call('/api/info')).value).voice, false)
+    const unconfigured = await voiceless.call('/api/voice/token', { channelId: hangout.id })
+    assert.equal(unconfigured.response.status, 503)
+    assert.deepEqual(unconfigured.value, { message: 'Voice is not set up on this server.' })
+    pass('a server with no LiveKit secret reports no voice and answers 503')
   } finally {
     await aging.stop()
   }
-  pass('a socket ages out with code 4001 and a reconnect replays the gap under fresh attestation')
 
   for (const socket of sockets) socket.terminate()
   await server.stop()

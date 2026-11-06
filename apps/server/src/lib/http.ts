@@ -5,6 +5,7 @@ import {
   CreateChannel,
   CreateRoom,
   Cursor,
+  JoinVoice,
   MarkDirectRead,
   MarkRead,
   OpenDirect,
@@ -59,6 +60,7 @@ export async function applicationRequest(request: Request): Promise<Response> {
           setup: (await setupRequired()) ? 'required' : 'complete',
           serverUrl: config.SERVER_URL,
           websocketUrl: config.WS_PUBLIC_URL,
+          voice: config.voice !== null,
         },
         { headers },
       )
@@ -110,7 +112,9 @@ export async function applicationRequest(request: Request): Promise<Response> {
       else if (path === '/api/direct/read') {
         await domain.markDirectRead(userId, MarkDirectRead.parse(body))
         result = {}
-      } else throw new domain.DomainError(404, 'Endpoint not found.')
+      } else if (path === '/api/voice/token')
+        result = await domain.voiceGrant(user, JoinVoice.parse(body))
+      else throw new domain.DomainError(404, 'Endpoint not found.')
     } else throw new domain.DomainError(405, 'Method not allowed.')
     return Response.json(result, { headers })
   } catch (error) {

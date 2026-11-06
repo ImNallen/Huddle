@@ -29,8 +29,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      livekit:
+        image: livekit/livekit-server:v1.13.11
+        env:
+          LIVEKIT_CONFIG: '{ port: 7880, rtc: { udp_port: 7882, tcp_port: 0, use_external_ip: false, node_ip: 127.0.0.1 }, keys: { huddle: huddle-ci-secret-that-is-at-least-32-chars } }'
+        ports: ['7880:7880', '7882:7882/udp']
     env:
       DATABASE_URL: postgresql://huddle:huddle-ci@localhost:5432/huddle_ci
+      LIVEKIT_API_SECRET: huddle-ci-secret-that-is-at-least-32-chars
+      LIVEKIT_PUBLIC_URL: ws://localhost:7880
       PLAYWRIGHT_CHANNEL: chrome
     steps:
       - name: Checkout

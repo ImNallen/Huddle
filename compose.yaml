@@ -60,6 +60,46 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    network_mode: service:tailscale
+    environment:
+      # Not `:?`. Compose interpolates every service, so a required secret would stop `up`, `run`, and `pull` on an .env from before voice.
+      # With no secret, LiveKit refuses every token.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        bind_addresses: [127.0.0.1]
+        rtc:
+          udp_port: 7882
+          tcp_port: 0
+          use_external_ip: false
+          interfaces:
+            includes: [tailscale0]
+        keys:
+          ${LIVEKIT_API_KEY:-huddle}: ${LIVEKIT_API_SECRET:-}
+    depends_on:
+      tailscale:
+        condition: service_started
+        restart: true
+    restart: unless-stopped
+  livekit-dev:
+    profiles: [dev]
+    image: livekit/livekit-server:v1.13.11
+    ports:
+      - '127.0.0.1:${LIVEKIT_PORT:-7880}:7880'
+      # A mapped UDP port would advertise the container's port as the ICE candidate, so both sides match.
+      - '127.0.0.1:${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp'
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          udp_port: ${LIVEKIT_UDP_PORT:-7882}
+          tcp_port: 0
+          use_external_ip: false
+          node_ip: 127.0.0.1
+        keys:
+          ${LIVEKIT_API_KEY:-huddle}: ${LIVEKIT_API_SECRET:-}
+    restart: unless-stopped
 volumes:
   postgres-data:
   tailscale-state:

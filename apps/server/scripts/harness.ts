@@ -49,6 +49,24 @@ export async function migratedDatabase() {
   return database
 }
 
+export async function runningLivekit() {
+  const start = 'Start it with: docker compose --profile dev up -d livekit-dev'
+  const secret = process.env.LIVEKIT_API_SECRET
+  if (!secret)
+    throw new Error(`LIVEKIT_API_SECRET is not set. Run pnpm setup:local first. ${start}`)
+  const url = process.env.LIVEKIT_PUBLIC_URL ?? `ws://localhost:${process.env.LIVEKIT_PORT ?? 7880}`
+  const http = url.replace(/^ws/, 'http')
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const answered = await fetch(http).then(
+      (response) => response.ok,
+      () => false,
+    )
+    if (answered) return { key: process.env.LIVEKIT_API_KEY ?? 'huddle', secret, url, http }
+    await delay(250)
+  }
+  throw new Error(`The integration suite needs LiveKit, and nothing answers at ${http}. ${start}`)
+}
+
 export type ServerProcess = Awaited<ReturnType<typeof startServer>>
 export async function startServer(options: {
   databaseUrl: string
