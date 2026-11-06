@@ -16,6 +16,8 @@ import { roleLabels } from './Members'
 import { Avatar } from './Avatar'
 import { ChannelIcon, initials } from './Badges'
 import { Logo } from './primitives'
+import { CallPanel } from './Voice'
+import type { VoiceCall } from './voiceCall'
 
 type Hint = { name: string; top: number; left: number; shown: boolean }
 type RailHints = { show: (name: string, tile: HTMLElement) => void; hide: () => void }
@@ -196,6 +198,7 @@ export function Sidebar({
   directs,
   view,
   connection,
+  voice,
   onView,
   onDirect,
   onRoom,
@@ -212,6 +215,7 @@ export function Sidebar({
   directs: DirectRow[]
   view: View
   connection: string
+  voice: VoiceCall
   onView: (view: View) => void
   onDirect: (conversationId: ConversationId) => void
   onRoom: (roomId: RoomId) => void
@@ -308,10 +312,13 @@ export function Sidebar({
                     {listed.map((channel) => {
                       const { count, mentions } = channelActivity(channel)
                       const current = view.kind === 'room' && view.channelId === channel.id
+                      const inCall =
+                        (voice.call.phase === 'connected' || voice.call.phase === 'reconnecting') &&
+                        voice.call.channelId === channel.id
                       return (
                         <button
                           key={channel.id}
-                          className={`nav-row ${count ? 'unread' : ''}`}
+                          className={`nav-row ${count ? 'unread' : ''} ${inCall ? 'in-call' : ''}`}
                           aria-current={current ? 'page' : undefined}
                           onClick={() =>
                             onView({ kind: 'room', roomId: room.id, channelId: channel.id })
@@ -319,6 +326,7 @@ export function Sidebar({
                         >
                           <ChannelIcon kind={channel.kind} size={18} />
                           <span>{channel.name}</span>
+                          {inCall && <span className="sr-only">you're in this call</span>}
                           {mentions > 0 && (
                             <b className="nav-count">
                               {mentions}
@@ -377,6 +385,14 @@ export function Sidebar({
           )}
         </nav>
       </aside>
+      <CallPanel
+        voice={voice}
+        channels={channels}
+        viewing={view.kind === 'room' ? view.channelId : null}
+        onOpen={(channel) =>
+          onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
+        }
+      />
       <footer className="account">
         <span className="account-avatar">
           <Avatar

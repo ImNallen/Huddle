@@ -33,7 +33,7 @@ User holds each account's ID, display name, and `tailscale_login`. A NULL login 
 - Server holds at most one row, enforced by a boolean `singleton` primary key. It stores the server name chosen at setup and a transactionally updated event cursor.
 - Member gives a user an `admin` or `member` role on the server, one row per user. Only admins share invites and create rooms and channels.
 - Room has a case-insensitively unique name on the server. Every member sees every room.
-- Channel belongs to a room and has a unique normalized name within it. Its kind is `text` or `voice`, and text and voice channels share that name space. A voice channel carries no audio yet and rejects messages.
+- Channel belongs to a room and has a unique normalized name within it. Its kind is `text` or `voice`, and text and voice channels share that name space. A voice channel holds calls and rejects messages.
 - Message has an author, channel, body, stable retry UUID, and committed event cursor.
 - Event records each server change at its cursor. Its `audience` is NULL for an event every member sees, or the list of user IDs allowed to see it.
 - AccountSecurity holds each user's avatar.
@@ -86,7 +86,13 @@ The bodies are stored unencrypted, so the host can read them with database acces
 
 ## Voice
 
-Voice channels carry no audio yet. The media service and the token route exist, and the interface does not use them.
+A person joins a voice channel from its page. The call belongs to `ServerView`, above the views, so moving to another channel leaves it running, and leaving the server, losing identity, or moving to another account ends it. A person is in one call at a time, and joining another channel leaves the first.
+
+`useVoiceCall` holds the call's phase: idle, waiting for the microphone, connecting, connected, reconnecting, or failed. Each attempt is its own session in `voiceCall.ts`, which owns the microphone, the LiveKit room, and the audio elements, and releases all three on every path out. That includes cancelling while a permission prompt is open, because the browser can still hand over the microphone afterwards. `livekit-client` loads on the first join, so nobody who never calls downloads it.
+
+The microphone comes first and the token second, because a permission prompt can outlast the token's 60 seconds. A failure names its cause and what to do. The client tells a port problem from a refused token by whether signalling connected first: if it did and the call still failed, the media port is the likely problem.
+
+The desktop app shows a notice instead of a Join button. macOS needs a microphone permission the app does not yet ask for.
 
 One LiveKit server relays audio. Friends on a shared Tailscale node have no route to each other, so a mesh between them cannot work. It runs beside the Huddle server and shares no code or tables with it.
 
@@ -177,7 +183,7 @@ We accept no sign-out and no per-device view in exchange for no session state an
 
 `000_better_auth_baseline.sql` looks like dead code, because 013 drops most of what it creates. It lets 001 to 012 replay on a fresh database and lets `test:rooms-migration` keep proving the legacy paths.
 
-Voice calls, video, file uploads, message editing, and mobile clients are follow-up slices. The interface must not pretend those features work, so a voice channel opens to a notice with no call controls. The [LiveKit service and token route](#voice) are in place for those calls.
+Video, file uploads, message editing, and mobile clients are follow-up slices, and so are calls in the desktop app. The interface must not pretend those features work, so a server without LiveKit and the desktop app show a notice in a voice channel, with no call controls.
 
 ## Verification
 

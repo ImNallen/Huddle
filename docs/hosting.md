@@ -36,7 +36,7 @@ Do not turn on Funnel, because Funnel traffic has no identity. Do not mount anot
 
 ## Run LiveKit
 
-Voice channels carry no audio yet. LiveKit is the service they will use, and the server already issues tokens for it, so set it up with the rest of the server.
+Calls in voice channels run through LiveKit, so set it up with the rest of the server. Without it, voice channels say voice is turned off, and everything else works.
 
 One LiveKit server relays everyone's audio, because friends on a shared Tailscale node have no route to each other.
 
@@ -178,7 +178,7 @@ PostgreSQL data lives in the `postgres-data` volume. Back it up before you upgra
 
 Migrations are transactional and tracked in `huddle_migration`. Migration `007_single_server.sql` converts a database from the earlier workspace design. It keeps rooms, channels, messages, read markers, mentions, and events from zero or one workspace, and fails on a database with more than one. To start over from such a database, drop and recreate it, run the migrations, and set up the server again.
 
-Migration `011_channel_kind.sql` marks every existing channel as a text channel. Channels are text or voice, and voice channels carry no audio yet.
+Migration `011_channel_kind.sql` marks every existing channel as a text channel. Channels are text or voice.
 
 Migration `013_tailscale_identity.sql` moves an older server to Tailscale identity. It cannot be undone, so back up first. It keeps every account ID, role, room, channel, message, direct message, read marker, mention, avatar, and photo. It drops usernames, stored credentials, and sessions, and it keeps each old username as a label for `account:link`. It issues a new join code, so old invites stop working.
 

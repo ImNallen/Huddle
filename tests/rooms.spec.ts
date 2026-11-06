@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { inviteCode, join, onboard, rail, railTile } from './accounts'
 import { useScratchServer } from './server'
 
-useScratchServer('ui')
+useScratchServer('ui', { LIVEKIT_API_SECRET: '' })
 
 async function createRoom(page: Page, name: string) {
   await railTile(page, 'Create room').click()
@@ -18,9 +18,9 @@ async function createTextChannel(page: Page, name: string) {
 }
 const channelList = (page: Page, room: string) =>
   page.getByRole('navigation', { name: `${room} channels`, exact: true })
-const voiceNotice = "Voice isn't available yet. Text channels work as usual."
+const voiceNotice = 'Voice is turned off on this server. Text channels work as usual.'
 
-test('rooms hold their own channels, remember one, and voice channels say they carry no audio', async ({
+test('rooms hold their own channels, remember one, and voice channels say when a server has voice off', async ({
   browser,
   page,
 }) => {

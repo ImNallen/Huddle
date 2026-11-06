@@ -15,7 +15,9 @@ import { useServer, type DirectThread, type Thread, type ThreadMessage } from '.
 import { Sidebar } from './Sidebar'
 import { Home } from './Home'
 import { ChannelConversation, DirectConversation } from './Conversation'
-import { EmptyRoom, VoiceChannel } from './RoomViews'
+import { EmptyRoom } from './RoomViews'
+import { VoiceChannel, type VoiceAvailability } from './Voice'
+import { useVoiceCall } from './voiceCall'
 import { ChannelDialog, InviteDialog, NewMessageDialog, RoomDialog } from './Dialogs'
 import { MemberList, MembersPage, useMembers } from './Members'
 import { Badge } from './Badges'
@@ -50,6 +52,7 @@ export function ServerView({
   client,
   me,
   covered,
+  voiceAvailable,
   onAccessChanged,
   onSettings,
   onServer,
@@ -57,6 +60,7 @@ export function ServerView({
   client: Transport
   me: Me
   covered: boolean
+  voiceAvailable: boolean
   onAccessChanged: () => void
   onSettings: () => void
   onServer?: () => void
@@ -66,6 +70,7 @@ export function ServerView({
   const [memberList, setMemberList] = useState(true)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const voice = useVoiceCall(client)
 
   const sync = useServer(
     client,
@@ -124,6 +129,11 @@ export function ServerView({
       </Frame>
     )
   const server = snapshot.server
+  const availability: VoiceAvailability = !voiceAvailable
+    ? 'off'
+    : document.documentElement.dataset.native
+      ? 'desktop'
+      : 'on'
   const roster = members.kind === 'ready' ? members.value : null
   const directs: DirectRow[] = sync.directs.map((direct) => ({
     ...direct,
@@ -160,6 +170,7 @@ export function ServerView({
         directs={directs}
         view={view}
         connection={sync.connection}
+        voice={voice}
         onView={open}
         onDirect={openDirect}
         onRoom={openRoom}
@@ -177,7 +188,13 @@ export function ServerView({
         />
       ) : channel?.kind === 'voice' ? (
         <VoiceChannel
+          client={client}
+          me={me}
           channel={channel}
+          channels={channels}
+          availability={availability}
+          voice={voice}
+          roster={roster}
           memberList={memberList}
           onMemberList={() => setMemberList((value) => !value)}
         />

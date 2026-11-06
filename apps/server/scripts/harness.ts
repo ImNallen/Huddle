@@ -64,7 +64,7 @@ export async function runningLivekit() {
     if (answered) return { key: process.env.LIVEKIT_API_KEY ?? 'huddle', secret, url, http }
     await delay(250)
   }
-  throw new Error(`The integration suite needs LiveKit, and nothing answers at ${http}. ${start}`)
+  throw new Error(`This suite needs LiveKit, and nothing answers at ${http}. ${start}`)
 }
 
 export type ServerProcess = Awaited<ReturnType<typeof startServer>>
