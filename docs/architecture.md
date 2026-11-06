@@ -84,6 +84,20 @@ A photo is readable by its owner, and by a member only while it is someone's cur
 
 The bodies are stored unencrypted, so the host can read them with database access, and the interface says so at the start of each conversation. Whoever has a shell on the host can also run `account:link` to bind a member's account to a login they hold, then read that member's conversations in the app. An admin without a shell cannot, because no web route writes a login. The member notices a takeover of a linked account, because their own login stops reaching it. Until an upgraded account is linked, nothing tells its owner, so the upgrade window is when friends rely on trusting the host most. Avatars are account photos that any member can fetch by ID, and pruning keeps a photo while a direct message still shows it.
 
+## Voice
+
+Voice channels carry no audio yet. The media service and the token route exist, and the interface does not use them.
+
+One LiveKit server relays audio. Friends on a shared Tailscale node have no route to each other, so a mesh between them cannot work. It runs beside the Huddle server and shares no code or tables with it.
+
+`POST /api/voice/token` takes a channel and answers with LiveKit's address and a token. It sits behind the same `contextAllowed`, `requireAccess`, and `X-Huddle-User` checks as every other POST. A text channel answers 409 and an unknown channel 404. A server with no `LIVEKIT_API_SECRET` answers 503, and `/api/info` reports `voice: false`. Clients read `voice` with a default of false, so a new client still parses an older server. `config.voice` is one value, null or complete, so no caller can hold half a configuration.
+
+The token names the account ID, the display name, and the channel ID as the room. It lets the holder join that room, subscribe, and publish only a microphone. It has no admin or room creation grant, cannot publish data, and cannot change its own metadata. It lasts 60 seconds, because it only has to last until the client connects, and expiry does not end a call in progress.
+
+Voice state is not in the event log. Who is in a call is live state that LiveKit owns and that nothing needs to replay. Issuing a token writes nothing.
+
+Signalling reaches LiveKit through Serve on HTTPS port 8443, not under Huddle's address, because a mount there would share Huddle's origin. `contextAllowed` refuses requests from a page on that origin, and its address is never a `serverHosts` entry, so it carries no Huddle identity. Serve cannot carry UDP, so audio goes to one UDP port on the node's Tailscale address. ICE over TCP stays off, because LiveKit binds that port on every interface and ignores its interface filter. [Hosting](hosting.md#run-livekit) has the operator's view.
+
 ## Module ownership
 
 - `apps/server` owns Start HTTP routes, the identity gate, application SQL, and the realtime server runtime. `src/lib/identity.ts` is the only file that reads a Tailscale header, and `scripts/check-admission.ts` fails the typecheck otherwise.
@@ -97,7 +111,7 @@ Validate configuration and incoming network data at boundaries. Use parameterize
 
 ## Authentication
 
-The Tailscale headers on each request are the only credential. Serve deletes any client copy of its identity headers and sets its own. The server stores no session, cookie, or token, and its only secret is the database's. A session minted from ambient identity would have exactly the authority of that identity and would outlive it, so it would add state and a revocation gap and little else.
+The Tailscale headers on each request are the only credential. Serve deletes any client copy of its identity headers and sets its own. The server stores no session, cookie, or token. Its only secrets are the database's and LiveKit's, and a voice token grants a LiveKit room, never access to Huddle. A session minted from ambient identity would have exactly the authority of that identity and would outlive it, so it would add state and a revocation gap and little else.
 
 `requireAccess(headers)` in `src/lib/identity.ts` is the one authentication gate, for HTTP and for each realtime batch. It calls `identify`, which calls the pure `readAttestation`, then runs one query. `readAttestation` decides who Tailscale says this is:
 
@@ -163,11 +177,11 @@ We accept no sign-out and no per-device view in exchange for no session state an
 
 `000_better_auth_baseline.sql` looks like dead code, because 013 drops most of what it creates. It lets 001 to 012 replay on a fresh database and lets `test:rooms-migration` keep proving the legacy paths.
 
-Voice calls, video, file uploads, message editing, and mobile clients are follow-up slices. The interface must not pretend those features work, so a voice channel opens to a notice with no call controls. LiveKit remains the planned media service.
+Voice calls, video, file uploads, message editing, and mobile clients are follow-up slices. The interface must not pretend those features work, so a voice channel opens to a notice with no call controls. The [LiveKit service and token route](#voice) are in place for those calls.
 
 ## Verification
 
-Use real PostgreSQL to verify anonymous rejection, a required single-use setup code, rejection of a second setup, joining with the join code, admin-only invites, `account:link`, two-client delivery, retry deduplication and conflicting retries, a third member finding no trace of a direct message in any route, concurrent commit ordering, snapshot/watch overlap, losing a socket when a login moves, socket age-out, join rate limits, missed-wakeup recovery, persistence after server restart, and an upgrade of a populated 012 database that keeps every row and ID.
+Use real PostgreSQL to verify anonymous rejection, a required single-use setup code, rejection of a second setup, joining with the join code, admin-only invites, `account:link`, two-client delivery, retry deduplication and conflicting retries, a third member finding no trace of a direct message in any route, concurrent commit ordering, snapshot/watch overlap, losing a socket when a login moves, socket age-out, join rate limits, voice tokens that real LiveKit accepts, missed-wakeup recovery, persistence after server restart, and an upgrade of a populated 012 database that keeps every row and ID.
 
 Drive the interface through visitors with no identity, server setup, room and channel creation, a shared invite, the friend's account creation, message send, reconnect, loss of identity, and a new identity under a running page. Drive a page from another site with `tests/cross-site.spec.ts`, in a browser that has an identity.
 

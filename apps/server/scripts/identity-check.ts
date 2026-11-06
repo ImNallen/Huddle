@@ -160,7 +160,7 @@ function configFor(env: Record<string, string>) {
       'tsx',
       '--input-type=module',
       '-e',
-      "const { config, origins, serverHosts } = await import('./src/lib/config.ts'); process.stdout.write(JSON.stringify({ websocket: config.WS_PUBLIC_URL, age: config.SOCKET_MAX_AGE_SECONDS, origins: [...origins], hosts: [...serverHosts] }))",
+      "const { config, origins, serverHosts } = await import('./src/lib/config.ts'); process.stdout.write(JSON.stringify({ websocket: config.WS_PUBLIC_URL, age: config.SOCKET_MAX_AGE_SECONDS, origins: [...origins], hosts: [...serverHosts], voice: config.voice }))",
     ],
     {
       cwd: new URL('..', import.meta.url),
@@ -181,6 +181,7 @@ assert.deepEqual(JSON.parse(hosted.stdout), {
   age: 300,
   origins: ['https://huddle.tailnet.ts.net', 'tauri://localhost', 'https://tauri.localhost'],
   hosts: ['huddle.tailnet.ts.net'],
+  voice: null,
 })
 for (const [entry, reason] of [
   ['http://localhost:1420', 'plain HTTP'],
@@ -208,3 +209,76 @@ assert.equal(
 )
 assert.notEqual(configFor({ SERVER_URL: 'http://huddle.example.com' }).status, 0)
 process.stdout.write('PASS config refuses unsafe origins on an HTTPS server and says why.\n')
+
+const secret = 's'.repeat(32)
+const local = { SERVER_URL: 'http://localhost:3000' }
+const voiceCases: [string, Record<string, string>, unknown][] = [
+  ['no secret means no voice', {}, null],
+  ['an empty secret means no voice', { LIVEKIT_API_SECRET: '' }, null],
+  [
+    'an HTTPS server defaults to its own name on 8443',
+    { LIVEKIT_API_SECRET: secret },
+    { key: 'huddle', secret, url: 'wss://huddle.tailnet.ts.net:8443' },
+  ],
+  [
+    'the default drops the port of SERVER_URL',
+    { LIVEKIT_API_SECRET: secret, SERVER_URL: 'https://huddle.tailnet.ts.net:10000' },
+    { key: 'huddle', secret, url: 'wss://huddle.tailnet.ts.net:8443' },
+  ],
+  [
+    'a local server defaults to port 7880',
+    { LIVEKIT_API_SECRET: secret, ...local },
+    { key: 'huddle', secret, url: 'ws://localhost:7880' },
+  ],
+  [
+    "a local server follows this checkout's port",
+    { LIVEKIT_API_SECRET: secret, LIVEKIT_PORT: '17880', ...local },
+    { key: 'huddle', secret, url: 'ws://localhost:17880' },
+  ],
+  [
+    'an explicit key and address win',
+    {
+      LIVEKIT_API_SECRET: secret,
+      LIVEKIT_API_KEY: 'other',
+      LIVEKIT_PUBLIC_URL: 'wss://voice.tailnet.ts.net',
+    },
+    { key: 'other', secret, url: 'wss://voice.tailnet.ts.net' },
+  ],
+]
+for (const [label, env, voice] of voiceCases) {
+  const result = configFor(env)
+  assert.equal(result.status, 0, `${label}: ${result.stderr}`)
+  assert.deepEqual(JSON.parse(result.stdout).voice, voice, label)
+}
+assert.deepEqual(
+  JSON.parse(configFor({ LIVEKIT_API_SECRET: secret }).stdout).hosts,
+  ['huddle.tailnet.ts.net'],
+  'the LiveKit address never counts as a Huddle address',
+)
+const voiceRefusals: [string, Record<string, string>, RegExp][] = [
+  ['a short secret', { LIVEKIT_API_SECRET: 'short-secret' }, /LIVEKIT_API_SECRET/],
+  [
+    'plain ws on an HTTPS server',
+    { LIVEKIT_API_SECRET: secret, LIVEKIT_PUBLIC_URL: 'ws://huddle.tailnet.ts.net:8443' },
+    /requires a wss: LIVEKIT_PUBLIC_URL/,
+  ],
+  [
+    'plain ws on an HTTPS server with voice off',
+    { LIVEKIT_PUBLIC_URL: 'ws://huddle.tailnet.ts.net:8443' },
+    /requires a wss: LIVEKIT_PUBLIC_URL/,
+  ],
+  [
+    'an address that is not a WebSocket',
+    { LIVEKIT_API_SECRET: secret, LIVEKIT_PUBLIC_URL: 'https://huddle.tailnet.ts.net:8443' },
+    /LIVEKIT_PUBLIC_URL/,
+  ],
+]
+for (const [label, env, reason] of voiceRefusals) {
+  const refused = configFor(env)
+  assert.notEqual(refused.status, 0, `${label} is refused`)
+  assert.match(refused.stderr, reason, `the refusal for ${label} says why`)
+  assert.doesNotMatch(refused.stderr, /short-secret/, 'a refusal never prints the secret')
+}
+process.stdout.write(
+  `PASS voice config covers ${voiceCases.length} settings and ${voiceRefusals.length} refusals.\n`,
+)

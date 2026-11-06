@@ -26,14 +26,36 @@ const Environment = z
     TRUSTED_ORIGINS: z.string().default(''),
     SETUP_CODE: z.string().trim().min(8).max(64).optional(),
     SOCKET_MAX_AGE_SECONDS: z.coerce.number().int().min(1).default(300),
+    LIVEKIT_API_KEY: z.string().min(1).default('huddle'),
+    LIVEKIT_API_SECRET: z
+      .union([z.literal('').transform(() => undefined), z.string().min(32)])
+      .optional(),
+    LIVEKIT_PORT: z.coerce.number().int().min(1).max(65535).default(7880),
+    LIVEKIT_PUBLIC_URL: z.url({ protocol: /^wss?$/ }).optional(),
   })
-  .transform((env) => {
+  .refine(
+    (env) => !env.SERVER_URL.startsWith('https:') || !env.LIVEKIT_PUBLIC_URL?.startsWith('ws:'),
+    { error: 'An HTTPS SERVER_URL requires a wss: LIVEKIT_PUBLIC_URL.' },
+  )
+  .transform((parsed) => {
+    const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_PORT, LIVEKIT_PUBLIC_URL, ...env } = parsed
     const https = env.SERVER_URL.startsWith('https:')
     return {
       ...env,
       WS_PUBLIC_URL:
         env.WS_PUBLIC_URL ??
         (https ? `wss://${new URL(env.SERVER_URL).host}/events` : `ws://localhost:${env.WS_PORT}`),
+      voice: LIVEKIT_API_SECRET
+        ? {
+            key: LIVEKIT_API_KEY,
+            secret: LIVEKIT_API_SECRET,
+            url:
+              LIVEKIT_PUBLIC_URL ??
+              (https
+                ? `wss://${new URL(env.SERVER_URL).hostname}:8443`
+                : `ws://localhost:${LIVEKIT_PORT}`),
+          }
+        : null,
       trusted: env.TRUSTED_ORIGINS.split(',')
         .map((entry) => entry.trim())
         .filter(Boolean),

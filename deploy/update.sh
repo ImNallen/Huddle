@@ -10,12 +10,16 @@ image_id() {
 }
 
 # `docker compose ps -a` also lists `run` containers, so a killed migration would pass for a deployed server.
-# A container that never started was left by a crash inside `compose up`, so it is not deployed either.
-deployed_image() {
+service_containers() {
   docker ps -aq \
     --filter "label=com.docker.compose.project=$(basename "$project")" \
-    --filter label=com.docker.compose.service=server \
-    --filter label=com.docker.compose.oneoff=False |
+    --filter "label=com.docker.compose.service=$1" \
+    --filter label=com.docker.compose.oneoff=False
+}
+
+# A container that never started was left by a crash inside `compose up`, so it is not deployed.
+deployed_image() {
+  service_containers server |
     xargs -r docker inspect --format '{{if ne .State.Status "created"}}{{.Image}}{{end}}' |
     awk 'NF && !found++'
 }
@@ -48,17 +52,69 @@ backup_database() {
   fi
 }
 
+try_start_livekit() {
+  docker compose up -d --no-build livekit || echo "LiveKit did not start. Chat is unaffected." >&2
+}
+
+try_restart_livekit() {
+  docker compose restart livekit || echo "LiveKit did not restart. Chat is unaffected." >&2
+}
+
 restore_image() {
   docker tag "$1" huddle:current
   extract_deploy_files "$1"
   docker compose up -d --no-build server
+  try_start_livekit
 }
 
-# The server shares the sidecar's network, so a sidecar restart cuts it off until the server restarts too.
+# LiveKit binds its UDP port once, at start, and only if tailscale0 is already up. Started any earlier, as a reboot
+# can do, it answers HTTP and carries no audio until it restarts.
+livekit_missing_udp() {
+  [[ -n $(docker compose ps -q --status running livekit 2>/dev/null) ]] && tailscale_running &&
+    ! docker compose exec -T tailscale netstat -uln | grep -q ':7882 '
+}
+
+# The server and LiveKit share the sidecar's network, so a sidecar restart cuts them off until they restart too.
 heal_server() {
   if [[ $(docker compose ps --format '{{.Health}}' server) == *unhealthy* ]]; then
-    echo "The server is unhealthy. Restarting it."
+    echo "The server is unhealthy. Restarting it and LiveKit."
     docker compose restart server
+    try_restart_livekit
+  elif livekit_missing_udp; then
+    echo "LiveKit has no UDP port. Restarting it."
+    try_restart_livekit
+  fi
+}
+
+current_image_is_safe_to_start() {
+  local deployed=$1 pending_rollback=$2
+  [[ -n $deployed && -z $pending_rollback ]]
+}
+
+ensure_voice_secret() {
+  if grep -q '^LIVEKIT_API_SECRET=' .env; then
+    return
+  fi
+  local secret
+  secret=$(openssl rand -hex 32)
+  (
+    umask 077
+    if [[ -n $(tail -c 1 .env) ]]; then
+      echo >>.env
+    fi
+    printf 'LIVEKIT_API_SECRET=%s\n' "$secret" >>.env
+  )
+}
+
+carries_voice_secret() {
+  service_containers "$1" | xargs -r docker inspect --format '{{.Config.Env}}' | grep -qF "$2"
+}
+
+recreate_services_missing_voice_secret() {
+  local secret
+  secret=$(sed -n 's/^LIVEKIT_API_SECRET=//p' .env | tail -n 1)
+  if ! carries_voice_secret livekit "$secret" || ! carries_voice_secret server "$secret"; then
+    docker compose up -d --no-build livekit server || echo "LiveKit did not start. Chat is unaffected." >&2
   fi
 }
 
@@ -78,6 +134,11 @@ main() {
   deployed=$(deployed_image)
   failed=$(image_id huddle:failed 2>/dev/null || true)
   pending_rollback=$(image_id huddle:rollback 2>/dev/null || true)
+
+  ensure_voice_secret
+  if current_image_is_safe_to_start "$deployed" "$pending_rollback"; then
+    recreate_services_missing_voice_secret
+  fi
 
   if [[ $next == "$failed" ]]; then
     echo "Skipping $next because its last deploy failed. To retry it, run docker rmi huddle:failed."
@@ -111,6 +172,7 @@ main() {
 
   if docker compose run --rm -T --no-deps server node --import tsx scripts/migrate.ts &&
     docker compose up -d --wait --wait-timeout 180 --no-build server; then
+    try_start_livekit
     if [[ -n $failed ]]; then
       # A container left by a crash can hold this image, and a stale tag does no harm.
       docker rmi huddle:failed >/dev/null || true

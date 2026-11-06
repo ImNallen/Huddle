@@ -6,14 +6,15 @@ main() {
     echo "Usage: install.sh --server-url https://huddle.your-tailnet.ts.net" >&2
     exit 2
   fi
-  local server_url=$2 project password
+  local server_url=$2 project password livekit_secret
   project=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
   if [[ ! -e $project/.env ]]; then
     password=$(openssl rand -hex 24)
+    livekit_secret=$(openssl rand -hex 32)
     (
       umask 077
-      printf 'POSTGRES_PASSWORD=%s\nSERVER_URL=%s\n' "$password" "$server_url" >"$project/.env.partial"
+      printf 'POSTGRES_PASSWORD=%s\nSERVER_URL=%s\nLIVEKIT_API_SECRET=%s\n' "$password" "$server_url" "$livekit_secret" >"$project/.env.partial"
     )
     mv "$project/.env.partial" "$project/.env"
   fi
