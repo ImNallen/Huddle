@@ -74,7 +74,18 @@ export const ServerEvent = z.discriminatedUnion('kind', [
   }),
 ])
 export const WatchFrame = z.object({ kind: z.literal('watch'), after: Cursor }).strict()
-export const EventPage = z.object({ kind: z.literal('events'), events: z.array(ServerEvent) })
+export const VoicePresence = z.array(
+  z.object({
+    channelId: ChannelId,
+    people: z.array(z.object({ id: UserId, name: z.string() })),
+  }),
+)
+export type VoicePresence = z.infer<typeof VoicePresence>
+export const EventPage = z.object({
+  kind: z.literal('events'),
+  events: z.array(ServerEvent),
+  voice: VoicePresence.optional(),
+})
 export const Unread = z.object({
   channelId: ChannelId,
   count: z.number().int().positive(),

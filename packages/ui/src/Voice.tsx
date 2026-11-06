@@ -1,5 +1,5 @@
 import { Mic, MicOff, PhoneOff, Volume2, X } from 'lucide-react'
-import type { Avatar as AvatarValue, Channel, Me, Member } from '@huddle/contracts'
+import type { Avatar as AvatarValue, Channel, Me, Member, VoicePresence } from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { Call, VoiceCall } from './voiceCall'
 import { Avatar } from './Avatar'
@@ -47,6 +47,7 @@ export function VoiceChannel({
   channels,
   availability,
   voice,
+  present,
   roster,
   memberList,
   onMemberList,
@@ -57,6 +58,7 @@ export function VoiceChannel({
   channels: Channel[]
   availability: VoiceAvailability
   voice: VoiceCall
+  present: VoicePresence[number]['people']
   roster: Member[] | null
   memberList: boolean
   onMemberList: () => void
@@ -70,6 +72,11 @@ export function VoiceChannel({
   const inCall = here?.phase === 'connected' || here?.phase === 'reconnecting' ? here : null
   const joining = here?.phase === 'requesting-mic' || here?.phase === 'connecting'
   const failed = here?.phase === 'failed' ? here : null
+  const watching = !inCall && availability !== 'off' ? present : []
+  const nameOf = (person: { id: string; name: string }) =>
+    roster?.find((member) => member.id === person.id)?.name ?? person.name
+  const avatarOf = (person: { id: string }) =>
+    roster?.find((member) => member.id === person.id)?.avatar
   return (
     <main className="main">
       <header className="topbar">
@@ -78,7 +85,7 @@ export function VoiceChannel({
         <MemberToggle pressed={memberList} onToggle={onMemberList} />
       </header>
       <div className="center-state">
-        {!inCall && (
+        {!inCall && (joining || !watching.length) && (
           <span className="empty-mark">
             {joining ? <Spinner size={24} /> : <Volume2 size={40} />}
           </span>
@@ -117,9 +124,22 @@ export function VoiceChannel({
               <CallPersonTile
                 key={person.id}
                 client={client}
-                name={roster?.find((member) => member.id === person.id)?.name ?? person.name}
-                avatar={roster?.find((member) => member.id === person.id)?.avatar}
+                name={nameOf(person)}
+                avatar={avatarOf(person)}
                 muted={person.muted}
+              />
+            ))}
+          </ul>
+        )}
+        {watching.length > 0 && (
+          <ul className="call-people" aria-label="In this call">
+            {watching.map((person) => (
+              <CallPersonTile
+                key={person.id}
+                client={client}
+                name={nameOf(person)}
+                avatar={avatarOf(person)}
+                muted={false}
               />
             ))}
           </ul>

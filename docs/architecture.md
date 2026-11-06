@@ -102,6 +102,10 @@ The token names the account ID, the display name, and the channel ID as the room
 
 Voice state is not in the event log. Who is in a call is live state that LiveKit owns and that nothing needs to replay. Issuing a token writes nothing.
 
+The realtime process asks LiveKit every second who is in each room and adds the full list as `voice` on each `events` frame, so a socket only hears it after passing the same access check as its events. A polled full list cannot drift, which webhooks can: a LiveKit restart sends no leave event for someone who had already crashed. Older clients drop the unknown field. The server reaches LiveKit's API on `127.0.0.1` at `LIVEKIT_PORT`, so LiveKit must run on the same machine or in the same network namespace.
+
+A call outlives its token, and LiveKit never re-checks Tailscale, so a person in a call must keep an attested watch socket. Serve attests a socket when it opens, and a socket lasts at most `SOCKET_MAX_AGE_SECONDS`. A participant with no socket for `VOICE_ACCESS_GRACE_SECONDS`, 60 by default, is removed, and removed again on the next look if they rejoin without one, because their absence is remembered until a socket returns. So someone who loses access is out of a call within about six and a half minutes at worst. The grace period restarts with the server, so a deploy removes nobody.
+
 Signalling reaches LiveKit through Serve on HTTPS port 8443, not under Huddle's address, because a mount there would share Huddle's origin. `contextAllowed` refuses requests from a page on that origin, and its address is never a `serverHosts` entry, so it carries no Huddle identity. Serve cannot carry UDP, so audio goes to one UDP port on the node's Tailscale address. ICE over TCP stays off, because LiveKit binds that port on every interface and ignores its interface filter. [Hosting](hosting.md#run-livekit) has the operator's view.
 
 ## Module ownership

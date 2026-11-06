@@ -567,6 +567,25 @@ textarea::placeholder {
   background: var(--selected);
   color: var(--strong);
 }
+.channel-people {
+  margin: 0 8px 4px 26px;
+  padding: 0;
+  list-style: none;
+}
+.channel-people li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.channel-people span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .nav-row.in-call > svg {
   color: var(--green);
 }
@@ -1226,6 +1245,7 @@ button.member-row:hover {
   gap: 16px;
   max-width: 520px;
   margin-top: 20px;
+  padding: 0;
   list-style: none;
 }
 .call-person {

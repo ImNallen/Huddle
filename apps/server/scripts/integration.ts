@@ -1049,6 +1049,15 @@ try {
       assert.equal((await validateVoice(token)).status, 401, `LiveKit refuses ${label}`)
   }
   assert.equal((await call('/api/info', ServerInfo)).voice, true)
+  const presenceWatch = watch(owner.login, '0')
+  await eventually(() => presenceWatch.frames.length > 0, 'the socket delivered a frame')
+  assert.ok(
+    Array.isArray(
+      z.object({ voice: z.unknown() }).parse(JSON.parse(presenceWatch.frames[0] ?? '')).voice,
+    ),
+    'a server with voice carries the list of who is in a call on each frame',
+  )
+  presenceWatch.socket.close()
   assert.equal(
     ServerInfo.parse({
       name: 'Older server',
@@ -1566,6 +1575,10 @@ try {
     assert.match(String(closeReason), /re-check access/)
     assert.ok(lived >= 1900 && lived < 3500, `the socket lived 2 to 2.2 seconds, not ${lived}ms`)
     assert.ok(pages.length > 0, 'the socket delivered events until it aged out')
+    assert.ok(
+      pages.every((page) => !Object.hasOwn(z.looseObject({}).parse(JSON.parse(page)), 'voice')),
+      'a server with no voice sends no voice list',
+    )
     const last = EventPage.parse(JSON.parse(pages.at(-1) ?? '')).events
     const cursorAtClose = last.at(-1)?.cursor ?? (await snapshotOf(owner.login)).cursor
     const whileAway = await call('/api/messages', Message, owner.login, {

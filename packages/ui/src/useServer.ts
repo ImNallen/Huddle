@@ -12,6 +12,7 @@ import {
   type Channel,
   type DirectConversation,
   type Room,
+  type VoicePresence,
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 
@@ -188,6 +189,15 @@ export function useServer(
   const reads = useRef<Promise<unknown>>(Promise.resolve())
   const marked = useRef(new Map<string, string>())
   const flush = useRef<(() => void) | null>(null)
+  const [presence, setPresence] = useState<VoicePresence>([])
+  const presenceText = useRef('[]')
+  /** Every socket frame carries the full list, and most repeat the last. */
+  function showPresence(next: VoicePresence) {
+    const text = JSON.stringify(next)
+    if (text === presenceText.current) return
+    presenceText.current = text
+    setPresence(next)
+  }
   useEffect(() => {
     active.current = true
     const update = () => setVisible(isVisible())
@@ -326,6 +336,7 @@ export function useServer(
                     })
                   })
               }
+              if (page.voice) showPresence(page.voice)
               const last = page.events.at(-1)
               if (last && BigInt(last.cursor) > BigInt(cursor.current)) cursor.current = last.cursor
               if (heard) setChanges((value) => value + 1)
@@ -342,6 +353,7 @@ export function useServer(
               return
             }
             setConnection('Offline · reconnecting')
+            showPresence([])
             if (event.code === 1008) onAccessChanged()
             reconnect = setTimeout(() => void watch(), 1800)
           }
@@ -485,6 +497,7 @@ export function useServer(
     unread,
     directs,
     changes,
+    presence,
     include: change,
     connection,
     historyState,
