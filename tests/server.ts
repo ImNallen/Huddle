@@ -9,7 +9,7 @@ import {
 } from '../apps/server/scripts/harness'
 
 const desktopPort = Number(process.env.HUDDLE_UI_DESKTOP_PORT ?? 1520)
-const serverPort = Number(process.env.HUDDLE_UI_SERVER_PORT ?? 3400)
+export const serverPort = Number(process.env.HUDDLE_UI_SERVER_PORT ?? 3400)
 export const serverURL = `http://localhost:${serverPort}`
 export const browserApp = `${serverURL}/`
 export const websocketURL = `ws://localhost:${serverPort + 1}`

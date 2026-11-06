@@ -1,6 +1,7 @@
 import { RoomServiceClient } from 'livekit-server-sdk'
 import { VoicePresence, type UserId } from '@huddle/contracts'
 import { config } from './config'
+import { db } from './db'
 
 const lookEveryMs = 1000
 
@@ -23,10 +24,16 @@ export function startVoicePresence(voice: NonNullable<typeof config.voice>) {
 
   async function look() {
     const rooms = await service.listRooms()
+    // One LiveKit can serve several Huddle servers, as `livekit-dev` does for `pnpm dev` and the
+    // suites. Each lists and removes only people in its own channels.
+    const { rows: ours } = await db.query<{ id: string }>(
+      `SELECT id FROM channel WHERE kind = 'voice' AND id::text = ANY($1) ORDER BY id`,
+      [rooms.map(({ name }) => name)],
+    )
     const found = await Promise.all(
-      rooms.map(async ({ name }) => ({
-        channelId: name,
-        participants: (await service.listParticipants(name)).toSorted((first, second) =>
+      ours.map(async ({ id }) => ({
+        channelId: id,
+        participants: (await service.listParticipants(id)).toSorted((first, second) =>
           first.joinedAtMs < second.joinedAtMs ? -1 : first.joinedAtMs > second.joinedAtMs ? 1 : 0,
         ),
       })),
@@ -55,9 +62,9 @@ export function startVoicePresence(voice: NonNullable<typeof config.voice>) {
     try {
       await look()
       failing = false
-    } catch {
+    } catch (error) {
       people = []
-      if (!failing) console.error({ event: 'voice.presence.failed', url: voice.adminUrl })
+      if (!failing) console.error({ event: 'voice.presence.failed', url: voice.adminUrl, error })
       failing = true
     }
     if (!stopped) timer = setTimeout(() => void loop(), lookEveryMs)

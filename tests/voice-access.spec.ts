@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { runningLivekit } from '../apps/server/scripts/harness'
-import { useScratchServer, websocketURL } from './server'
+import {
+  migratedDatabase,
+  runningLivekit,
+  startServer,
+  type ServerProcess,
+} from '../apps/server/scripts/harness'
+import { serverPort, setupCode, useScratchServer, websocketURL } from './server'
 import {
   channelRow,
   expectInCall,
@@ -67,5 +72,29 @@ test('a call without an attested socket is ended by the server, and rejoining bu
     await expect(panel(ada.page).getByRole('status')).toHaveText('Voice connected')
   } finally {
     await ada.context.close()
+  }
+})
+
+test("another server sharing LiveKit leaves this server's calls alone", async ({ browser }) => {
+  const roomName = await voiceRoom('shared')
+  const neighbourDatabase = await migratedDatabase()
+  let neighbour: ServerProcess | undefined
+  try {
+    neighbour = await startServer({
+      databaseUrl: neighbourDatabase.url,
+      port: serverPort + 2,
+      env: { SETUP_CODE: setupCode, VOICE_ACCESS_GRACE_SECONDS: '1' },
+    })
+    const ada = await person(browser, 'ada', roomName)
+    await channelRow(ada.page, roomName, 'shared').click()
+    await join(ada.page).click()
+    await expectInCall(ada.page)
+    // Its grace and a few of its looks, were it to count this call as its own.
+    await ada.page.waitForTimeout(5000)
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Voice connected')
+    await ada.context.close()
+  } finally {
+    await neighbour?.stop()
+    await neighbourDatabase.drop()
   }
 })

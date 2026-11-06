@@ -38,6 +38,7 @@ jobs:
       DATABASE_URL: postgresql://huddle:huddle-ci@localhost:5432/huddle_ci
       LIVEKIT_API_SECRET: huddle-ci-secret-that-is-at-least-32-chars
       LIVEKIT_PUBLIC_URL: ws://localhost:7880
+      LIVEKIT_PORT: 7880
       PLAYWRIGHT_CHANNEL: chrome
     steps:
       - name: Checkout
