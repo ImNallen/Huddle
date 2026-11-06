@@ -38,7 +38,7 @@ Do not turn on Funnel, because Funnel traffic has no identity. Do not mount anot
 
 Calls in voice channels run through LiveKit, so set it up with the rest of the server. Without it, voice channels say voice is turned off, and everything else works.
 
-One LiveKit server relays everyone's audio, because friends on a shared Tailscale node have no route to each other.
+One LiveKit server relays everyone's audio, because friends on a shared Tailscale node have no route to each other. It must run on the same machine as the Huddle server, or in the same network namespace as Compose does, because the server reads who is in a call from `127.0.0.1` at `LIVEKIT_PORT`.
 
 - **Signalling goes through Serve on port 8443.** HTTPS port 8443 is a separate origin from Huddle's address, so nothing LiveKit serves can act as a member. Mounting it under Huddle's address with `--set-path` would share Huddle's origin.
 - **Audio uses one UDP port, 7882, on the node's Tailscale address.** Serve does not carry UDP. `rtc.interfaces.includes: [tailscale0]` binds that port only on the Tailscale addresses, so the rest of your network cannot reach it. Keeping it to one port keeps the access policy to one line.

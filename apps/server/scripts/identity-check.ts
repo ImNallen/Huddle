@@ -218,22 +218,32 @@ const voiceCases: [string, Record<string, string>, unknown][] = [
   [
     'an HTTPS server defaults to its own name on 8443',
     { LIVEKIT_API_SECRET: secret },
-    { key: 'huddle', secret, url: 'wss://huddle.tailnet.ts.net:8443' },
+    {
+      key: 'huddle',
+      secret,
+      url: 'wss://huddle.tailnet.ts.net:8443',
+      adminUrl: 'http://127.0.0.1:7880',
+    },
   ],
   [
     'the default drops the port of SERVER_URL',
     { LIVEKIT_API_SECRET: secret, SERVER_URL: 'https://huddle.tailnet.ts.net:10000' },
-    { key: 'huddle', secret, url: 'wss://huddle.tailnet.ts.net:8443' },
+    {
+      key: 'huddle',
+      secret,
+      url: 'wss://huddle.tailnet.ts.net:8443',
+      adminUrl: 'http://127.0.0.1:7880',
+    },
   ],
   [
     'a local server defaults to port 7880',
     { LIVEKIT_API_SECRET: secret, ...local },
-    { key: 'huddle', secret, url: 'ws://localhost:7880' },
+    { key: 'huddle', secret, url: 'ws://localhost:7880', adminUrl: 'http://127.0.0.1:7880' },
   ],
   [
     "a local server follows this checkout's port",
     { LIVEKIT_API_SECRET: secret, LIVEKIT_PORT: '17880', ...local },
-    { key: 'huddle', secret, url: 'ws://localhost:17880' },
+    { key: 'huddle', secret, url: 'ws://localhost:17880', adminUrl: 'http://127.0.0.1:17880' },
   ],
   [
     'an explicit key and address win',
@@ -242,7 +252,7 @@ const voiceCases: [string, Record<string, string>, unknown][] = [
       LIVEKIT_API_KEY: 'other',
       LIVEKIT_PUBLIC_URL: 'wss://voice.tailnet.ts.net',
     },
-    { key: 'other', secret, url: 'wss://voice.tailnet.ts.net' },
+    { key: 'other', secret, url: 'wss://voice.tailnet.ts.net', adminUrl: 'http://127.0.0.1:7880' },
   ],
 ]
 for (const [label, env, voice] of voiceCases) {

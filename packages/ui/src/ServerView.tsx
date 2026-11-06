@@ -81,7 +81,8 @@ export function ServerView({
   )
   const members = useMembers(
     client,
-    `${view.kind}:${dialog.kind}:${sync.changes}:${me.user.name}:${JSON.stringify(me.user.avatar)}`,
+    // A person in a call may have joined the server since the roster loaded.
+    `${view.kind}:${dialog.kind}:${sync.changes}:${me.user.name}:${JSON.stringify(me.user.avatar)}:${sync.presence.flatMap(({ people }) => people.map(({ id }) => id)).join()}`,
   )
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
   const rooms = snapshot?.rooms ?? []
@@ -171,6 +172,8 @@ export function ServerView({
         view={view}
         connection={sync.connection}
         voice={voice}
+        presence={sync.presence}
+        members={roster}
         onView={open}
         onDirect={openDirect}
         onRoom={openRoom}
@@ -194,6 +197,7 @@ export function ServerView({
           channels={channels}
           availability={availability}
           voice={voice}
+          present={sync.presence.find(({ channelId }) => channelId === channel.id)?.people ?? []}
           roster={roster}
           memberList={memberList}
           onMemberList={() => setMemberList((value) => !value)}

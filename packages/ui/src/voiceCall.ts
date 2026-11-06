@@ -48,7 +48,7 @@ function endedMessage(lk: LiveKit, reason: number | undefined) {
     case lk.DisconnectReason.DUPLICATE_IDENTITY:
       return 'You joined this call from somewhere else, so it ended here.'
     case lk.DisconnectReason.PARTICIPANT_REMOVED:
-      return 'You were removed from this call.'
+      return "Huddle ended this call because it couldn't confirm your access. Check that Tailscale is connected, then try again."
     case lk.DisconnectReason.ROOM_DELETED:
     case lk.DisconnectReason.ROOM_CLOSED:
       return 'This call was closed.'

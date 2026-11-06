@@ -32,6 +32,7 @@ const Environment = z
       .optional(),
     LIVEKIT_PORT: z.coerce.number().int().min(1).max(65535).default(7880),
     LIVEKIT_PUBLIC_URL: z.url({ protocol: /^wss?$/ }).optional(),
+    VOICE_ACCESS_GRACE_SECONDS: z.coerce.number().int().min(1).default(60),
   })
   .refine(
     (env) => !env.SERVER_URL.startsWith('https:') || !env.LIVEKIT_PUBLIC_URL?.startsWith('ws:'),
@@ -54,6 +55,7 @@ const Environment = z
               (https
                 ? `wss://${new URL(env.SERVER_URL).hostname}:8443`
                 : `ws://localhost:${LIVEKIT_PORT}`),
+            adminUrl: `http://127.0.0.1:${LIVEKIT_PORT}`,
           }
         : null,
       trusted: env.TRUSTED_ORIGINS.split(',')

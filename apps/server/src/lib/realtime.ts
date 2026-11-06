@@ -4,9 +4,11 @@ import { config } from './config'
 import { replay } from './domain'
 import { db } from './db'
 import { contextAllowed, requireAccess, upgradeHeaders } from './identity'
+import { startVoicePresence } from './voicePresence'
 
 export async function startRealtime() {
   const wakeups = new Set<() => void>()
+  const presence = config.voice ? startVoicePresence(config.voice) : null
   const listener = await db.connect()
   await listener.query('LISTEN huddle_commit')
   listener.on('notification', () => {
@@ -38,6 +40,7 @@ export async function startRealtime() {
     const headers = upgradeHeaders(request.headers)
     let watch: { after: string } | undefined
     let watcher: UserId | undefined
+    let stopWatching: (() => void) | undefined
     let frameReceived = false
     let busy = false
     let closed = false
@@ -56,7 +59,12 @@ export async function startRealtime() {
       busy = true
       try {
         const { user } = await requireAccess(headers)
-        watcher ??= user.id
+        // A socket that closed during that check must not count as a person still watching.
+        if (closed) return
+        if (!watcher) {
+          watcher = user.id
+          stopWatching = presence?.watching(user.id)
+        }
         if (user.id !== watcher) {
           socket.close(1008, 'This login now belongs to another account.')
           return
@@ -67,7 +75,14 @@ export async function startRealtime() {
           return
         }
         if (socket.readyState === WebSocket.OPEN) {
-          if (sendEmpty || events.length) socket.send(JSON.stringify({ kind: 'events', events }))
+          if (sendEmpty || events.length)
+            socket.send(
+              JSON.stringify({
+                kind: 'events',
+                events,
+                ...(presence && { voice: presence.people() }),
+              }),
+            )
           watch.after = scanned
         }
       } catch {
@@ -101,10 +116,12 @@ export async function startRealtime() {
       clearTimeout(aged)
       clearInterval(interval)
       wakeups.delete(onCommit)
+      stopWatching?.()
     })
   })
   return {
     close() {
+      presence?.close()
       for (const socket of server.clients) socket.terminate()
       server.close()
       release()

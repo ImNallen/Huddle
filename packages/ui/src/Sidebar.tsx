@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { Fragment, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeftRight, ChevronDown, Plus, Settings, UserPlus, Users } from 'lucide-react'
 import type {
   Channel,
@@ -7,7 +7,9 @@ import type {
   Room,
   RoomId,
   Me,
+  Member,
   Server,
+  VoicePresence,
 } from '@huddle/contracts'
 import type { Transport } from './transport'
 import { threadKey, type Activity, type Unread } from './useServer'
@@ -199,6 +201,8 @@ export function Sidebar({
   view,
   connection,
   voice,
+  presence,
+  members,
   onView,
   onDirect,
   onRoom,
@@ -216,6 +220,8 @@ export function Sidebar({
   view: View
   connection: string
   voice: VoiceCall
+  presence: VoicePresence
+  members: Member[] | null
   onView: (view: View) => void
   onDirect: (conversationId: ConversationId) => void
   onRoom: (roomId: RoomId) => void
@@ -315,33 +321,54 @@ export function Sidebar({
                       const inCall =
                         (voice.call.phase === 'connected' || voice.call.phase === 'reconnecting') &&
                         voice.call.channelId === channel.id
+                      const present = presence.find(({ channelId }) => channelId === channel.id)
                       return (
-                        <button
-                          key={channel.id}
-                          className={`nav-row ${count ? 'unread' : ''} ${inCall ? 'in-call' : ''}`}
-                          aria-current={current ? 'page' : undefined}
-                          onClick={() =>
-                            onView({ kind: 'room', roomId: room.id, channelId: channel.id })
-                          }
-                        >
-                          <ChannelIcon kind={channel.kind} size={18} />
-                          <span>{channel.name}</span>
-                          {inCall && <span className="sr-only">you're in this call</span>}
-                          {mentions > 0 && (
-                            <b className="nav-count">
-                              {mentions}
-                              <span className="sr-only">
-                                {mentions === 1 ? ' mention' : ' mentions'}
-                              </span>
-                            </b>
+                        <Fragment key={channel.id}>
+                          <button
+                            className={`nav-row ${count ? 'unread' : ''} ${inCall ? 'in-call' : ''}`}
+                            aria-current={current ? 'page' : undefined}
+                            onClick={() =>
+                              onView({ kind: 'room', roomId: room.id, channelId: channel.id })
+                            }
+                          >
+                            <ChannelIcon kind={channel.kind} size={18} />
+                            <span>{channel.name}</span>
+                            {inCall && <span className="sr-only">you're in this call</span>}
+                            {mentions > 0 && (
+                              <b className="nav-count">
+                                {mentions}
+                                <span className="sr-only">
+                                  {mentions === 1 ? ' mention' : ' mentions'}
+                                </span>
+                              </b>
+                            )}
+                            {count > 0 && (
+                              <>
+                                <i className="unread-pill" />
+                                <span className="sr-only">unread</span>
+                              </>
+                            )}
+                          </button>
+                          {present && (
+                            <ul className="channel-people" aria-label={`In ${channel.name}`}>
+                              {present.people.map((person) => {
+                                const member = members?.find(({ id }) => id === person.id)
+                                const name = member?.name ?? person.name
+                                return (
+                                  <li key={person.id}>
+                                    <Avatar
+                                      avatar={member?.avatar}
+                                      name={name}
+                                      photo={client.photo?.bind(client)}
+                                      size={20}
+                                    />
+                                    <span>{name}</span>
+                                  </li>
+                                )
+                              })}
+                            </ul>
                           )}
-                          {count > 0 && (
-                            <>
-                              <i className="unread-pill" />
-                              <span className="sr-only">unread</span>
-                            </>
-                          )}
-                        </button>
+                        </Fragment>
                       )
                     })}
                   </Section>

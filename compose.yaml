@@ -43,6 +43,8 @@ services:
       NODE_ENV: production
       PORT: 3000
       WS_PORT: 3001
+      # Sets the address the server asks LiveKit on, whatever `.env` claimed for `livekit-dev`.
+      LIVEKIT_PORT: 7880
     depends_on:
       db:
         condition: service_healthy

@@ -1,133 +1,77 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { Channel, Room } from '../packages/contracts/src/index'
+import { expect, test } from '@playwright/test'
 import { runningLivekit, tailscale } from '../apps/server/scripts/harness'
 import { browserApp, loginOf, member, serverURL } from './accounts'
 import { useScratchServer } from './server'
+import {
+  channelRow,
+  expectHearing,
+  expectInCall,
+  expectSilence,
+  fakeMicrophoneLaunch,
+  inCallList,
+  inCallNames,
+  join,
+  main,
+  openMicrophones,
+  openPeers,
+  openRoom,
+  panel,
+  playingSounds,
+  voicePeople,
+  watchCalls,
+} from './voice'
 
 const server = useScratchServer('api')
+const { voiceRoom, person, nextPersonNumber } = voicePeople(server)
 test.beforeAll(() => runningLivekit())
-const fakeMicrophone = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']
-test.use({
-  launchOptions: {
-    args: ['--disable-features=LocalNetworkAccessChecks', ...fakeMicrophone],
-    ...(process.env.PLAYWRIGHT_EXECUTABLE
-      ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE }
-      : {}),
-  },
+test.use({ launchOptions: fakeMicrophoneLaunch })
+
+test('everyone in a room sees who is in a voice channel before joining', async ({ browser }) => {
+  const roomName = await voiceRoom('lounge')
+  // Bo's page loads first, so Ada joins the server after Bo's member list was fetched.
+  const bo = await person(browser, 'bo', roomName)
+  const ada = await person(browser, 'ada', roomName)
+  try {
+    const inLounge = (page: typeof bo.page) =>
+      page.getByRole('list', { name: 'In lounge', exact: true }).getByRole('listitem')
+    await expect(inLounge(bo.page)).toHaveCount(0)
+    await channelRow(ada.page, roomName, 'lounge').click()
+    await join(ada.page).click()
+    await expectInCall(ada.page)
+
+    // Exact text also proves Ada's real avatar shows here, not fallback initials.
+    await expect(inLounge(bo.page)).toHaveText([ada.name])
+    await channelRow(bo.page, roomName, 'lounge').click()
+    await expect(inCallNames(bo.page)).toHaveText([ada.name])
+    await expect(main(bo.page).getByText('Nobody hears you until you join.')).toBeVisible()
+    expect(await bo.page.evaluate(() => window.probe.microphones.length)).toBe(0)
+    // A browser's default list padding once pushed these off the page's centre line.
+    const offCentre = await bo.page.evaluate(() => {
+      const heading = document.querySelector('.center-state h1')?.getBoundingClientRect()
+      const list = document.querySelector('.call-people')?.getBoundingClientRect()
+      return heading && list ? heading.x + heading.width / 2 - (list.x + list.width / 2) : null
+    })
+    expect(Math.abs(offCentre ?? 99)).toBeLessThan(1)
+    await expect(panel(bo.page)).toHaveCount(0)
+
+    await join(bo.page).click()
+    await expectInCall(bo.page)
+    await expect(inLounge(ada.page)).toHaveText([ada.name, bo.name])
+    await expect(inLounge(bo.page)).toHaveText([ada.name, bo.name])
+
+    await panel(bo.page).getByRole('button', { name: 'Leave call', exact: true }).click()
+    await expect(inLounge(bo.page)).toHaveText([ada.name])
+    await expect(inCallNames(bo.page)).toHaveText([ada.name])
+
+    // A window that closes without pressing Leave call drops off the list too.
+    await ada.context.close()
+    await expect(inLounge(bo.page)).toHaveCount(0, { timeout: 45000 })
+    await expect(inCallList(bo.page)).toHaveCount(0)
+  } finally {
+    await ada.context.close()
+    await bo.context.close()
+  }
 })
-
-type Probe = {
-  peers: RTCPeerConnection[]
-  microphones: MediaStreamTrack[]
-}
-declare global {
-  interface Window {
-    probe: Probe
-  }
-}
-/** Watches the browser's real WebRTC objects. The app has no test mode to ask. */
-async function watchCalls(context: BrowserContext) {
-  await context.addInitScript(() => {
-    const probe: Probe = { peers: [], microphones: [] }
-    window.probe = probe
-    const Native = window.RTCPeerConnection
-    window.RTCPeerConnection = class extends Native {
-      constructor(...args: ConstructorParameters<typeof Native>) {
-        super(...args)
-        probe.peers.push(this)
-      }
-    }
-    const devices = navigator.mediaDevices
-    const capture = devices.getUserMedia.bind(devices)
-    devices.getUserMedia = async (constraints) => {
-      const stream = await capture(constraints)
-      probe.microphones.push(...stream.getAudioTracks())
-      return stream
-    }
-  })
-}
-/** Audio energy received so far on this page's open connections. */
-const energy = (page: Page) =>
-  page.evaluate(async () => {
-    let total = 0
-    for (const peer of window.probe.peers) {
-      if (peer.connectionState === 'closed') continue
-      const stats = await peer.getStats()
-      stats.forEach((report: { type: string; kind?: string; totalAudioEnergy?: number }) => {
-        if (report.type === 'inbound-rtp' && report.kind === 'audio')
-          total += report.totalAudioEnergy ?? 0
-      })
-    }
-    return total
-  })
-async function expectHearing(page: Page) {
-  const before = await energy(page)
-  await expect
-    .poll(async () => (await energy(page)) - before, { timeout: 20000 })
-    .toBeGreaterThan(0)
-}
-async function expectSilence(page: Page) {
-  // Audio already on its way can still arrive just after a mute.
-  await page.waitForTimeout(1500)
-  const before = await energy(page)
-  await page.waitForTimeout(2000)
-  expect((await energy(page)) - before).toBe(0)
-}
-const openMicrophones = (page: Page) =>
-  page.evaluate(
-    () => window.probe.microphones.filter((track) => track.readyState === 'live').length,
-  )
-const openPeers = (page: Page) =>
-  page.evaluate(() => window.probe.peers.filter((peer) => peer.connectionState !== 'closed').length)
-
-/** Remote audio the page is really playing, not only receiving. */
-const playingSounds = (page: Page) =>
-  page.evaluate(
-    () =>
-      [...document.querySelectorAll('audio')].filter((audio) => audio.srcObject && !audio.paused)
-        .length,
-  )
-
-let roomNumber = 0
-async function voiceRoom(...channelNames: string[]) {
-  const room = Room.parse(
-    (await server.admin.call('/api/rooms', { name: `Voice ${++roomNumber}` })).value,
-  )
-  await server.admin.call('/api/channels', { roomId: room.id, name: 'chat', kind: 'text' })
-  for (const name of channelNames) {
-    Channel.parse(
-      (await server.admin.call('/api/channels', { roomId: room.id, name, kind: 'voice' })).value,
-    )
-  }
-  return room.name
-}
-let personNumber = 0
-async function person(browser: Browser, name: string, roomName: string, path = browserApp) {
-  const context = await browser.newContext()
-  await watchCalls(context)
-  const page = await context.newPage()
-  await member(server.admin, page, `${name}${++personNumber}`, path)
-  await openRoom(page, roomName)
-  return { context, page, name: `${name}${personNumber}` }
-}
-async function openRoom(page: Page, roomName: string) {
-  await page
-    .getByRole('navigation', { name: 'Rooms', exact: true })
-    .getByRole('button', { name: roomName, exact: true })
-    .click()
-}
-const channelRow = (page: Page, roomName: string, name: string) =>
-  page
-    .getByRole('navigation', { name: `${roomName} channels`, exact: true })
-    .getByRole('button', { name })
-const panel = (page: Page) => page.getByRole('region', { name: 'Call', exact: true })
-const main = (page: Page) => page.getByRole('main')
-const join = (page: Page) => main(page).getByRole('button', { name: 'Join voice', exact: true })
-async function expectInCall(page: Page) {
-  await expect(panel(page).getByRole('status')).toHaveText('Voice connected', { timeout: 40000 })
-}
-const inCallList = (page: Page) => main(page).getByRole('list', { name: 'In this call' })
-const inCallNames = (page: Page) => inCallList(page).locator('.call-person-name')
 
 test('two people on different builds hear each other, mute, keep talking elsewhere, and leave', async ({
   browser,
@@ -327,7 +271,7 @@ test('a browser that denies the microphone for real gets the same explanation', 
   const context = await denying.newContext()
   try {
     const page = await context.newPage()
-    await member(server.admin, page, `denied${++personNumber}`, browserApp)
+    await member(server.admin, page, `denied${nextPersonNumber()}`, browserApp)
     await openRoom(page, roomName)
     await channelRow(page, roomName, 'denied').click()
     await join(page).click()
