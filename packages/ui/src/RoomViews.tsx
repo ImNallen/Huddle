@@ -1,5 +1,5 @@
-import { Hash, Plus, Volume2 } from 'lucide-react'
-import type { Channel, Room } from '@huddle/contracts'
+import { Hash, Plus } from 'lucide-react'
+import type { Room } from '@huddle/contracts'
 import type { Dialog } from './ServerView'
 import { MemberToggle } from './Members'
 
@@ -41,32 +41,6 @@ export function EmptyRoom({
             Create a channel
           </button>
         )}
-      </div>
-    </main>
-  )
-}
-export function VoiceChannel({
-  channel,
-  memberList,
-  onMemberList,
-}: {
-  channel: Channel
-  memberList: boolean
-  onMemberList: () => void
-}) {
-  return (
-    <main className="main">
-      <header className="topbar">
-        <Volume2 size={20} />
-        <strong>{channel.name}</strong>
-        <MemberToggle pressed={memberList} onToggle={onMemberList} />
-      </header>
-      <div className="center-state">
-        <span className="empty-mark">
-          <Volume2 size={40} />
-        </span>
-        <h1>{channel.name}</h1>
-        <p>Voice isn't available yet. Text channels work as usual.</p>
       </div>
     </main>
   )

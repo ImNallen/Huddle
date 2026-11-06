@@ -108,6 +108,7 @@ export function Application({
       key={state.stage.user.id}
       client={client}
       stage={state.stage}
+      voiceAvailable={state.info.voice}
       accept={accept}
       onAccessChanged={onAccessChanged}
       onServer={onServer}
@@ -117,12 +118,14 @@ export function Application({
 function ReadyView({
   client,
   stage,
+  voiceAvailable,
   accept,
   onAccessChanged,
   onServer,
 }: {
   client: Connection
   stage: Extract<AccessStage, { kind: 'ready' }>
+  voiceAvailable: boolean
   accept: (stage: AccessStage) => void
   onAccessChanged: () => void
   onServer?: () => void
@@ -134,6 +137,7 @@ function ReadyView({
         client={client}
         me={{ user: stage.user }}
         covered={settings}
+        voiceAvailable={voiceAvailable}
         onAccessChanged={onAccessChanged}
         onServer={onServer}
         onSettings={() => setSettings(true)}

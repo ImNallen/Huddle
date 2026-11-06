@@ -1,6 +1,6 @@
 ---
 name: Huddle
-description: A self-hosted, text-only server for friends, laid out so a Discord user knows where everything is.
+description: A self-hosted server for friends to chat and talk, laid out so a Discord user knows where everything is.
 colors:
   accent-light: '#1b4ed8'
   accent-dark: '#346bf1'
@@ -335,7 +335,7 @@ A Discord user should know where everything is at first sight. Huddle deliberate
 
 Huddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat room: a shell around a slightly lifted chat ground, one blue accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.
 
-The interface shows only what exists. Controls for unbuilt features (voice calls, search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. Voice channels are the one exception: they can be created and listed, and opening one says voice isn't available yet, with no call controls. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.
+The interface shows only what exists. Controls for unbuilt features (search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. A voice channel on a server with voice off, or in the desktop app, says so and has no call controls. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.
 
 **Key Characteristics:**
 
@@ -362,9 +362,9 @@ The default theme is called Huddle. A near-black neutral family carries one satu
 
 Status colors, not a second brand voice.
 
-- **Connected Green** (`green`: #116b36, #23a55a): The account panel's connected dot, finished setup steps and the copied state.
-- **Waiting Amber** (`amber`: #a34300, #ffb900): The account panel's not-connected dot and warning notices.
-- **Soft Danger** (`danger`: #c10007, #ff6467): Error text, failed messages, invalid input borders, and destructive actions.
+- **Connected Green** (`green`: #116b36, #23a55a): The account panel's connected dot, finished setup steps, the copied state, and being in a call: the call panel's status and the channel row's icon.
+- **Waiting Amber** (`amber`: #a34300, #ffb900): The account panel's not-connected dot, warning notices, and a call that is reconnecting.
+- **Soft Danger** (`danger`: #c10007, #ff6467): Error text, failed messages, invalid input borders, destructive actions, and a muted microphone.
 - **Count Red** (`danger-fill`: #c10007, #d92d36): The unread count badge on the rail, with white numerals, and the Delete theme button.
 
 ### Tertiary
@@ -510,7 +510,7 @@ Compact and plain, with fill as the only emphasis.
 
 - **Rail:** Rounded-square tiles on the shell. The Home tile holds the Huddle logo, a separator follows it, then one tile of initials per room, then a Create room tile for admins and a Switch server tile when the app offers it. Hover and current fill the accent. The Home tile's red count is the total of unread direct messages. A room tile keeps the unread pill and adds the same red count for its unread mentions; its accessible name stays the room name and its description carries the numbers, such as `2 unread, 1 mention`. The rail scrolls with its scrollbar hidden, and one fixed tooltip follows the hovered or focused tile so scrolling never clips it.
 - **Rail Pill:** A 4px marker in `strong` on the rail's left edge: 8px when unread, 20px on hover or focus, 32px when current.
-- **Channel rows:** 32px rows of 15px type with an 18px hash icon, or a speaker for voice channels, in `muted`. Hover adds the wash and `text`; current takes `selected` and `strong`; unread takes `strong` and an 8px pill at the sidebar's edge. A channel with unread mentions adds a small red count at the row's end.
+- **Channel rows:** 32px rows of 15px type with an 18px hash icon, or a speaker for voice channels, in `muted`. Hover adds the wash and `text`; current takes `selected` and `strong`; unread takes `strong` and an 8px pill at the sidebar's edge. A channel with unread mentions adds a small red count at the row's end. The speaker turns `green` on the channel you are in a call in.
 - **Direct message rows:** At Home, Members, and direct views the sidebar lists a "Direct Messages" section under Members, with a `New message` add button for everyone. Rows are 42px with a 24px avatar and the peer's name, and use the channel row states. The empty text is "No messages yet."
 - **Section labels:** "Text Channels", "Voice Channels", and "Direct Messages" at 12px, with a small 24px add button.
 - **Top bar:** 48px with the channel icon and name at 16px, and page actions at the right. It states the current place directly, with no breadcrumb trail.
@@ -542,6 +542,11 @@ The signature surface. Messages are flat and full width, never in bubbles.
 ### Account Panel
 
 A 56px hairline-bordered panel across the rail and sidebar: 32px avatar, name at 14px weight 600, a 12px role or connection line, and a settings icon. It holds the only presence dot in the product, 12px and ringed in `panel`. Green means connected and amber means not connected; the dot reflects connection state and says nothing about other people.
+
+### Voice
+
+- **Voice channel page:** Centered in the chat column. The channel mark, name, one line of state, and one button, which stays in place as Join voice, Cancel, Leave call, or Try again, so focus survives each change. In a call the mark gives way to a row of people, each a 56px avatar over a 14px name, with a 22px mic-off badge at the avatar's corner when muted. A failure replaces the line with its explanation in `danger`.
+- **Call panel:** A panel like the account panel, floating 8px above it from the moment someone joins until the call ends. It holds a 14px status in the state's color, the 12px channel name, a Mute toggle, and Leave call. The status and name are a button that opens the channel. A failed call stays here with a Dismiss button until it is dismissed or its channel opened, except that it stays out of the way while that channel is on screen. When a browser blocks playback, a full-width Turn on sound button joins it. At 480px wide its controls drop to a second row. The rail and sidebar reserve its height, so nothing scrolls under it.
 
 ### Member List
 
@@ -584,7 +589,7 @@ Setup, join, and the screens that explain a missing identity share one frame: th
 ### Don't:
 
 - **Don't** use Discord's logo, illustrations, or proprietary font.
-- **Don't** add controls for features that are not built, including voice calls, search, emoji, attachments, and presence.
+- **Don't** add controls for features that are not built, including search, emoji, attachments, and presence.
 - **Don't** show a presence dot anywhere but the account panel, or use it for anything but connection state.
 - **Don't** put messages in bubbles or constrain the thread to a centered column. Home, setup, and settings may still use a readable column.
 - **Don't** add breadcrumbs to the top bar.
