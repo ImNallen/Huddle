@@ -861,6 +861,41 @@ test('Undo takes back a whole install, including the selection and a moved mode'
   expect(await tokens(page)).toEqual(prior)
 })
 
+test('another window saving a theme retires Undo, so it cannot erase that theme', async ({
+  context,
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await signIn(page, 'twowindows')
+  await stubOpenVsx(page, () => results(entry('pack', 'Pack')), {
+    ...manifestOf('pack', [{ label: 'One', uiTheme: 'vs-dark', path: './one.json' }]),
+    [fileOf('pack', 'one.json')]: JSON.stringify({ colors: { 'editor.background': '#111122' } }),
+  })
+  await openAppearance(page)
+  const search = await openAdd(page)
+  await search.fill('pack')
+  await addDialog(page).getByRole('button', { name: 'Install Pack' }).click()
+  const undo = settings(page).getByRole('button', { name: 'Undo', exact: true })
+  await expect(undo).toBeVisible()
+
+  const second = await context.newPage()
+  await second.emulateMedia({ colorScheme: 'dark' })
+  await second.goto(await page.evaluate(() => location.href))
+  await expectHome(second)
+  await openAppearance(second)
+  await createButton(second).click()
+  const panel = panelOf(second)
+  await panel.getByRole('textbox', { name: 'Theme name' }).fill('Later')
+  await panel.getByRole('button', { name: 'Create theme', exact: true }).click()
+  await expect(panel).toHaveCount(0)
+
+  await expect(swatch(page, 'Later dark')).toBeVisible()
+  await expect(undo).toHaveCount(0)
+  await expect(settings(page).locator('.appearance-status')).toHaveText('Added 1 theme from Pack.')
+  await expect(swatch(page, 'One dark')).toBeVisible()
+  await second.close()
+})
+
 test('search survives a stale answer, an outage, no results, and a file too large', async ({
   page,
 }) => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, LoaderCircle, Palette, Search } from 'lucide-react'
 import { Alert } from '../primitives'
 import { loadThemes, POPULAR, searchThemes, SORTS, type Sort, type ThemeExtension } from './openVsx'
-import { appearance } from './store'
+import { appearance, type Undo } from './store'
 
 const QUIET_MS = 350
 const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 })
@@ -42,7 +42,7 @@ function ExtensionIcon({ icon }: { icon: string | null }) {
 export function ThemeSearch({
   onInstalled,
 }: {
-  onInstalled: (message: string, undo: (() => void) | null) => void
+  onInstalled: (message: string, undo: Undo | null) => void
 }) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<Sort>('relevance')

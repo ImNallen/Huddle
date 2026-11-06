@@ -330,8 +330,22 @@ function fileThemeOf(id: string): NewTheme | null {
   return libraryOf(state).find((theme) => theme.id === id) ?? null
 }
 
+export type Undo = { available: () => boolean; run: () => void }
+/** Good only until the state moves on. Restoring a snapshot after another window saved a theme would
+ *  erase that theme, and `onStorage` replaces `state`, so identity catches every later change. */
+function undoTo(before: State): Undo {
+  const after = state
+  const available = () => state === after
+  return {
+    available,
+    run() {
+      if (available()) commit(before)
+    },
+  }
+}
+
 export type InstallResult =
-  | { ok: true; added: number; skipped: readonly string[]; undo: () => void }
+  | { ok: true; added: number; skipped: readonly string[]; undo: Undo }
   | { ok: false; error: string }
 const OUT_OF_STORAGE = { ok: false, error: 'This device is out of storage.' } as const
 
@@ -360,7 +374,6 @@ export const appearance = {
    *  left alone and reported, because an install has no name field to fix it from. */
   install(themes: readonly NewTheme[]): InstallResult {
     const before = state
-    const undo = () => void commit(before)
     let library = state.themes
     const selected = { ...effectiveSelected(state) }
     const claimed = new Set<Scheme>()
@@ -380,11 +393,11 @@ export const appearance = {
         claimed.add(scheme)
       }
     }
-    if (!claimed.size) return { ok: true, added, skipped, undo }
+    if (!claimed.size) return { ok: true, added, skipped, undo: undoTo(before) }
     const shown = shownScheme(state)
     const mode = claimed.has(shown) ? state.mode : shown === 'dark' ? 'light' : 'dark'
     const stored = commit({ mode, selected, themes: library })
-    return stored ? { ok: true, added, skipped, undo } : OUT_OF_STORAGE
+    return stored ? { ok: true, added, skipped, undo: undoTo(before) } : OUT_OF_STORAGE
   },
   /** Replaces a custom theme in place, so its ID and any selection of it survive a rename. It selects
    *  the side that was just edited, and it never moves the mode: a person tweaking the dark side from

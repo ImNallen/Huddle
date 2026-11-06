@@ -7,7 +7,7 @@ import { ThemeCard } from './ThemeCard'
 import { ThemePanel } from './ThemePanel'
 import type { Theme } from './builtins'
 import type { Scheme } from './palette'
-import { appearance, useAppearance, type ListedTheme, type Mode } from './store'
+import { appearance, useAppearance, type ListedTheme, type Mode, type Undo } from './store'
 
 const MODES: readonly { mode: Mode; label: string }[] = [
   { mode: 'system', label: 'System' },
@@ -48,7 +48,7 @@ type Dialog =
   | { kind: 'delete'; theme: ListedTheme }
   | null
 type Pick = { id: string; sides: readonly Scheme[] }
-type Notice = { message: string; undo: (() => void) | null }
+type Notice = { message: string; undo: Undo | null }
 
 function offScreenStatus(
   pick: Pick | null,
@@ -162,14 +162,14 @@ export function AppearanceTab() {
         </ul>
         <p className="appearance-status" role="status">
           {notice?.message ?? offScreenStatus(pick, themes, mode, scheme)}
-          {notice?.undo && (
+          {notice?.undo?.available() && (
             <>
               {' '}
               <button
                 type="button"
                 className="link"
                 onClick={() => {
-                  notice.undo?.()
+                  notice.undo?.run()
                   setNotice(null)
                 }}
               >

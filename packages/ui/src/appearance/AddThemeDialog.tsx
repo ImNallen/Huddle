@@ -5,7 +5,7 @@ import { Alert } from '../primitives'
 import { SCHEMES, type Scheme } from './palette'
 import { MAX_FILE_BYTES, parseThemeFile, TOO_LARGE } from './themeFile'
 import { ThemeSearch } from './ThemeSearch'
-import { appearance } from './store'
+import { appearance, type Undo } from './store'
 
 const EXAMPLE = `{
   "version": 1,
@@ -21,7 +21,7 @@ export function AddThemeDialog({
 }: {
   onClose: () => void
   onSaved: (id: string, sides: readonly Scheme[]) => void
-  onInstalled: (message: string, undo: (() => void) | null) => void
+  onInstalled: (message: string, undo: Undo | null) => void
 }) {
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState<string>()
