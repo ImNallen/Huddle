@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { Account, type AccessCommand, type AccessStage, type Profile } from '@huddle/contracts'
 import { Alert, Overlay } from './primitives'
 import { ProfileEditor } from './Avatar'
+import { AppearanceTab } from './appearance/Appearance'
 import type { Connection } from './connection'
 import { errorText } from './transport'
 
@@ -11,6 +12,10 @@ const tabs = {
   profile: {
     title: 'Profile',
     description: 'Your name and avatar are shared across this server.',
+  },
+  appearance: {
+    title: 'Appearance',
+    description: 'How Huddle looks on this device.',
   },
   connection: {
     title: 'Connection',
@@ -97,7 +102,9 @@ export function Settings({
         <div className="settings-scroll">
           <div className="settings-content">
             <p className="access-description">{tabs[tab].description}</p>
-            {!account ? (
+            {tab === 'appearance' ? (
+              <AppearanceTab />
+            ) : !account ? (
               <>
                 <p role="status">Loading your account…</p>
                 <Alert message={error} />

@@ -17,21 +17,27 @@ import { ChannelIcon } from './Badges'
 import type { Resource } from './Members'
 import { CopyButton, Overlay, hostOf } from './primitives'
 
-function Modal({
+export function Modal({
   title,
   description,
   icon,
+  className,
   onClose,
   children,
 }: {
   title: string
   description: ReactNode
   icon?: ReactNode
+  className?: string
   onClose: () => void
   children: ReactNode
 }) {
   return (
-    <Overlay className="modal" labelledBy="modal-title" onClose={onClose}>
+    <Overlay
+      className={className ? `modal ${className}` : 'modal'}
+      labelledBy="modal-title"
+      onClose={onClose}
+    >
       <button className="icon-button modal-close" aria-label="Close dialog" onClick={onClose}>
         <X size={18} />
       </button>

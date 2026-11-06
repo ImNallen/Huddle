@@ -3,50 +3,10 @@
     'Figtree Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui,
     sans-serif;
   --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
-  --chrome: #e3e5e8;
-  --sidebar: #f2f3f5;
-  --bg: #ffffff;
-  --panel: #ebedef;
-  --rail-tile: #ffffff;
-  --raised: #ffffff;
-  --card: #ffffff;
-  --input: #ebedef;
-  --secondary: #e3e5e8;
-  --secondary-hover: #d7d9dc;
-  --tile: #dfe1e5;
-  --hover: rgb(6 6 7 / 0.05);
-  --selected: rgb(6 6 7 / 0.09);
-  --message-hover: rgb(6 6 7 / 0.03);
-  --line: rgb(6 6 7 / 0.09);
-  --line-strong: rgb(6 6 7 / 0.16);
-  --text: #1f2125;
-  --strong: #060607;
-  --muted: #5c5e66;
-  --faint: #5c5e66;
-  --placeholder: #5c5e66;
-  --accent: #5865f2;
-  --accent-hover: #4752c4;
-  --focus: #5865f2;
-  --link: #4752c4;
-  --on-accent: #ffffff;
-  --mention-bg: rgb(88 101 242 / 0.15);
-  --mention: #3c45a5;
-  --green: #1c8548;
-  --amber: #a96a00;
-  --danger: #c02e33;
-  --danger-fill: #da373c;
-  --access-field-from: #262a8c;
-  --access-field-to: #2a54c8;
   --access-field: linear-gradient(160deg, var(--access-field-from), var(--access-field-to));
-  --access-card: #ffffff;
-  --access-input: #ebedef;
-  --badge-l: 34%;
-  --badge-bg-l: 90%;
-  --badge-bg-s: 70%;
-  --scroll-thumb: rgb(6 6 7 / 0.22);
-  --shadow-menu: 0 8px 24px rgb(6 6 7 / 0.16);
-  --shadow-modal: 0 16px 48px rgb(6 6 7 / 0.24);
-  --shadow-card: 0 4px 16px rgb(6 6 7 / 0.2);
+  --shadow-menu: 0 8px 24px light-dark(rgb(24 24 27 / 0.16), rgb(0 0 0 / 0.4));
+  --shadow-modal: 0 16px 48px light-dark(rgb(24 24 27 / 0.24), rgb(0 0 0 / 0.5));
+  --shadow-card: 0 4px 16px light-dark(rgb(24 24 27 / 0.2), rgb(0 0 0 / 0.35));
   color-scheme: light dark;
   font-family: var(--font);
   font-size: 14px;
@@ -56,48 +16,51 @@
   background: var(--bg);
   caret-color: var(--accent);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --chrome: #131215;
-    --sidebar: #131215;
-    --bg: #1b1a1f;
-    --panel: #212025;
-    --rail-tile: #212025;
-    --raised: #242328;
-    --card: #1c1b20;
-    --input: #212327;
-    --secondary: #2a292e;
-    --secondary-hover: #38373d;
-    --tile: #393a40;
-    --hover: rgb(255 255 255 / 0.05);
-    --selected: rgb(255 255 255 / 0.11);
-    --message-hover: rgb(255 255 255 / 0.04);
-    --line: rgb(255 255 255 / 0.07);
-    --line-strong: rgb(255 255 255 / 0.13);
-    --text: #f2f2f3;
-    --strong: #ffffff;
-    --muted: #a09fa4;
-    --faint: #96959a;
-    --placeholder: #94969b;
-    --focus: #8a93f6;
-    --link: #afbeed;
-    --mention-bg: rgb(88 101 242 / 0.3);
-    --mention: #c9cdfb;
-    --green: #23a55a;
-    --amber: #f0b232;
-    --danger: #f87171;
-    --access-field-from: #1a1650;
-    --access-field-to: #2b52d2;
-    --access-card: #323339;
-    --access-input: #27292d;
-    --badge-l: 72%;
-    --badge-bg-l: 18%;
-    --badge-bg-s: 45%;
-    --scroll-thumb: rgb(255 255 255 / 0.16);
-    --shadow-menu: 0 8px 24px rgb(0 0 0 / 0.4);
-    --shadow-modal: 0 16px 48px rgb(0 0 0 / 0.5);
-    --shadow-card: 0 4px 16px rgb(0 0 0 / 0.35);
-  }
+:root[data-scheme='light'] {
+  color-scheme: light;
+}
+:root[data-scheme='dark'] {
+  color-scheme: dark;
+}
+:root,
+[data-palette='huddle'] {
+  --chrome: light-dark(#f4f4f5, #000000);
+  --sidebar: light-dark(#fafafa, #000000);
+  --bg: light-dark(#fcfcfc, #0a0a0a);
+  --panel: light-dark(#f4f4f5, #111111);
+  --rail-tile: light-dark(#ffffff, #141414);
+  --raised: light-dark(#ffffff, #141414);
+  --card: light-dark(#ffffff, #0e0e0e);
+  --input: light-dark(#f4f4f5, #141414);
+  --secondary: light-dark(#e4e4e7, #1e1e1e);
+  --secondary-hover: light-dark(#d4d4d8, #2a2a2a);
+  --tile: light-dark(#e4e4e7, #262626);
+  --hover: light-dark(rgb(24 24 27 / 0.05), rgb(255 255 255 / 0.05));
+  --selected: light-dark(rgb(24 24 27 / 0.08), rgb(255 255 255 / 0.09));
+  --message-hover: light-dark(rgb(24 24 27 / 0.03), rgb(255 255 255 / 0.03));
+  --line: light-dark(rgb(24 24 27 / 0.11), rgb(255 255 255 / 0.06));
+  --line-strong: light-dark(rgb(24 24 27 / 0.18), rgb(255 255 255 / 0.12));
+  --text: light-dark(#27272a, #f5f5f5);
+  --strong: light-dark(#18181b, #ffffff);
+  --muted: light-dark(#62626c, #a3a3a3);
+  --faint: light-dark(#62626c, #909090);
+  --placeholder: light-dark(#62626c, #909090);
+  --accent: light-dark(#1b4ed8, #346bf1);
+  --accent-hover: light-dark(#3160db, #3061d9);
+  --focus: light-dark(#1b4ed8, #346bf1);
+  --link: light-dark(#1b4ed8, #51a2ff);
+  --on-accent: light-dark(#ffffff, #ffffff);
+  --mention-bg: light-dark(rgb(27 78 216 / 0.12), rgb(52 107 241 / 0.28));
+  --mention: light-dark(#1a43b8, #b4cbff);
+  --green: light-dark(#116b36, #23a55a);
+  --amber: light-dark(#a34300, #ffb900);
+  --danger: light-dark(#c10007, #ff6467);
+  --danger-fill: light-dark(#c10007, #d92d36);
+  --access-field-from: light-dark(#12307f, #0c1a4d);
+  --access-field-to: light-dark(#1b4ed8, #346bf1);
+  --access-card: light-dark(#ffffff, #141414);
+  --access-input: light-dark(#f4f4f5, #1e1e1e);
+  --scroll-thumb: light-dark(rgb(24 24 27 / 0.22), rgb(255 255 255 / 0.16));
 }
 * {
   box-sizing: border-box;
@@ -248,8 +211,8 @@ textarea::placeholder {
   width: var(--size);
   height: var(--size);
   border-radius: 30%;
-  background: hsl(var(--hue) var(--badge-bg-s) var(--badge-bg-l));
-  color: hsl(var(--hue) 70% var(--badge-l));
+  background: light-dark(hsl(var(--hue) 70% 90%), hsl(var(--hue) 45% 18%));
+  color: light-dark(hsl(var(--hue) 70% 34%), hsl(var(--hue) 70% 72%));
   font-size: calc(var(--size) * 0.4);
   font-weight: 700;
 }
@@ -258,8 +221,8 @@ textarea::placeholder {
   place-items: center;
   flex: none;
   border-radius: 50%;
-  background: hsl(250 60% var(--badge-bg-l));
-  color: hsl(250 60% var(--badge-l));
+  background: light-dark(hsl(250 60% 90%), hsl(250 60% 18%));
+  color: light-dark(hsl(250 60% 34%), hsl(250 60% 72%));
   font-weight: 700;
 }
 .mention {
@@ -1367,16 +1330,10 @@ button.member-row:hover {
 }
 .modal::backdrop,
 .settings::backdrop {
-  background: rgb(255 255 255 / 0.55);
+  background: light-dark(rgb(255 255 255 / 0.55), rgb(0 0 0 / 0.7));
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   animation: dialog-backdrop-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-@media (prefers-color-scheme: dark) {
-  .modal::backdrop,
-  .settings::backdrop {
-    background: rgb(0 0 0 / 0.7);
-  }
 }
 @keyframes dialog-in {
   from {

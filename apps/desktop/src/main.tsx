@@ -1,10 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
+import { startAppearance } from '@huddle/ui'
 import { App } from './App'
 import { native } from './client'
 import '@huddle/ui/style.css'
 if (native) document.documentElement.dataset.native = 'true'
+startAppearance()
 const rootRoute = createRootRoute({ component: App })
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/' })
 const router = createRouter({ routeTree: rootRoute.addChildren([indexRoute]) })
