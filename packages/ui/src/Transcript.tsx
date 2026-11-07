@@ -85,6 +85,7 @@ export function Transcript({
   me,
   thread,
   label,
+  placeholder = label,
   topbar,
   welcome,
   sync,
@@ -95,6 +96,7 @@ export function Transcript({
   me: Me
   thread: Thread
   label: string
+  placeholder?: string
   topbar: ReactNode
   welcome: ReactNode
   sync: ReturnType<typeof useServer>
@@ -259,7 +261,7 @@ export function Transcript({
               event.currentTarget.form?.requestSubmit()
             }
           }}
-          placeholder={label}
+          placeholder={placeholder}
         />
         <div className="composer-actions">
           <button

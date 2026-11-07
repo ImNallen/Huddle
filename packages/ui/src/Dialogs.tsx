@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import {
   Channel,
@@ -193,6 +193,7 @@ export function ChannelDialog({
 export function NewMessageDialog({
   client,
   me,
+  serverName,
   members,
   onClose,
   onChoose,
@@ -200,6 +201,7 @@ export function NewMessageDialog({
 }: {
   client: Transport
   me: Me
+  serverName: string
   members: Resource<Member[]>
   onClose: () => void
   onChoose: (userId: UserId) => Promise<void>
@@ -207,54 +209,138 @@ export function NewMessageDialog({
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeId, setActiveId] = useState<UserId | null>(null)
+  const search = useRef<HTMLInputElement>(null)
   const others =
     members.kind === 'ready' ? members.value.filter((member) => member.id !== me.user.id) : []
   const alone = members.kind === 'ready' && !others.length
+  const filtered = others.filter((member) =>
+    member.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  )
+  const active = filtered.find((member) => member.id === activeId) ?? filtered[0]
+  useEffect(() => {
+    if (members.kind === 'ready') search.current?.focus()
+  }, [members.kind])
+  function choose(userId: UserId) {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    onChoose(userId).catch((failure: unknown) => {
+      setError(errorText(failure))
+      setBusy(false)
+      requestAnimationFrame(() => search.current?.focus())
+    })
+  }
+  function move(direction: -1 | 1) {
+    if (!filtered.length) return
+    const index = Math.max(
+      0,
+      filtered.findIndex((member) => member.id === active?.id),
+    )
+    const next = filtered[(index + direction + filtered.length) % filtered.length]
+    if (!next) return
+    setActiveId(next.id)
+    document.getElementById(`direct-person-${next.id}`)?.scrollIntoView({ block: 'nearest' })
+  }
   return (
-    <Modal
-      title="New message"
-      description={
-        alone
+    <Overlay className="modal new-message" labelledBy="new-message-title" onClose={onClose}>
+      <header className="new-message-header">
+        <h2 id="new-message-title">New message</h2>
+        <button className="new-message-cancel" onClick={onClose}>
+          Cancel
+        </button>
+      </header>
+      <p className="new-message-description">
+        {alone
           ? 'There’s nobody else on this server yet. Once a friend joins, you can message them here.'
-          : 'Choose who to message.'
-      }
-      onClose={onClose}
-    >
-      {members.kind === 'loading' && <p className="people-note">Loading friends…</p>}
+          : `Choose someone in ${serverName}.`}
+      </p>
+      <label className="sr-only" htmlFor="find-person">
+        Find a person
+      </label>
+      <input
+        ref={search}
+        id="find-person"
+        role="combobox"
+        type="search"
+        autoComplete="off"
+        placeholder="Find a person…"
+        aria-controls="direct-people"
+        aria-expanded={true}
+        aria-autocomplete="list"
+        aria-activedescendant={active ? `direct-person-${active.id}` : undefined}
+        value={query}
+        disabled={busy || members.kind !== 'ready'}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          setActiveId(null)
+        }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            move(event.key === 'ArrowDown' ? 1 : -1)
+          } else if (event.key === 'Enter' && active) {
+            event.preventDefault()
+            choose(active.id)
+          }
+        }}
+      />
+      {members.kind === 'loading' && (
+        <p className="people-note" role="status">
+          Loading friends…
+        </p>
+      )}
       {members.kind === 'failed' && (
         <p className="form-error" role="alert">
           {members.message}
         </p>
       )}
-      {others.length > 0 && (
-        <ul className="people-list" aria-label="People">
-          {others.map((member) => (
-            <li key={member.id}>
-              <button
-                className="member-row"
-                disabled={busy}
-                onClick={() => {
-                  setBusy(true)
-                  setError('')
-                  onChoose(member.id).catch((failure: unknown) => {
-                    setError(errorText(failure))
-                    setBusy(false)
-                  })
-                }}
-              >
-                <i className="avatar-slot" aria-hidden="true">
-                  <Avatar
-                    avatar={member.avatar}
-                    name={member.name}
-                    photo={client.photo?.bind(client)}
-                    size={32}
-                  />
-                </i>
-                <span>{member.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      <ul
+        id="direct-people"
+        className="people-list"
+        role="listbox"
+        aria-label="People"
+        aria-busy={busy}
+      >
+        {filtered.map((member) => (
+          <li key={member.id} role="presentation">
+            <button
+              id={`direct-person-${member.id}`}
+              className="member-row"
+              role="option"
+              aria-selected={member.id === active?.id}
+              tabIndex={-1}
+              disabled={busy}
+              onPointerDown={(event) => event.preventDefault()}
+              onPointerMove={() => {
+                if (member.id !== active?.id) setActiveId(member.id)
+              }}
+              onClick={() => choose(member.id)}
+            >
+              <i className="avatar-slot" aria-hidden="true">
+                <Avatar
+                  avatar={member.avatar}
+                  name={member.name}
+                  photo={client.photo?.bind(client)}
+                  size={28}
+                />
+              </i>
+              <span>{member.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {members.kind === 'ready' && !alone && !filtered.length && (
+        <p className="people-note" role="status">
+          No people found. Try another name.
+        </p>
+      )}
+      {busy && (
+        <p className="people-note" role="status">
+          Opening conversation…
+        </p>
       )}
       {error && (
         <p className="form-error" role="alert">
@@ -263,12 +349,12 @@ export function NewMessageDialog({
       )}
       {alone && onInvite && (
         <div className="modal-actions">
-          <button type="button" className="button primary" onClick={onInvite}>
+          <button className="button primary" onClick={onInvite}>
             Share invite
           </button>
         </div>
       )}
-    </Modal>
+    </Overlay>
   )
 }
 export function InviteDialog({

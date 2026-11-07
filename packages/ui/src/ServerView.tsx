@@ -208,6 +208,7 @@ export function ServerView({
           client={client}
           me={me}
           direct={direct}
+          onSettings={onSettings}
           sync={sync}
           draft={drafts[direct.id] ?? ''}
           onDraft={(value) => setDrafts((current) => ({ ...current, [direct.id]: value }))}
@@ -285,6 +286,7 @@ export function ServerView({
       )}
       {dialog.kind === 'direct' && (
         <NewMessageDialog
+          serverName={server.name}
           client={client}
           me={me}
           members={members}

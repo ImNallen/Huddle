@@ -63,12 +63,13 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     await memberPanel.getByRole('button', { name: 'Message jonas', exact: true }).click()
     const thread = avery.getByRole('main')
     await expect(
-      thread.getByRole('heading', { level: 1, name: 'jonas', exact: true }),
+      thread.getByRole('heading', { level: 1, name: 'Conversation with jonas', exact: true }),
     ).toBeVisible()
-    await expect(thread.locator('.topbar')).toHaveText('jonas')
+    await expect(thread.locator('.direct-person')).toHaveText('jonasDirect message')
     await expect(
-      thread.getByText('This is the start of your conversation with jonas.', { exact: true }),
+      thread.getByText('This is your conversation with jonas.', { exact: true }),
     ).toBeVisible()
+    await thread.getByRole('button', { name: 'Conversation details', exact: true }).click()
     await expect(
       thread.getByText(
         'Messages are stored on this server unencrypted, so its host could read them.',
@@ -77,7 +78,8 @@ test('direct messages reach the two people in them and nobody else', async ({ br
         },
       ),
     ).toBeVisible()
-    await expect(composer(avery, 'jonas')).toHaveAttribute('placeholder', 'Message @jonas')
+    await avery.keyboard.press('Escape')
+    await expect(composer(avery, 'jonas')).toHaveAttribute('placeholder', 'Message jonas')
     await expect(memberPanel).toHaveCount(0)
     await expect(avery.getByRole('button', { name: 'Member list', exact: true })).toHaveCount(0)
     await expect(directRow(avery, 'jonas')).toHaveAttribute('aria-current', 'page')
@@ -98,7 +100,9 @@ test('direct messages reach the two people in them and nobody else', async ({ br
 
     const jonasRead = jonas.waitForResponse('**/api/direct/read')
     await preview.click()
-    await expect(jonas.getByRole('heading', { level: 1, name: 'avery', exact: true })).toBeVisible()
+    await expect(
+      jonas.getByRole('heading', { level: 1, name: 'Conversation with avery', exact: true }),
+    ).toBeVisible()
     await expect(jonas.getByText(first, { exact: true })).toBeVisible()
     await jonasRead
     await expect(railTile(jonas, 'Home')).toHaveAccessibleDescription('')
@@ -129,11 +133,13 @@ test('direct messages reach the two people in them and nobody else', async ({ br
 
     await mira.getByRole('main').getByRole('button', { name: 'New message', exact: true }).click()
     const dialog = mira.getByRole('dialog', { name: 'New message' })
-    await expect(dialog.getByRole('button', { name: 'avery', exact: true })).toBeVisible()
-    await expect(dialog.getByRole('button', { name: 'mira', exact: true })).toHaveCount(0)
-    await dialog.getByRole('button', { name: 'jonas', exact: true }).click()
+    await expect(dialog.getByRole('option', { name: 'avery', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('option', { name: 'mira', exact: true })).toHaveCount(0)
+    await dialog.getByRole('option', { name: 'jonas', exact: true }).click()
     await expect(mira.getByRole('dialog')).toHaveCount(0)
-    await expect(mira.getByRole('heading', { level: 1, name: 'jonas', exact: true })).toBeVisible()
+    await expect(
+      mira.getByRole('heading', { level: 1, name: 'Conversation with jonas', exact: true }),
+    ).toBeVisible()
     await send(mira, 'jonas', 'Are we still on for tonight?')
     await expect(railTile(jonas, 'Home')).toHaveAccessibleDescription('1 unread')
     await expect(homeRow(jonas, 'mira')).toContainText('Are we still on for tonight?')
@@ -167,7 +173,7 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     await sidebar(avery).getByRole('button', { name: 'New message', exact: true }).click()
     await avery
       .getByRole('dialog', { name: 'New message' })
-      .getByRole('button', { name: 'mira', exact: true })
+      .getByRole('option', { name: 'mira', exact: true })
       .click()
     await avery.route('**/api/direct/messages', async (route) => {
       if (route.request().method() === 'POST') await route.abort('connectionfailed')

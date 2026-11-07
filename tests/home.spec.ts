@@ -133,7 +133,9 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(direct).toContainText('Coffee after standup?')
     await expect(direct).toContainText('1 new')
     await direct.click()
-    await expect(page.getByRole('heading', { level: 1, name: 'jonas', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Conversation with jonas', exact: true }),
+    ).toBeVisible()
     await expect(railTile(page, 'Home')).toHaveAccessibleDescription('')
     await expect(roomTile).toHaveAccessibleDescription('1 unread')
   } finally {
