@@ -197,6 +197,7 @@ export function NewMessageDialog({
   members,
   onClose,
   onChoose,
+  onGroup,
   onInvite,
 }: {
   client: Transport
@@ -204,6 +205,7 @@ export function NewMessageDialog({
   serverName: string
   members: Resource<Member[]>
   onClose: () => void
+  onGroup: () => void
   onChoose: (userId: UserId) => Promise<void>
   onInvite: (() => void) | null
 }) {
@@ -346,6 +348,11 @@ export function NewMessageDialog({
         <p className="form-error" role="alert">
           {error}
         </p>
+      )}
+      {!alone && (
+        <button className="new-group-action" disabled={busy} onClick={onGroup}>
+          New group
+        </button>
       )}
       {alone && onInvite && (
         <div className="modal-actions">

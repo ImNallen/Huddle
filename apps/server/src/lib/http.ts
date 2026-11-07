@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import {
+  GroupAccess,
+  CreateGroup,
+  AddGroupPeople,
+  SendGroupMessage,
+  MarkGroupRead,
   ChannelId,
   ConversationId,
   CreateChannel,
@@ -86,6 +91,15 @@ export async function applicationRequest(request: Request): Promise<Response> {
           ChannelId.parse(url.searchParams.get('channelId')),
           Cursor.optional().parse(url.searchParams.get('before') ?? undefined),
         )
+      else if (path === '/api/group/messages')
+        result = await domain.groupHistory(
+          userId,
+          GroupAccess.parse({
+            groupId: url.searchParams.get('groupId'),
+            admission: url.searchParams.get('admission'),
+          }),
+          Cursor.optional().parse(url.searchParams.get('before') ?? undefined),
+        )
       else if (path === '/api/direct/messages')
         result = await domain.directHistory(
           userId,
@@ -105,7 +119,18 @@ export async function applicationRequest(request: Request): Promise<Response> {
         result = {}
       } else if (path === '/api/messages')
         result = await domain.sendMessage(user, SendMessage.parse(body))
-      else if (path === '/api/direct/conversations')
+      else if (path === '/api/groups')
+        result = await domain.createGroup(userId, CreateGroup.parse(body))
+      else if (path === '/api/group/people')
+        result = await domain.addGroupPeople(userId, AddGroupPeople.parse(body))
+      else if (path === '/api/group/leave')
+        result = await domain.leaveGroup(userId, GroupAccess.parse(body))
+      else if (path === '/api/group/messages')
+        result = await domain.sendGroupMessage(user, SendGroupMessage.parse(body))
+      else if (path === '/api/group/read') {
+        await domain.markGroupRead(userId, MarkGroupRead.parse(body))
+        result = {}
+      } else if (path === '/api/direct/conversations')
         result = await domain.openDirect(userId, OpenDirect.parse(body))
       else if (path === '/api/direct/messages')
         result = await domain.sendDirectMessage(user, SendDirectMessage.parse(body))

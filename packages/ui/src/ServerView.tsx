@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   DirectConversation as DirectConversationSchema,
   type Avatar as AvatarValue,
@@ -10,6 +10,8 @@ import {
   type Me,
   type UserId,
 } from '@huddle/contracts'
+import { GroupConversation, GroupPeopleDialog, GroupMembersDialog } from './GroupChat'
+import { threadKey, type GroupThread } from './chat'
 import type { Transport } from './transport'
 import { useServer, type DirectThread, type Thread, type ThreadMessage } from './useServer'
 import { Sidebar } from './Sidebar'
@@ -28,12 +30,16 @@ export type View =
   | { kind: 'members' }
   | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null }
   | { kind: 'direct'; conversationId: ConversationId }
+  | { kind: 'group'; thread: GroupThread }
 export type Dialog =
   | { kind: 'none' }
   | { kind: 'room' }
   | { kind: 'channel'; roomId: RoomId; channelKind: ChannelKind }
   | { kind: 'invite' }
   | { kind: 'direct' }
+  | { kind: 'new-group' }
+  | { kind: 'group-members'; thread: GroupThread }
+  | { kind: 'group-add'; thread: GroupThread }
 type Peer = { name: string; avatar: AvatarValue | null | undefined }
 export type DirectRow = DirectThread & { peer: Peer }
 function peerOf(direct: DirectThread, roster: Member[] | null, messages: ThreadMessage[]): Peer {
@@ -45,6 +51,7 @@ function peerOf(direct: DirectThread, roster: Member[] | null, messages: ThreadM
     : { name: 'Friend', avatar: null }
 }
 function threadOf(view: View): Thread | null {
+  if (view.kind === 'group') return view.thread
   if (view.kind === 'direct') return { kind: 'direct', id: view.conversationId }
   return view.kind === 'room' && view.channelId ? { kind: 'channel', id: view.channelId } : null
 }
@@ -65,7 +72,7 @@ export function ServerView({
   onSettings: () => void
   onServer?: () => void
 }) {
-  const [view, setView] = useState<View>({ kind: 'home' })
+  const [requestedView, setView] = useState<View>({ kind: 'home' })
   const [remembered, setRemembered] = useState<ReadonlyMap<RoomId, ChannelId>>(new Map())
   const [memberList, setMemberList] = useState(false)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
@@ -75,10 +82,27 @@ export function ServerView({
   const sync = useServer(
     client,
     me.user.id,
-    threadOf(view),
+    threadOf(requestedView),
     covered || dialog.kind !== 'none',
     onAccessChanged,
   )
+  const group =
+    requestedView.kind === 'group'
+      ? sync.groups.find((g) => threadKey(g.thread) === threadKey(requestedView.thread))
+      : undefined
+  const view: View = requestedView.kind === 'group' && !group ? { kind: 'home' } : requestedView
+  const dialogGroup =
+    dialog.kind === 'group-members' || dialog.kind === 'group-add'
+      ? sync.groups.find((g) => threadKey(g.thread) === threadKey(dialog.thread))
+      : undefined
+  useEffect(() => {
+    if (
+      (dialog.kind === 'group-members' || dialog.kind === 'group-add') &&
+      !dialogGroup &&
+      sync.state.kind === 'ready'
+    )
+      setDialog({ kind: 'none' })
+  }, [dialog.kind, dialogGroup, sync.state.kind])
   const members = useMembers(
     client,
     // A person in a call may have joined the server since the roster loaded.
@@ -169,6 +193,7 @@ export function ServerView({
         channels={channels}
         unread={sync.unread}
         directs={directs}
+        groups={sync.groups}
         view={view}
         connection={sync.connection}
         voice={voice}
@@ -201,6 +226,19 @@ export function ServerView({
           roster={roster}
           memberList={memberList}
           onMemberList={() => setMemberList((value) => !value)}
+        />
+      ) : group ? (
+        <GroupConversation
+          key={threadKey(group.thread)}
+          group={group}
+          members={roster}
+          client={client}
+          me={me}
+          sync={sync}
+          onMembers={() => setDialog({ kind: 'group-members', thread: group.thread })}
+          onSettings={onSettings}
+          draft={sync.groupDraft(group.thread)}
+          onDraft={(value) => sync.setGroupDraft(group.thread, value)}
         />
       ) : direct ? (
         <DirectConversation
@@ -245,6 +283,8 @@ export function ServerView({
           channels={channels}
           members={roster}
           directs={directs}
+          groups={sync.groups}
+          onGroup={(thread) => open({ kind: 'group', thread })}
           unread={sync.unread}
           presence={sync.presence}
           onRoom={openRoom}
@@ -257,7 +297,7 @@ export function ServerView({
           onMemberList={() => setMemberList((value) => !value)}
         />
       )}
-      {memberList && view.kind !== 'members' && !direct && (
+      {memberList && view.kind !== 'members' && !direct && !group && (
         <MemberList client={client} me={me} members={members} onMessage={messageMember} />
       )}
       {dialog.kind === 'room' && (
@@ -292,7 +332,36 @@ export function ServerView({
           members={members}
           onClose={() => setDialog({ kind: 'none' })}
           onChoose={messageMember}
+          onGroup={() => setDialog({ kind: 'new-group' })}
           onInvite={server.role === 'admin' ? () => setDialog({ kind: 'invite' }) : null}
+        />
+      )}
+      {(dialog.kind === 'new-group' || (dialog.kind === 'group-add' && dialogGroup)) && (
+        <GroupPeopleDialog
+          client={client}
+          me={me}
+          members={members}
+          group={dialog.kind === 'group-add' ? dialogGroup : undefined}
+          sync={sync}
+          onClose={() => setDialog({ kind: 'none' })}
+          onCreated={(thread) => {
+            setDialog({ kind: 'none' })
+            open({ kind: 'group', thread })
+          }}
+        />
+      )}
+      {dialog.kind === 'group-members' && dialogGroup && (
+        <GroupMembersDialog
+          group={dialogGroup}
+          members={roster}
+          client={client}
+          me={me}
+          onClose={() => setDialog({ kind: 'none' })}
+          onAdd={() => setDialog({ kind: 'group-add', thread: dialogGroup.thread })}
+          onLeave={async () => {
+            await sync.leaveGroup(dialogGroup.thread)
+            setDialog({ kind: 'none' })
+          }}
         />
       )}
       {dialog.kind === 'invite' && (

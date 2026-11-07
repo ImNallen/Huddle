@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import {
+  GroupId,
+  Admission,
+  GroupMessage,
+  GroupObservation,
+  GroupRemoval,
+  type CreateGroup,
+  type GroupAccess,
   AccessStage,
   ChannelId,
   ConversationId,
@@ -15,14 +22,25 @@ import {
   type VoicePresence,
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
+import { RequestError } from './connection'
+import {
+  initialGroups,
+  hasGroup,
+  observeGroup,
+  revokeGroup,
+  snapshotGroups,
+  groupMessage,
+  groupThread,
+  type GroupState,
+  type GroupThread,
+} from './groupState'
 
 type SyncState =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'ready'; snapshot: Snapshot }
-export type Thread = { kind: 'channel'; id: ChannelId } | { kind: 'direct'; id: ConversationId }
-export const threadKey = (thread: Thread) => `${thread.kind}:${thread.id}`
-export type ThreadMessage = Omit<Message, 'channelId'> & { thread: Thread }
+import { threadKey, type Thread, type ThreadMessage, type Pending, type Queued } from './chat'
+export { threadKey, type Thread, type ThreadMessage, type Pending } from './chat'
 const inChannel = ({ channelId, ...message }: Message): ThreadMessage => ({
   ...message,
   thread: { kind: 'channel', id: channelId },
@@ -37,7 +55,7 @@ type ThreadRoute = {
   send: { path: string; body: (id: string, retryId: string, body: string) => unknown }
   read: { path: string; body: (id: string, cursor: string) => unknown }
 }
-const threadRoutes: Record<Thread['kind'], ThreadRoute> = {
+const threadRoutes: Record<'channel' | 'direct', ThreadRoute> = {
   channel: {
     message: Message.transform(inChannel),
     history: (id) => `/api/messages?channelId=${id}`,
@@ -72,6 +90,7 @@ const StoredPending = z.union([
     thread: z.discriminatedUnion('kind', [
       z.object({ kind: z.literal('channel'), id: ChannelId }),
       z.object({ kind: z.literal('direct'), id: ConversationId }),
+      z.object({ kind: z.literal('group'), id: GroupId, admission: Admission }),
     ]),
     peerId: UserId.optional(),
   }),
@@ -80,8 +99,22 @@ const StoredPending = z.union([
     thread: { kind: 'channel' as const, id: channelId },
   })),
 ])
-type Queued = { retryId: string; thread: Thread; peerId?: UserId; body: string }
-export type Pending = Queued & ({ kind: 'sending' } | { kind: 'failed'; error: string })
+function restorePending(storageKey: string): Pending[] {
+  try {
+    const rows = StoredPending.array().parse(
+      JSON.parse(
+        typeof localStorage === 'undefined' ? '[]' : (localStorage.getItem(storageKey) ?? '[]'),
+      ),
+    )
+    return rows.map((item) => ({
+      ...item,
+      kind: 'failed',
+      error: 'Sending was interrupted. Retry with the same message ID.',
+    }))
+  } catch {
+    return []
+  }
+}
 export type Activity = { count: number; mentions: number }
 export type Unread = ReadonlyMap<string, Activity>
 export type DirectThread = {
@@ -137,6 +170,7 @@ export function useServer(
   const channels = state.kind === 'ready' ? state.snapshot.channels : []
   const open =
     selected?.kind === 'direct' ||
+    selected?.kind === 'group' ||
     (selected && channels.find((channel) => channel.id === selected.id)?.kind === 'text')
       ? selected
       : null
@@ -145,28 +179,42 @@ export function useServer(
   const [unread, setUnread] = useState<Unread>(new Map())
   const [changes, setChanges] = useState(0)
   const [visible, setVisible] = useState(isVisible)
-  const [pending, setPending] = useState<Pending[]>(() => {
+  const [pending, setPending] = useState<Pending[]>(() =>
+    restorePending(storageKey).filter((p) => p.thread.kind !== 'group'),
+  )
+  const [groups, setGroups] = useState(() =>
+    initialGroups(restorePending(storageKey).filter((p) => p.thread.kind === 'group')),
+  )
+  const groupsRef = useRef(groups)
+  function updateGroups(update: (state: GroupState) => GroupState) {
+    const next = update(groupsRef.current)
+    groupsRef.current = next
+    setGroups(next)
     try {
-      const rows = StoredPending.array().parse(
-        JSON.parse(
-          typeof localStorage === 'undefined' ? '[]' : (localStorage.getItem(storageKey) ?? '[]'),
-        ),
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify([
+          ...pendingRef.current.filter((p) => p.thread.kind !== 'group'),
+          ...next.pending,
+        ]),
       )
-      return rows.map((item) => ({
-        ...item,
-        kind: 'failed',
-        error: 'Sending was interrupted. Retry with the same message ID.',
-      }))
     } catch {
-      return []
+      /* Revocation still clears memory when storage is full. */
     }
-  })
-  const pendingRef = useRef(pending)
+  }
+  function groupFailure(thread: GroupThread, error: unknown) {
+    if (error instanceof RequestError && error.status === 404)
+      updateGroups((state) => revokeGroup(state, thread))
+  }
+  function allowed(thread: Thread) {
+    return thread.kind !== 'group' || hasGroup(groupsRef.current, thread)
+  }
+  const pendingRef = useRef(pending.filter((p) => p.thread.kind !== 'group'))
   const [queueError, setQueueError] = useState('')
   function updatePending(update: (current: Pending[]) => Pending[]) {
     const next = update(pendingRef.current)
     try {
-      localStorage.setItem(storageKey, JSON.stringify(next))
+      localStorage.setItem(storageKey, JSON.stringify([...next, ...groupsRef.current.pending]))
     } catch {
       setQueueError('Could not save your outgoing message. Free local storage and try again.')
       return false
@@ -220,6 +268,17 @@ export function useServer(
         : current,
     )
   function read(thread: Thread, cursor: string) {
+    if (thread.kind === 'group') {
+      if (!allowed(thread)) return
+      const access = { groupId: thread.id, admission: thread.admission }
+      reads.current = reads.current
+        .then(() => client.request('/api/group/read', z.unknown(), { ...access, cursor }))
+        .catch((error) => {
+          groupFailure(thread, error)
+          marked.current.delete(threadKey(thread))
+        })
+      return
+    }
     const route = threadRoutes[thread.kind].read
     reads.current = reads.current
       .then(() => client.request(route.path, z.unknown(), route.body(thread.id, cursor)))
@@ -242,9 +301,10 @@ export function useServer(
         ])
         if (stopped) return
         cursor.current = snapshot.cursor
+        updateGroups((current) => snapshotGroups(current, snapshot.groups, snapshot.cursor, userId))
         setState({
           kind: 'ready',
-          snapshot: pendingRef.current.reduce(
+          snapshot: pendingRef.current.reduce<Snapshot>(
             (current, { thread, peerId }) =>
               thread.kind === 'direct' && peerId
                 ? apply(current, {
@@ -252,7 +312,7 @@ export function useServer(
                     conversation: { id: thread.id, peerId, latest: null, unread: 0 },
                   })
                 : current,
-            snapshot,
+            { ...snapshot, groups: [] },
           ),
         })
         setUnread(
@@ -296,6 +356,40 @@ export function useServer(
               let heard = false
               for (const event of page.events) {
                 if (BigInt(event.cursor) <= BigInt(cursor.current)) continue
+                if (event.kind === 'group.changed') {
+                  updateGroups((state) => observeGroup(state, event.group, event.cursor, userId))
+                  heard = true
+                  continue
+                }
+                if (event.kind === 'group.removed') {
+                  updateGroups((state) =>
+                    revokeGroup(
+                      state,
+                      { kind: 'group', id: event.groupId, admission: event.admission },
+                      event.cursor,
+                    ),
+                  )
+                  continue
+                }
+                if (event.kind === 'group.message.created') {
+                  const thread = groupsRef.current.authority.get(event.message.groupId)?.current
+                    ?.thread
+                  if (thread)
+                    updateGroups((state) =>
+                      groupMessage(
+                        state,
+                        thread,
+                        event.message,
+                        true,
+                        event.message.authorId !== userId &&
+                          (threadKey(thread) !== openRef.current ||
+                            coveredRef.current ||
+                            !isVisible()),
+                      ),
+                    )
+                  heard = true
+                  continue
+                }
                 if (event.kind === 'room.created' || event.kind === 'channel.created') {
                   change(event)
                   continue
@@ -378,6 +472,36 @@ export function useServer(
       return
     }
     const abort = new AbortController()
+    if (open.kind === 'group') {
+      if (!allowed(open)) {
+        setHistoryState('ready')
+        return
+      }
+      setHistoryState('loading')
+      setHistoryError('')
+      void client
+        .request(
+          `/api/group/messages?groupId=${open.id}&admission=${open.admission}`,
+          GroupMessage.array(),
+          undefined,
+          abort.signal,
+        )
+        .then((rows) => {
+          if (abort.signal.aborted || !active.current || !allowed(open)) return
+          updateGroups((state) =>
+            rows.reduce((next, message) => groupMessage(next, open, message), state),
+          )
+          setHistoryState('ready')
+        })
+        .catch((error) => {
+          if (!abort.signal.aborted && active.current && allowed(open)) {
+            groupFailure(open, error)
+            setHistoryState('failed')
+            setHistoryError(errorText(error))
+          }
+        })
+      return () => abort.abort()
+    }
     const route = threadRoutes[open.kind]
     setHistoryState('loading')
     setHistoryError('')
@@ -403,11 +527,24 @@ export function useServer(
       })
     return () => abort.abort()
   }, [client, openKey, attempt])
-  const newest = new Map(messages.map((message) => [threadKey(message.thread), message]))
+  const allMessages = [...messages, ...groups.messages]
+  const newest = new Map(allMessages.map((message) => [threadKey(message.thread), message]))
   const latest = openKey ? newest.get(openKey)?.cursor : undefined
   useEffect(() => {
     flush.current = null
     if (!open || !openKey || !visible || covered) return
+    if (open.kind === 'group')
+      updateGroups((state) => {
+        const entry = state.authority.get(open.id)
+        if (!entry?.current || !hasGroup(state, open)) return state
+        return {
+          ...state,
+          authority: new Map(state.authority).set(open.id, {
+            ...entry,
+            current: { ...entry.current, group: { ...entry.current.group, unread: 0 } },
+          }),
+        }
+      })
     setUnread((current) => {
       if (!current.has(openKey)) return current
       const next = new Map(current)
@@ -442,6 +579,50 @@ export function useServer(
     })
     .sort(newestFirst)
   async function send({ retryId, thread, peerId, body }: Queued) {
+    if (thread.kind === 'group') {
+      if (!allowed(thread)) return
+      const item: Pending = { retryId, thread, body, kind: 'sending' }
+      try {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify([
+            ...pendingRef.current,
+            ...groupsRef.current.pending.filter((p) => p.retryId !== retryId),
+            item,
+          ]),
+        )
+      } catch {
+        setQueueError('Could not save your outgoing message. Free local storage and try again.')
+        return
+      }
+      updateGroups((state) => ({
+        ...state,
+        pending: [...state.pending.filter((p) => p.retryId !== retryId), item],
+      }))
+      try {
+        const message = await client.request('/api/group/messages', GroupMessage, {
+          groupId: thread.id,
+          admission: thread.admission,
+          retryId,
+          body,
+        })
+        if (active.current) updateGroups((state) => groupMessage(state, thread, message))
+      } catch (error) {
+        if (!active.current || !allowed(thread)) return
+        groupFailure(thread, error)
+        updateGroups((state) =>
+          !hasGroup(state, thread)
+            ? state
+            : {
+                ...state,
+                pending: state.pending.map((p) =>
+                  p.retryId === retryId ? { ...p, kind: 'failed', error: errorText(error) } : p,
+                ),
+              },
+        )
+      }
+      return
+    }
     const item: Queued = {
       retryId,
       thread,
@@ -480,8 +661,25 @@ export function useServer(
     }
   }
   async function older() {
-    const first = messages.find((message) => threadKey(message.thread) === openKey)
+    const first = allMessages.find((message) => threadKey(message.thread) === openKey)
     if (!first || !open) return
+    if (open.kind === 'group') {
+      if (!allowed(open)) return
+      try {
+        const rows = await client.request(
+          `/api/group/messages?groupId=${open.id}&admission=${open.admission}&before=${first.cursor}`,
+          GroupMessage.array(),
+        )
+        if (active.current && allowed(open))
+          updateGroups((state) =>
+            rows.reduce((next, message) => groupMessage(next, open, message), state),
+          )
+        return rows.length
+      } catch (error) {
+        if (active.current) groupFailure(open, error)
+        throw error
+      }
+    }
     const route = threadRoutes[open.kind]
     const rows = await client.request(
       `${route.history(open.id)}&before=${first.cursor}`,
@@ -492,9 +690,77 @@ export function useServer(
   }
   return {
     state,
-    messages,
-    pending,
-    unread,
+    messages: allMessages,
+    pending: [
+      ...pending.filter((p) => p.thread.kind !== 'group'),
+      ...groups.pending.filter((p) => p.thread.kind === 'group' && hasGroup(groups, p.thread)),
+    ],
+    unread: new Map([
+      ...unread,
+      ...[...groups.authority.values()].flatMap((entry) =>
+        entry.current && entry.current.group.unread
+          ? [
+              [
+                threadKey(entry.current.thread),
+                { count: entry.current.group.unread, mentions: 0 },
+              ] as const,
+            ]
+          : [],
+      ),
+    ]),
+    groups: [...groups.authority.values()]
+      .flatMap((entry) =>
+        entry.current ? [{ ...entry.current.group, thread: entry.current.thread }] : [],
+      )
+      .sort((a, b) =>
+        BigInt(a.latest?.cursor ?? a.revision) > BigInt(b.latest?.cursor ?? b.revision) ? -1 : 1,
+      ),
+    groupDraft: (thread: GroupThread) => groups.drafts.get(threadKey(thread)) ?? '',
+    setGroupDraft: (thread: GroupThread, body: string) =>
+      updateGroups((state) =>
+        !hasGroup(state, thread)
+          ? state
+          : { ...state, drafts: new Map(state.drafts).set(threadKey(thread), body) },
+      ),
+    createGroup: async (input: z.infer<typeof CreateGroup>) => {
+      const observation = await client.request('/api/groups', GroupObservation, input)
+      if (!active.current) return null
+      updateGroups((state) =>
+        observeGroup(state, observation.group, observation.at, userId, observation.group),
+      )
+      const thread = groupThread(observation.group, userId)
+      return thread && hasGroup(groupsRef.current, thread) ? thread : null
+    },
+    addGroupPeople: async (thread: GroupThread, userIds: UserId[]) => {
+      if (!allowed(thread)) return
+      try {
+        const result = await client.request('/api/group/people', GroupObservation, {
+          groupId: thread.id,
+          admission: thread.admission,
+          userIds,
+        })
+        if (active.current && allowed(thread))
+          updateGroups((state) =>
+            observeGroup(state, result.group, result.at, userId, result.group),
+          )
+      } catch (error) {
+        if (active.current) groupFailure(thread, error)
+        throw error
+      }
+    },
+    leaveGroup: async (thread: GroupThread) => {
+      if (!allowed(thread)) return
+      try {
+        const result = await client.request('/api/group/leave', GroupRemoval, {
+          groupId: thread.id,
+          admission: thread.admission,
+        } satisfies GroupAccess)
+        if (active.current) updateGroups((state) => revokeGroup(state, thread, result.cursor))
+      } catch (error) {
+        if (active.current) groupFailure(thread, error)
+        throw error
+      }
+    },
     directs,
     changes,
     presence,

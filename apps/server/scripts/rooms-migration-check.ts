@@ -372,7 +372,7 @@ try {
       messages: 'SELECT * FROM message ORDER BY id',
       mentions: 'SELECT * FROM message_mention ORDER BY message_id, user_id',
       reads: 'SELECT * FROM channel_read ORDER BY user_id, channel_id',
-      events: 'SELECT * FROM event ORDER BY cursor',
+      events: 'SELECT cursor, event, audience FROM event ORDER BY cursor',
       conversations: 'SELECT * FROM direct_conversation ORDER BY id',
       directMessages: 'SELECT * FROM direct_message ORDER BY id',
       directReads: 'SELECT * FROM direct_read ORDER BY user_id, conversation_id',
@@ -565,6 +565,42 @@ try {
       await domain.replay(colleague, hidden),
       { events: [], scanned: hidden },
       'a watcher at the head stays there',
+    )
+
+    const retainedGroupPhoto = randomUUID(),
+      retainedGroup = randomUUID()
+    await scratch.query(
+      "INSERT INTO account_photo(id,user_id,bytes,created_at) VALUES($1,$2,$3,now()-interval '2 days')",
+      [retainedGroupPhoto, owner, Buffer.from('group photo')],
+    )
+    await scratch.query(
+      'INSERT INTO group_conversation(id,name,creator_id,create_retry_id,create_others) VALUES($1,$2,$3,$4,$5)',
+      [retainedGroup, 'Former group', owner, randomUUID(), []],
+    )
+    await scratch.query(
+      "INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor) VALUES($1,$2,$3,1,'Legacy owner',$4,$5,'Retained',1)",
+      [
+        randomUUID(),
+        retainedGroup,
+        owner,
+        JSON.stringify({ kind: 'photo', uploadId: retainedGroupPhoto }),
+        randomUUID(),
+      ],
+    )
+    await pruneAccess()
+    assert.equal(
+      (await scratch.query('SELECT 1 FROM account_photo WHERE id=$1', [retainedGroupPhoto]))
+        .rowCount,
+      1,
+      'history in a group with no remaining members retains its photo',
+    )
+    await scratch.query('DELETE FROM group_message WHERE group_id=$1', [retainedGroup])
+    await pruneAccess()
+    assert.equal(
+      (await scratch.query('SELECT 1 FROM account_photo WHERE id=$1', [retainedGroupPhoto]))
+        .rowCount,
+      0,
+      'unreferenced old group photo can be pruned',
     )
 
     const shape = `SELECT table_name, column_name, data_type, is_nullable, column_default

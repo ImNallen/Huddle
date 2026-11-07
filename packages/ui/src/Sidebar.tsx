@@ -11,6 +11,8 @@ import type {
   Server,
   VoicePresence,
 } from '@huddle/contracts'
+import { GroupIcon } from './GroupChat'
+import type { GroupRow } from './chat'
 import type { Transport } from './transport'
 import { threadKey, type Activity, type Unread } from './useServer'
 import type { Dialog, DirectRow, View } from './ServerView'
@@ -201,6 +203,7 @@ export function Sidebar({
   channels,
   unread,
   directs,
+  groups,
   view,
   connection,
   voice,
@@ -220,6 +223,7 @@ export function Sidebar({
   channels: Channel[]
   unread: Unread
   directs: DirectRow[]
+  groups: GroupRow[]
   view: View
   connection: string
   voice: VoiceCall
@@ -260,7 +264,10 @@ export function Sidebar({
         rooms={rooms}
         roomActivity={roomActivity}
         admin={admin}
-        homeCount={directs.reduce((total, direct) => total + direct.unread, 0)}
+        homeCount={
+          directs.reduce((total, direct) => total + direct.unread, 0) +
+          groups.reduce((total, group) => total + group.unread, 0)
+        }
         view={view}
         onView={onView}
         onRoom={onRoom}
@@ -384,36 +391,80 @@ export function Sidebar({
             </>
           ) : (
             <Section
-              label="Direct messages"
+              label={groups.length ? 'Messages' : 'Direct messages'}
               create={{ name: 'New message', onClick: () => onDialog({ kind: 'direct' }) }}
             >
-              {directs.map((direct) => (
-                <button
-                  key={direct.id}
-                  className={`nav-row direct-row ${direct.unread ? 'unread' : ''}`}
-                  aria-current={
-                    view.kind === 'direct' && view.conversationId === direct.id ? 'page' : undefined
-                  }
-                  onClick={() => onDirect(direct.id)}
-                >
-                  <i className="avatar-slot" aria-hidden="true">
-                    <Avatar
-                      avatar={direct.peer.avatar}
-                      name={direct.peer.name}
-                      photo={client.photo?.bind(client)}
-                      size={28}
-                    />
-                  </i>
-                  <span>{direct.peer.name}</span>
-                  {direct.unread > 0 && (
-                    <b className="direct-count">
-                      {direct.unread}
-                      <span className="sr-only"> unread</span>
-                    </b>
-                  )}
-                </button>
-              ))}
-              {!directs.length && <p className="sidebar-note">No messages yet.</p>}
+              {[
+                ...groups.map((group) => ({
+                  kind: 'group' as const,
+                  group,
+                  cursor: group.latest?.cursor ?? group.revision,
+                })),
+                ...directs.map((direct) => ({
+                  kind: 'direct' as const,
+                  direct,
+                  cursor: direct.latest?.cursor ?? '0',
+                })),
+              ]
+                .sort((a, b) => (BigInt(a.cursor) > BigInt(b.cursor) ? -1 : 1))
+                .map((row) =>
+                  row.kind === 'group' ? (
+                    <button
+                      key={row.group.id}
+                      className={`nav-row direct-row ${row.group.unread ? 'unread' : ''}`}
+                      aria-current={
+                        view.kind === 'group' && view.thread.id === row.group.id
+                          ? 'page'
+                          : undefined
+                      }
+                      onClick={() => onView({ kind: 'group', thread: row.group.thread })}
+                    >
+                      <GroupIcon />
+                      <span>{row.group.name}</span>
+                      {row.group.unread > 0 && (
+                        <b className="direct-count">
+                          {row.group.unread}
+                          <span className="sr-only"> unread</span>
+                        </b>
+                      )}
+                    </button>
+                  ) : (
+                    (() => {
+                      const direct = row.direct
+                      return (
+                        <button
+                          key={direct.id}
+                          className={`nav-row direct-row ${direct.unread ? 'unread' : ''}`}
+                          aria-current={
+                            view.kind === 'direct' && view.conversationId === direct.id
+                              ? 'page'
+                              : undefined
+                          }
+                          onClick={() => onDirect(direct.id)}
+                        >
+                          <i className="avatar-slot" aria-hidden="true">
+                            <Avatar
+                              avatar={direct.peer.avatar}
+                              name={direct.peer.name}
+                              photo={client.photo?.bind(client)}
+                              size={28}
+                            />
+                          </i>
+                          <span>{direct.peer.name}</span>
+                          {direct.unread > 0 && (
+                            <b className="direct-count">
+                              {direct.unread}
+                              <span className="sr-only"> unread</span>
+                            </b>
+                          )}
+                        </button>
+                      )
+                    })()
+                  ),
+                )}
+              {!groups.length && !directs.length && (
+                <p className="sidebar-note">No messages yet.</p>
+              )}
             </Section>
           )}
         </nav>

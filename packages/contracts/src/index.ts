@@ -57,7 +57,58 @@ export const DirectConversation = z.object({
   latest: DirectMessage.nullable(),
   unread: z.number().int().nonnegative(),
 })
+export const GroupId = z.uuid().brand<'GroupId'>()
+export const Admission = Cursor.brand<'Admission'>()
+export const GroupAccess = z.object({ groupId: GroupId, admission: Admission }).strict()
+export const GroupMessage = Message.omit({ channelId: true }).extend({ groupId: GroupId })
+export const GroupMetadata = z.object({
+  id: GroupId,
+  name: z.string(),
+  members: z.array(z.object({ userId: UserId, admission: Admission })),
+  revision: Cursor,
+  latest: GroupMessage.nullable(),
+})
+export const GroupConversation = GroupMetadata.extend({
+  readCursor: Cursor,
+  unread: z.number().int().nonnegative(),
+})
+export const GroupObservation = z.object({ at: Cursor, group: GroupConversation })
+export const GroupRemoval = GroupAccess.extend({ cursor: Cursor })
+const GroupName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^[^\x00-\x1f\x7f]+$/)
+const GroupPeople = z
+  .array(UserId)
+  .max(31)
+  .refine((ids) => new Set(ids).size === ids.length)
+export const CreateGroup = z
+  .object({ retryId: z.uuid(), name: GroupName, others: GroupPeople.min(2) })
+  .strict()
+export const AddGroupPeople = GroupAccess.extend({ userIds: GroupPeople.min(1) }).strict()
+export const SendGroupMessage = GroupAccess.extend({
+  retryId: z.uuid(),
+  body: z.string().trim().min(1).max(8000),
+}).strict()
+export const MarkGroupRead = GroupAccess.extend({ cursor: Cursor }).strict()
+export type GroupId = z.infer<typeof GroupId>
+export type Admission = z.infer<typeof Admission>
+export type GroupAccess = z.infer<typeof GroupAccess>
+export type GroupMessage = z.infer<typeof GroupMessage>
+export type GroupMetadata = z.infer<typeof GroupMetadata>
+export type GroupConversation = z.infer<typeof GroupConversation>
+export type GroupRemoval = z.infer<typeof GroupRemoval>
 export const ServerEvent = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('group.changed'), cursor: Cursor, group: GroupMetadata }),
+  z.object({
+    kind: z.literal('group.removed'),
+    cursor: Cursor,
+    groupId: GroupId,
+    admission: Admission,
+  }),
+  z.object({ kind: z.literal('group.message.created'), cursor: Cursor, message: GroupMessage }),
   z.object({ kind: z.literal('room.created'), cursor: Cursor, room: Room }),
   z.object({ kind: z.literal('channel.created'), cursor: Cursor, channel: Channel }),
   z.object({
@@ -97,6 +148,7 @@ export const Snapshot = z.object({
   channels: z.array(Channel),
   unread: z.array(Unread),
   directs: z.array(DirectConversation),
+  groups: z.array(GroupConversation),
   cursor: Cursor,
 })
 export const MarkRead = z.object({ channelId: ChannelId, cursor: Cursor }).strict()

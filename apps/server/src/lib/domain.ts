@@ -3,6 +3,16 @@ import { AccessToken, TrackSource } from 'livekit-server-sdk'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
+  GroupConversation,
+  GroupMetadata,
+  GroupMessage,
+  GroupAccess,
+  GroupId,
+  Admission,
+  type CreateGroup,
+  type AddGroupPeople,
+  type SendGroupMessage,
+  type MarkGroupRead,
   Avatar,
   Channel,
   DirectConversation,
@@ -97,16 +107,18 @@ async function appendEvent<T extends z.infer<typeof ServerEvent>>(
   sql: PoolClient,
   makeEvent: (cursor: string) => T,
   audience: UserId[] | 'everyone',
+  groupId: GroupId | null = null,
 ) {
   const result = await sql.query<Record<string, unknown>>(
     'UPDATE server SET cursor = cursor + 1 RETURNING cursor::text',
   )
   const { cursor } = z.object({ cursor: z.string() }).parse(result.rows[0])
   const event = makeEvent(cursor)
-  await sql.query('INSERT INTO event(cursor, event, audience) VALUES ($1, $2, $3)', [
+  await sql.query('INSERT INTO event(cursor, event, audience, group_id) VALUES ($1, $2, $3, $4)', [
     cursor,
     event,
     audience === 'everyone' ? null : audience,
+    groupId,
   ])
   await sql.query("SELECT pg_notify('huddle_commit', '')")
   return event
@@ -140,6 +152,7 @@ export async function snapshot(userId: UserId) {
       channels: Channel.array().parse(channels.rows),
       unread: Unread.array().parse(unread.rows),
       directs: DirectConversation.array().parse(directs.rows),
+      groups: await groupSummaries(sql, userId),
       cursor,
     }
   }, true)
@@ -447,7 +460,9 @@ export async function replay(userId: UserId, after: string) {
   return transaction(async (sql) => {
     await requireMember(sql, userId)
     const rows = await sql.query<Record<string, unknown>>(
-      `SELECT event FROM event WHERE cursor > $1 AND (audience IS NULL OR $2 = ANY(audience)) ORDER BY cursor LIMIT ${replayPage}`,
+      `SELECT event FROM event WHERE cursor > $1 AND (audience IS NULL OR $2 = ANY(audience))
+        AND (group_id IS NULL OR event->>'kind' = 'group.removed' OR EXISTS
+          (SELECT 1 FROM group_member gm WHERE gm.group_id = event.group_id AND gm.user_id = $2 AND event.cursor >= gm.admission)) ORDER BY cursor LIMIT ${replayPage}`,
       [after, userId],
     )
     const events = rows.rows.map((row) => ServerEvent.parse(row.event))
@@ -457,4 +472,228 @@ export async function replay(userId: UserId, after: string) {
     const { cursor } = z.object({ cursor: z.string() }).parse(head.rows[0])
     return { events, scanned: BigInt(cursor) > BigInt(after) ? cursor : after }
   }, true)
+}
+
+const groupColumns = `m.group_id AS "groupId", ${authoredColumns}`
+const groupRows = `SELECT g.id, g.name, g.revision::text,
+  (SELECT coalesce(jsonb_agg(jsonb_build_object('userId', user_id, 'admission', admission::text) ORDER BY admission, user_id), '[]') FROM group_member WHERE group_id=g.id) AS members,
+  to_jsonb(latest) AS latest, viewer.read_cursor::text AS "readCursor",
+  (SELECT count(*)::integer FROM group_message u WHERE u.group_id=g.id AND u.author_id<>$1 AND u.cursor>viewer.read_cursor) AS unread
+  FROM group_conversation g JOIN group_member viewer ON viewer.group_id=g.id AND viewer.user_id=$1
+  LEFT JOIN LATERAL (SELECT ${groupColumns} FROM group_message m WHERE m.group_id=g.id ORDER BY m.cursor DESC LIMIT 1) latest ON true`
+async function groupSummaries(sql: PoolClient, userId: UserId, id?: GroupId) {
+  const rows = await sql.query<Record<string, unknown>>(
+    `${groupRows} WHERE ($2::uuid IS NULL OR g.id=$2) ORDER BY coalesce(latest.cursor::bigint, g.revision) DESC`,
+    [userId, id ?? null],
+  )
+  return GroupConversation.array().parse(rows.rows)
+}
+async function requireGroup(sql: PoolClient, userId: UserId, access: GroupAccess) {
+  const rows = await sql.query(
+    'SELECT 1 FROM group_member WHERE group_id=$1 AND user_id=$2 AND admission=$3::numeric',
+    [access.groupId, userId, access.admission],
+  )
+  if (!rows.rowCount) throw new DomainError(404, 'Group not found.')
+}
+async function groupObservation(sql: PoolClient, userId: UserId, id: GroupId) {
+  const group = (await groupSummaries(sql, userId, id))[0]
+  if (!group) throw new DomainError(404, 'Group not found.')
+  const head = await sql.query<Record<string, unknown>>('SELECT cursor::text FROM server')
+  return { at: z.object({ cursor: z.string() }).parse(head.rows[0]).cursor, group }
+}
+async function validateGroupPeople(sql: PoolClient, ids: UserId[]) {
+  const rows = await sql.query('SELECT user_id FROM member WHERE user_id=ANY($1::text[])', [ids])
+  if (rows.rowCount !== ids.length)
+    throw new DomainError(400, 'Choose people who belong to this server.')
+}
+async function publishGroup(sql: PoolClient, userId: UserId, id: GroupId) {
+  const groups = await groupSummaries(sql, userId, id)
+  const group = groups[0]
+  if (!group) return
+  const event = await appendEvent(
+    sql,
+    (cursor) => ({
+      kind: 'group.changed',
+      cursor,
+      group: { ...GroupMetadata.parse(group), revision: cursor },
+    }),
+    group.members.map((m) => m.userId),
+    id,
+  )
+  await sql.query('UPDATE group_conversation SET revision=$2 WHERE id=$1', [id, event.cursor])
+}
+export async function createGroup(userId: UserId, input: z.infer<typeof CreateGroup>) {
+  return transaction(async (sql) => {
+    await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [userId])
+    await lockServer(sql)
+    await requireMember(sql, userId)
+    if (input.others.includes(userId)) throw new DomainError(400, 'You are included automatically.')
+    const others = [...input.others].sort()
+    const existing = await sql.query<Record<string, unknown>>(
+      'SELECT id, name, create_others FROM group_conversation WHERE creator_id=$1 AND create_retry_id=$2',
+      [userId, input.retryId],
+    )
+    if (existing.rowCount) {
+      const old = z
+        .object({ id: GroupId, name: z.string(), create_others: z.array(UserId) })
+        .parse(existing.rows[0])
+      const rows = await sql.query('SELECT 1 FROM group_member WHERE group_id=$1 AND user_id=$2', [
+        old.id,
+        userId,
+      ])
+      if (!rows.rowCount) throw new DomainError(404, 'Group not found.')
+      if (old.name !== input.name || JSON.stringify(old.create_others) !== JSON.stringify(others))
+        throw new DomainError(409, 'This retry ID was already used for a different group.')
+      return groupObservation(sql, userId, old.id)
+    }
+    await validateGroupPeople(sql, others)
+    const id = GroupId.parse(randomUUID())
+    await sql.query(
+      'INSERT INTO group_conversation(id,name,creator_id,create_retry_id,create_others) VALUES($1,$2,$3,$4,$5)',
+      [id, input.name, userId, input.retryId, others],
+    )
+    await sql.query(
+      'INSERT INTO group_member(group_id,user_id,admission,read_cursor) SELECT $1, unnest($2::text[]), cursor+1, cursor+1 FROM server',
+      [id, [userId, ...others]],
+    )
+    await publishGroup(sql, userId, id)
+    return groupObservation(sql, userId, id)
+  })
+}
+export async function addGroupPeople(userId: UserId, input: z.infer<typeof AddGroupPeople>) {
+  return transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId)
+    await requireGroup(sql, userId, input)
+    await validateGroupPeople(sql, input.userIds)
+    const group = (await groupSummaries(sql, userId, input.groupId))[0]
+    if (!group) throw new DomainError(404, 'Group not found.')
+    const additions = input.userIds.filter((id) => !group.members.some((m) => m.userId === id))
+    if (group.members.length + additions.length > 32)
+      throw new DomainError(400, 'Groups can have up to 32 people.')
+    if (additions.length) {
+      await sql.query(
+        'INSERT INTO group_member(group_id,user_id,admission,read_cursor) SELECT $1, unnest($2::text[]), cursor+1, cursor+1 FROM server',
+        [input.groupId, additions],
+      )
+      await publishGroup(sql, userId, input.groupId)
+    }
+    return groupObservation(sql, userId, input.groupId)
+  })
+}
+export async function leaveGroup(userId: UserId, access: GroupAccess) {
+  return transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId)
+    await requireGroup(sql, userId, access)
+    await sql.query('DELETE FROM group_member WHERE group_id=$1 AND user_id=$2', [
+      access.groupId,
+      userId,
+    ])
+    const remaining = await sql.query<Record<string, unknown>>(
+      'SELECT user_id FROM group_member WHERE group_id=$1 ORDER BY user_id',
+      [access.groupId],
+    )
+    const first = z.object({ user_id: UserId }).array().parse(remaining.rows)[0]
+    if (first) await publishGroup(sql, first.user_id, access.groupId)
+    const event = await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'group.removed', cursor, ...access }),
+      [userId],
+      access.groupId,
+    )
+    return { ...access, cursor: event.cursor }
+  })
+}
+export async function groupHistory(userId: UserId, access: GroupAccess, before?: string) {
+  return transaction(async (sql) => {
+    await requireMember(sql, userId)
+    await requireGroup(sql, userId, access)
+    const rows = await sql.query<Record<string, unknown>>(
+      `SELECT ${groupColumns} FROM group_message m WHERE m.group_id=$1 AND ($2::numeric IS NULL OR m.cursor<$2::numeric) ORDER BY m.cursor DESC LIMIT 100`,
+      [access.groupId, before ?? null],
+    )
+    return GroupMessage.array().parse(rows.rows).reverse()
+  }, true)
+}
+export async function sendGroupMessage(
+  user: { id: UserId; name: string; avatar: z.infer<typeof Avatar> },
+  input: z.infer<typeof SendGroupMessage>,
+) {
+  return transaction(async (sql) => {
+    await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [user.id])
+    await lockServer(sql)
+    await requireMember(sql, user.id)
+    await requireGroup(sql, user.id, input)
+    const duplicates = await sql.query<Record<string, unknown>>(
+      `SELECT ${groupColumns}, m.author_admission::text AS admission FROM group_message m WHERE m.author_id=$1 AND m.retry_id=$2`,
+      [user.id, input.retryId],
+    )
+    if (duplicates.rowCount) {
+      const old = GroupMessage.extend({ admission: Admission }).parse(duplicates.rows[0])
+      if (
+        old.groupId !== input.groupId ||
+        old.admission !== input.admission ||
+        old.body !== input.body
+      )
+        throw new DomainError(409, 'This retry ID was already used for a different message.')
+      return GroupMessage.parse(old)
+    }
+    const members = await sql.query<Record<string, unknown>>(
+      'SELECT user_id FROM group_member WHERE group_id=$1',
+      [input.groupId],
+    )
+    const audience = z
+      .object({ user_id: UserId })
+      .array()
+      .parse(members.rows)
+      .map((m) => m.user_id)
+    const { message } = await appendEvent(
+      sql,
+      (cursor) => ({
+        kind: 'group.message.created',
+        cursor,
+        message: {
+          id: randomUUID(),
+          groupId: input.groupId,
+          retryId: input.retryId,
+          body: input.body,
+          authorId: user.id,
+          authorName: user.name,
+          authorAvatar: user.avatar,
+          cursor,
+          createdAt: new Date().toISOString(),
+        },
+      }),
+      audience,
+      input.groupId,
+    )
+    await sql.query(
+      'INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [
+        message.id,
+        message.groupId,
+        user.id,
+        input.admission,
+        user.name,
+        JSON.stringify(user.avatar),
+        message.retryId,
+        message.body,
+        message.cursor,
+        message.createdAt,
+      ],
+    )
+    return message
+  })
+}
+export async function markGroupRead(userId: UserId, input: z.infer<typeof MarkGroupRead>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId)
+    await requireGroup(sql, userId, input)
+    await sql.query(
+      'UPDATE group_member SET read_cursor=GREATEST(read_cursor,LEAST($3::numeric,(SELECT cursor FROM server))) WHERE group_id=$1 AND user_id=$2',
+      [input.groupId, userId, input.cursor],
+    )
+  })
 }

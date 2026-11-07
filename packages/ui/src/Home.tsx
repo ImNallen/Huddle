@@ -9,6 +9,8 @@ import type {
   Server,
   VoicePresence,
 } from '@huddle/contracts'
+import { GroupIcon } from './GroupChat'
+import type { GroupRow, GroupThread } from './chat'
 import type { Transport } from './transport'
 import type { Dialog, DirectRow } from './ServerView'
 import { threadKey, type Unread } from './useServer'
@@ -45,6 +47,8 @@ export function Home({
   channels,
   members,
   directs,
+  groups,
+  onGroup,
   unread,
   presence,
   onDirect,
@@ -61,6 +65,8 @@ export function Home({
   channels: Channel[]
   members: Member[] | null
   directs: DirectRow[]
+  groups: GroupRow[]
+  onGroup: (thread: GroupThread) => void
   unread: Unread
   presence: VoicePresence
   onDirect: (conversationId: ConversationId) => void
@@ -128,46 +134,71 @@ export function Home({
           </div>
           <section className="home-directs" aria-labelledby="directs-title">
             <div className="home-section-heading">
-              <h2 id="directs-title">Direct messages</h2>
+              <h2 id="directs-title">{groups.length ? 'Messages' : 'Direct messages'}</h2>
               <button className="header-pill" onClick={() => onDialog({ kind: 'direct' })}>
                 <Plus size={16} strokeWidth={1.6} />
                 New message
               </button>
             </div>
-            {started.length ? (
+            {started.length || groups.length ? (
               <ul className="feed">
-                {started.map((direct) => (
-                  <li key={direct.id}>
-                    <button
-                      className={`feed-row ${direct.unread ? 'unread' : ''}`}
-                      onClick={() => onDirect(direct.id)}
-                    >
-                      <span className="feed-badge" aria-hidden="true">
-                        <Avatar
-                          avatar={direct.peer.avatar}
-                          name={direct.peer.name}
-                          photo={client.photo?.bind(client)}
-                          size={40}
-                        />
-                      </span>
-                      <span className="feed-main">
-                        <strong>{direct.peer.name}</strong>
-                        <span className="feed-body">
-                          {direct.latest.authorId === me.user.id && 'You: '}
-                          {direct.latest.body}
+                {[
+                  ...groups.map((group) => ({
+                    id: group.id,
+                    name: group.name,
+                    latest: group.latest,
+                    unread: group.unread,
+                    cursor: group.latest?.cursor ?? group.revision,
+                    icon: <GroupIcon size={40} />,
+                    open: () => onGroup(group.thread),
+                    empty: `${group.members.length} people · Start the conversation`,
+                  })),
+                  ...started.map((direct) => ({
+                    id: direct.id,
+                    name: direct.peer.name,
+                    latest: direct.latest,
+                    unread: direct.unread,
+                    cursor: direct.latest.cursor,
+                    icon: (
+                      <Avatar
+                        avatar={direct.peer.avatar}
+                        name={direct.peer.name}
+                        photo={client.photo?.bind(client)}
+                        size={40}
+                      />
+                    ),
+                    open: () => onDirect(direct.id),
+                    empty: '',
+                  })),
+                ]
+                  .sort((a, b) => (BigInt(a.cursor) > BigInt(b.cursor) ? -1 : 1))
+                  .map((row) => (
+                    <li key={row.id}>
+                      <button
+                        className={`feed-row ${row.unread ? 'unread' : ''}`}
+                        onClick={row.open}
+                      >
+                        <span className="feed-badge" aria-hidden="true">
+                          {row.icon}
                         </span>
-                      </span>
-                      <span className="feed-meta">
-                        <time dateTime={direct.latest.createdAt}>
-                          {when(direct.latest.createdAt)}
-                        </time>
-                        {direct.unread > 0 && (
-                          <span className="feed-unread">{direct.unread} new</span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                        <span className="feed-main">
+                          <strong>{row.name}</strong>
+                          <span className="feed-body">
+                            {row.latest?.authorId === me.user.id && 'You: '}
+                            {row.latest?.body ?? row.empty}
+                          </span>
+                        </span>
+                        <span className="feed-meta">
+                          {row.latest && (
+                            <time dateTime={row.latest.createdAt}>
+                              {when(row.latest.createdAt)}
+                            </time>
+                          )}
+                          {row.unread > 0 && <span className="feed-unread">{row.unread} new</span>}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
               </ul>
             ) : (
               <div className="home-empty">
