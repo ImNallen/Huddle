@@ -15,17 +15,16 @@ test('admins share an invite and see who joined; a friend moved to a new login k
   const second = await colleague.newPage()
   try {
     await onboard(page, 'nallen', 'Harbor members')
-    await page.getByRole('button', { name: 'Harbor members menu', exact: true }).click()
     await page.getByRole('button', { name: 'Members', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'People on Harbor members' })).toBeVisible()
     const roster = page.getByRole('region', { name: /^Members/ })
     await expect(page.getByRole('region', { name: /^Pending invitations/ })).toHaveCount(0)
     await expect(roster.getByRole('row')).toHaveText([
-      'NameRoleJoined',
-      `nallen (you)Admin${shortDate(new Date())}`,
+      'NameRoleJoinedActions',
+      `nallen · YouAdmin${shortDate(new Date())}`,
     ])
-    await expect(page.getByText('You’re the only member so far.', { exact: false })).toBeVisible()
-    await expect(page.getByText("Huddle can't remove a member yet", { exact: false })).toBeVisible()
+    await expect(page.getByText('You’re the first one here', { exact: false })).toBeVisible()
+    await expect(page.getByText('Huddle can’t remove a member yet', { exact: false })).toBeVisible()
 
     await page.getByRole('button', { name: 'Share invite', exact: true }).click()
     const dialog = page.getByRole('dialog')
@@ -52,7 +51,7 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     await expect(second.getByText('Only admins see it.', { exact: false })).toHaveCount(0)
     await second.getByRole('button', { name: 'Member list', exact: true }).click()
     await expect(second.getByRole('list', { name: 'Members' })).toHaveText(
-      'Admins — 1nallenMembers — 1aiko',
+      'Admins · 1nallenMembers · 1aiko · You',
     )
     await expect(second.locator('.account-name > span').first()).toHaveText('Connected')
 
@@ -60,14 +59,13 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     expect(denied).toBe(403)
 
     await railTile(page, 'Home').click()
-    await page.getByRole('button', { name: 'Harbor members menu', exact: true }).click()
     await page.getByRole('button', { name: 'Members', exact: true }).click()
     await expect(roster.getByRole('row')).toHaveText([
-      'NameRoleJoined',
-      `nallen (you)Admin${shortDate(new Date())}`,
-      `aikoMember${shortDate(new Date())}`,
+      'NameRoleJoinedActions',
+      `nallen · YouAdmin${shortDate(new Date())}`,
+      `aikoMember${shortDate(new Date())}Message`,
     ])
-    await expect(page.getByText('You’re the only member so far.', { exact: false })).toHaveCount(0)
+    await expect(page.getByText('You’re the first one here', { exact: false })).toHaveCount(0)
     await expect(page.getByRole('list', { name: 'Members' })).toHaveCount(0)
     await expect(page.locator('main')).not.toContainText('@huddle.test')
 

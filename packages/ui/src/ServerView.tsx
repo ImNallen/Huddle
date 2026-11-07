@@ -21,7 +21,7 @@ import { EmptyRoom } from './RoomViews'
 import { VoiceChannel, type VoiceAvailability } from './Voice'
 import { useVoiceCall } from './voiceCall'
 import { ChannelDialog, InviteDialog, NewMessageDialog, RoomDialog } from './Dialogs'
-import { MemberList, MembersPage, useMembers } from './Members'
+import { MemberDetails, MemberList, MembersPage, useMembers } from './Members'
 import { Badge } from './Badges'
 import { Frame, ServerCard } from './primitives'
 
@@ -37,6 +37,7 @@ export type Dialog =
   | { kind: 'channel'; roomId: RoomId; channelKind: ChannelKind }
   | { kind: 'invite' }
   | { kind: 'direct' }
+  | { kind: 'member'; member: Member; anchor: HTMLButtonElement }
   | { kind: 'new-group' }
   | { kind: 'group-members'; thread: GroupThread }
   | { kind: 'group-add'; thread: GroupThread }
@@ -75,6 +76,7 @@ export function ServerView({
   const [requestedView, setView] = useState<View>({ kind: 'home' })
   const [remembered, setRemembered] = useState<ReadonlyMap<RoomId, ChannelId>>(new Map())
   const [memberList, setMemberList] = useState(false)
+  const [memberAttempt, setMemberAttempt] = useState(0)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const voice = useVoiceCall(client)
@@ -108,7 +110,7 @@ export function ServerView({
   const members = useMembers(
     client,
     // A person in a call may have joined the server since the roster loaded.
-    `${view.kind}:${dialog.kind}:${sync.changes}:${me.user.name}:${JSON.stringify(me.user.avatar)}:${sync.presence.flatMap(({ people }) => people.map(({ id }) => id)).join()}`,
+    `${view.kind}:${dialog.kind}:${memberAttempt}:${sync.changes}:${me.user.name}:${JSON.stringify(me.user.avatar)}:${sync.presence.flatMap(({ people }) => people.map(({ id }) => id)).join()}`,
   )
   const snapshot = sync.state.kind === 'ready' ? sync.state.snapshot : null
   const rooms = snapshot?.rooms ?? []
@@ -169,14 +171,16 @@ export function ServerView({
   const direct =
     view.kind === 'direct' ? directs.find((item) => item.id === view.conversationId) : undefined
   const openDirect = (conversationId: ConversationId) => open({ kind: 'direct', conversationId })
-  async function messageMember(userId: UserId) {
+  async function messageMember(userId: UserId, signal?: AbortSignal) {
     const conversation = await client.request(
       '/api/direct/conversations',
       DirectConversationSchema,
       {
         userId,
       },
+      signal,
     )
+    if (!client.active || signal?.aborted) return
     sync.include({ kind: 'direct.opened', conversation })
     setDialog({ kind: 'none' })
     openDirect(conversation.id)
@@ -215,6 +219,8 @@ export function ServerView({
           server={server}
           members={members}
           onInvite={() => setDialog({ kind: 'invite' })}
+          onMessage={messageMember}
+          onRetry={() => setMemberAttempt((value) => value + 1)}
         />
       ) : channel?.kind === 'voice' ? (
         <VoiceChannel
@@ -301,7 +307,26 @@ export function ServerView({
         />
       )}
       {memberList && view.kind !== 'members' && !direct && !group && (
-        <MemberList client={client} me={me} members={members} onMessage={messageMember} />
+        <MemberList
+          client={client}
+          me={me}
+          members={members}
+          serverName={server.name}
+          onSelect={(member, anchor) => setDialog({ kind: 'member', member, anchor })}
+          onClose={() => setMemberList(false)}
+          onRetry={() => setMemberAttempt((value) => value + 1)}
+        />
+      )}
+      {dialog.kind === 'member' && (
+        <MemberDetails
+          key={dialog.member.id}
+          client={client}
+          member={roster?.find((member) => member.id === dialog.member.id) ?? dialog.member}
+          serverName={server.name}
+          anchor={dialog.anchor}
+          onClose={() => setDialog({ kind: 'none' })}
+          onMessage={messageMember}
+        />
       )}
       {dialog.kind === 'room' && (
         <RoomDialog

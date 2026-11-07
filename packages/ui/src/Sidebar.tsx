@@ -280,12 +280,6 @@ export function Sidebar({
           <ChevronDown size={18} />
         </button>
         <div ref={menu} id="server-menu" popover="auto" className="menu">
-          {admin && !room && (
-            <button onClick={act(() => onView({ kind: 'members' }))}>
-              <Users size={16} />
-              <span>Members</span>
-            </button>
-          )}
           <button onClick={act(onSettings)}>
             <Settings size={16} />
             <span>Settings</span>
@@ -303,6 +297,16 @@ export function Sidebar({
             >
               <Logo size={24} />
               <span>Home</span>
+            </button>
+          )}
+          {!room && admin && (
+            <button
+              className="nav-row home-nav-row"
+              aria-current={view.kind === 'members' ? 'page' : undefined}
+              onClick={() => onView({ kind: 'members' })}
+            >
+              <Users size={18} />
+              <span>Members</span>
             </button>
           )}
           {room ? (

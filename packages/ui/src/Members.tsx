@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { z } from 'zod'
-import { UserPlus, Users } from 'lucide-react'
+import { Users, X } from 'lucide-react'
 import {
   Members,
   type Member,
@@ -22,6 +22,7 @@ function useResource<T>(client: Transport, path: string, schema: z.ZodType<T>, r
   const [state, setState] = useState<Resource<T>>({ kind: 'loading' })
   useEffect(() => {
     const abort = new AbortController()
+    setState((current) => (current.kind === 'ready' ? current : { kind: 'loading' }))
     client.request(path, schema, undefined, abort.signal).then(
       (value) => {
         if (!abort.signal.aborted) setState({ kind: 'ready', value })
@@ -67,172 +68,359 @@ const groups: { role: MemberRole; title: string }[] = [
   { role: 'admin', title: 'Admins' },
   { role: 'member', title: 'Members' },
 ]
+function MemberState({
+  members,
+  serverName,
+  onRetry,
+}: {
+  members: Exclude<Resource<Member[]>, { kind: 'ready' }>
+  serverName: string
+  onRetry: () => void
+}) {
+  return members.kind === 'loading' ? (
+    <div className="member-state" role="status">
+      <h3>Loading people…</h3>
+      <p>We’re loading the people on {serverName}.</p>
+      <div className="member-skeleton" aria-hidden="true">
+        <i />
+        <i />
+      </div>
+    </div>
+  ) : (
+    <div className="member-state" role="alert">
+      <h3>Couldn’t load friends</h3>
+      <p>Check your connection, then try again.</p>
+      <p>{members.message}</p>
+      <button className="button small" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  )
+}
+
 export function MemberList({
   client,
   me,
   members,
-  onMessage,
+  serverName,
+  onSelect,
+  onClose,
+  onRetry,
 }: {
   client: Transport
   me: Me
   members: Resource<Member[]>
-  onMessage: (userId: UserId) => Promise<void>
+  serverName: string
+  onSelect: (member: Member, anchor: HTMLButtonElement) => void
+  onClose: () => void
+  onRetry: () => void
 }) {
   const people = members.kind === 'ready' ? members.value : []
-  const [error, setError] = useState('')
   return (
-    <aside className="member-list">
-      {members.kind === 'failed' ? (
-        <p className="sidebar-note">Could not load friends.</p>
-      ) : (
-        <ul aria-label="Members">
-          {groups.map(({ role, title }) => {
-            const group = people.filter((member) => member.role === role)
-            return (
-              group.length > 0 && (
-                <li key={role}>
-                  <h2>
-                    {title} — {group.length}
-                  </h2>
-                  <ul>
-                    {group.map((member) => {
-                      const row = (
-                        <>
-                          <Avatar
-                            avatar={member.avatar}
-                            name={member.name}
-                            photo={client.photo?.bind(client)}
-                            size={32}
-                          />
-                          <span>{member.name}</span>
-                        </>
-                      )
-                      return member.id === me.user.id ? (
-                        <li key={member.id} className="member-row">
-                          {row}
-                        </li>
-                      ) : (
-                        <li key={member.id}>
-                          <button
-                            className="member-row"
-                            aria-label={`Message ${member.name}`}
-                            title={`Message ${member.name}`}
-                            onClick={() => {
-                              setError('')
-                              onMessage(member.id).catch((failure: unknown) =>
-                                setError(errorText(failure)),
-                              )
-                            }}
-                          >
+    <aside className="member-list" aria-label="Server members">
+      <header className="member-list-header">
+        <h2>Members{members.kind === 'ready' && ` · ${people.length}`}</h2>
+        <button className="icon-button" aria-label="Close member list" onClick={onClose}>
+          <X size={18} aria-hidden="true" />
+        </button>
+      </header>
+      <div className="member-list-scroll">
+        {members.kind !== 'ready' ? (
+          <MemberState members={members} serverName={serverName} onRetry={onRetry} />
+        ) : (
+          <ul className="member-groups" aria-label="Members">
+            {groups.map(({ role, title }) => {
+              const group = people.filter((member) => member.role === role)
+              return (
+                group.length > 0 && (
+                  <li key={role}>
+                    <h3>
+                      {title} · {group.length}
+                    </h3>
+                    <ul>
+                      {group.map((member) => {
+                        const row = (
+                          <>
+                            <Avatar
+                              avatar={member.avatar}
+                              name={member.name}
+                              photo={client.photo?.bind(client)}
+                              size={28}
+                            />
+                            <span className="member-compact-name">
+                              <span className="member-label">{member.name}</span>
+                              {member.id === me.user.id && (
+                                <span className="member-you"> · You</span>
+                              )}
+                            </span>
+                          </>
+                        )
+                        return member.id === me.user.id ? (
+                          <li key={member.id} className="member-row">
                             {row}
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </li>
+                          </li>
+                        ) : (
+                          <li key={member.id}>
+                            <button
+                              className="member-row"
+                              aria-label={`View ${member.name}`}
+                              aria-haspopup="dialog"
+                              onClick={(event) => onSelect(member, event.currentTarget)}
+                            >
+                              {row}
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </li>
+                )
               )
-            )
-          })}
-        </ul>
-      )}
-      {error && (
-        <p className="sidebar-note form-error" role="alert">
-          {error}
-        </p>
-      )}
+            })}
+          </ul>
+        )}
+      </div>
+      <p className="member-list-note">Choose a person to message.</p>
     </aside>
   )
 }
+
+export function MemberDetails({
+  client,
+  member,
+  serverName,
+  anchor,
+  onClose,
+  onMessage,
+}: {
+  client: Transport
+  member: Member
+  serverName: string
+  anchor: HTMLButtonElement
+  onClose: () => void
+  onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+}) {
+  const popover = useRef<HTMLDivElement>(null)
+  const lifetime = useRef(new AbortController())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useLayoutEffect(() => {
+    const panel = popover.current
+    if (!panel) return
+    const abort = new AbortController()
+    lifetime.current = abort
+    panel.showPopover()
+    function place() {
+      if (!panel || !anchor.getClientRects().length) return onClose()
+      const row = anchor.getBoundingClientRect()
+      const list = anchor.closest('.member-list')?.getBoundingClientRect() ?? row
+      const box = panel.getBoundingClientRect()
+      panel.style.left = `${Math.max(16, Math.min(list.left - box.width - 24, window.innerWidth - box.width - 16))}px`
+      panel.style.top = `${Math.max(16, Math.min(row.top + 12, window.innerHeight - box.height - 16))}px`
+    }
+    place()
+    panel.querySelector('button')?.focus({ preventScroll: true })
+    const resize = new ResizeObserver(place)
+    resize.observe(panel)
+    resize.observe(anchor)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      abort.abort()
+      resize.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+      if (
+        anchor.isConnected &&
+        (panel.contains(document.activeElement) || document.activeElement === document.body)
+      )
+        anchor.focus({ preventScroll: true })
+    }
+  }, [anchor])
+  async function message() {
+    setBusy(true)
+    setError('')
+    try {
+      await onMessage(member.id, lifetime.current.signal)
+    } catch (failure) {
+      if (!lifetime.current.signal.aborted) {
+        setError(errorText(failure))
+        setBusy(false)
+      }
+    }
+  }
+  return (
+    <div
+      ref={popover}
+      popover="auto"
+      role="dialog"
+      className="member-details"
+      aria-labelledby="member-details-name"
+      onToggle={(event) => {
+        if (event.newState === 'closed') onClose()
+      }}
+    >
+      <header>
+        <Avatar
+          avatar={member.avatar}
+          name={member.name}
+          photo={client.photo?.bind(client)}
+          size={56}
+        />
+        <button className="icon-button" aria-label="Close member details" onClick={onClose}>
+          <X size={18} aria-hidden="true" />
+        </button>
+      </header>
+      <h2 id="member-details-name">{member.name}</h2>
+      <p className="member-details-role">{roleLabels[member.role]}</p>
+      <p>
+        Joined {serverName} on{' '}
+        <time dateTime={member.joinedAt}>
+          {new Date(member.joinedAt).toLocaleDateString([], { month: 'long', day: 'numeric' })}
+        </time>
+      </p>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <button
+        className="button primary"
+        aria-label={`Message ${member.name}`}
+        disabled={busy}
+        onClick={() => void message()}
+      >
+        {busy ? 'Opening…' : 'Message'}
+      </button>
+    </div>
+  )
+}
+
 export function MembersPage({
   client,
   me,
   server,
   members,
   onInvite,
+  onMessage,
+  onRetry,
 }: {
   client: Transport
   me: Me
   server: Server
   members: Resource<Member[]>
   onInvite: () => void
+  onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+  onRetry: () => void
 }) {
   const people = members.kind === 'ready' ? members.value : []
+  const [sending, setSending] = useState<UserId | null>(null)
+  const [error, setError] = useState('')
+  const lifetime = useRef(new AbortController())
+  useEffect(() => {
+    const abort = new AbortController()
+    lifetime.current = abort
+    return () => abort.abort()
+  }, [])
+  async function message(userId: UserId) {
+    setSending(userId)
+    setError('')
+    try {
+      await onMessage(userId, lifetime.current.signal)
+    } catch (failure) {
+      if (!lifetime.current.signal.aborted) {
+        setError(errorText(failure))
+        setSending(null)
+      }
+    }
+  }
   return (
     <main className="main">
-      <header className="topbar">
-        <Users size={20} />
+      <header className="topbar members-topbar">
         <strong>Members</strong>
-        <button className="button small primary topbar-action" onClick={onInvite}>
-          <UserPlus size={16} />
+        <button className="header-pill topbar-action" onClick={onInvite}>
           Share invite
         </button>
       </header>
       <div className="scroll">
         <div className="members">
-          <h1>People on {server.name}</h1>
-          <p className="members-lede">
-            Only people with an invite and access to this machine in Tailscale can create an account
-            on this server. Huddle can't remove a member yet, so cut access in Tailscale.
-          </p>
-          <section aria-labelledby="members-title">
-            <h2 id="members-title" className="members-heading">
-              Members <span>{people.length}</span>
-            </h2>
-            {members.kind === 'failed' ? (
-              <p className="form-error" role="alert">
-                {members.message}
-              </p>
+          <header className="members-introduction">
+            <h1>People on {server.name}</h1>
+            <p className="members-lede">
+              {members.kind === 'ready'
+                ? `${people.length} ${people.length === 1 ? 'person' : 'people'}. A little place to keep in touch.`
+                : 'A little place to keep in touch.'}
+            </p>
+          </header>
+          <section aria-label={`Members${members.kind === 'ready' ? ` · ${people.length}` : ''}`}>
+            {members.kind !== 'ready' ? (
+              <MemberState members={members} serverName={server.name} onRetry={onRetry} />
             ) : (
-              <div className="card members-card">
-                <table className="members-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th className="role">Role</th>
-                      <th className="joined">Joined</th>
+              <table className="members-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th className="role">Role</th>
+                    <th className="joined">Joined</th>
+                    <th className="member-action">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {people.map((member) => (
+                    <tr key={member.id}>
+                      <td>
+                        <span className="member-name">
+                          <Avatar
+                            avatar={member.avatar}
+                            name={member.name}
+                            photo={client.photo?.bind(client)}
+                            size={32}
+                          />
+                          <strong>
+                            <span className="member-label">{member.name}</span>
+                            {member.id === me.user.id && <span className="member-you"> · You</span>}
+                          </strong>
+                        </span>
+                      </td>
+                      <td className="role">{roleLabels[member.role]}</td>
+                      <td className="joined">
+                        <time dateTime={member.joinedAt}>{shortDate(member.joinedAt)}</time>
+                      </td>
+                      <td className="member-action">
+                        {member.id !== me.user.id && (
+                          <button
+                            className="button small"
+                            aria-label={`Message ${member.name}`}
+                            disabled={sending !== null}
+                            onClick={() => void message(member.id)}
+                          >
+                            {sending === member.id ? 'Opening…' : 'Message'}
+                          </button>
+                        )}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {people.map((member) => (
-                      <tr key={member.id}>
-                        <td>
-                          <span className="member-name">
-                            <Avatar
-                              avatar={member.avatar}
-                              name={member.name}
-                              photo={client.photo?.bind(client)}
-                              size={32}
-                            />
-                            <span>
-                              <strong>
-                                <span className="member-label">{member.name}</span>
-                                {member.id === me.user.id && (
-                                  <span className="member-you"> (you)</span>
-                                )}
-                              </strong>
-                            </span>
-                          </span>
-                        </td>
-                        <td className="role">
-                          <span className={`tag ${member.role === 'admin' ? 'accent' : ''}`}>
-                            {roleLabels[member.role]}
-                          </span>
-                        </td>
-                        <td className="joined">{shortDate(member.joinedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
             )}
             {members.kind === 'ready' && people.length === 1 && (
-              <p className="members-footnote">
-                You’re the only member so far. People appear here after they open the invite link
-                and confirm their name.
-              </p>
+              <div className="member-state members-first">
+                <h3>You’re the first one here</h3>
+                <p>Friends appear after opening your invite and confirming their name.</p>
+              </div>
             )}
           </section>
+          <footer className="members-information">
+            <p>Invited people, with access through Tailscale.</p>
+            <p>Access is managed in Tailscale. Huddle can’t remove a member yet.</p>
+          </footer>
         </div>
       </div>
     </main>

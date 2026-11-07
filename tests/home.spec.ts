@@ -33,7 +33,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     )
     await expect(setup.getByRole('button', { name: 'Create room' })).toHaveClass(/primary/)
     await page.getByRole('button', { name: 'Member list', exact: true }).click()
-    await expect(page.getByRole('list', { name: 'Members' })).toHaveText('Admins — 1avery')
+    await expect(page.getByRole('list', { name: 'Members' })).toHaveText('Admins · 1avery · You')
     await setup.getByRole('button', { name: 'Create room' }).click()
     await page.getByLabel('Room name').fill('Development')
     await page.getByRole('dialog').getByRole('button', { name: 'Create room' }).click()
@@ -79,7 +79,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(pill).toHaveCSS('height', '8px')
     await expect(railTile(page, 'Home')).toHaveAccessibleDescription('')
     await expect(railTile(page, 'Home').locator('.rail-count')).toHaveCount(0)
-    await expect(home).toHaveText('HomeDirect messagesNo messages yet.')
+    await expect(home).toHaveText('HomeMembersDirect messagesNo messages yet.')
     const main = page.getByRole('main')
     await expect(main.getByRole('heading', { name: 'No messages yet' })).toBeVisible()
     await expect(main.getByRole('button', { name: 'New message', exact: true })).toHaveClass(
@@ -122,6 +122,10 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await second.getByRole('button', { name: 'Member list', exact: true }).click()
     await second
       .getByRole('list', { name: 'Members' })
+      .getByRole('button', { name: 'View avery', exact: true })
+      .click()
+    await second
+      .getByRole('dialog', { name: 'avery', exact: true })
       .getByRole('button', { name: 'Message avery', exact: true })
       .click()
     await second

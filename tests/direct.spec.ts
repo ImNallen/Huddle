@@ -60,7 +60,11 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     await expect(memberPanel.getByRole('button', { name: 'Message avery' })).toHaveCount(0)
     await expect(memberPanel.getByText('avery', { exact: true })).toBeVisible()
 
-    await memberPanel.getByRole('button', { name: 'Message jonas', exact: true }).click()
+    await memberPanel.getByRole('button', { name: 'View jonas', exact: true }).click()
+    await avery
+      .getByRole('dialog', { name: 'jonas', exact: true })
+      .getByRole('button', { name: 'Message jonas', exact: true })
+      .click()
     const thread = avery.getByRole('main')
     await expect(
       thread.getByRole('heading', { level: 1, name: 'Conversation with jonas', exact: true }),
