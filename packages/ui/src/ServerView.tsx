@@ -244,6 +244,12 @@ export function ServerView({
           channels={channels}
           members={roster}
           directs={directs}
+          unread={sync.unread}
+          presence={sync.presence}
+          onRoom={openRoom}
+          onChannel={(channel) =>
+            open({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
+          }
           onDirect={openDirect}
           onDialog={setDialog}
           memberList={memberList}

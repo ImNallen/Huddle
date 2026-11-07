@@ -53,7 +53,7 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     await expect(
       avery.getByRole('main').getByRole('heading', { name: 'No messages yet' }),
     ).toBeVisible()
-    await expect(sidebar(avery)).toContainText('Direct Messages')
+    await expect(sidebar(avery)).toContainText('Direct messages')
     await expect(sidebar(avery)).toContainText('No messages yet.')
     await avery.getByRole('button', { name: 'Member list', exact: true }).click()
     const memberPanel = avery.getByRole('list', { name: 'Members' })
@@ -90,7 +90,7 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     await expect(thread.getByText(first, { exact: true })).toBeVisible()
     await expect(railTile(jonas, 'Home')).toHaveAccessibleDescription('1 unread')
     await expect(railTile(jonas, 'Home').locator('.rail-count')).toHaveText('1')
-    await expect(directRow(jonas, 'avery')).toHaveAccessibleName('avery unread')
+    await expect(directRow(jonas, 'avery')).toHaveAccessibleName('avery 1 unread')
     const preview = homeRow(jonas, 'avery')
     await expect(preview).toContainText(first)
     await expect(preview).toContainText('1 new')

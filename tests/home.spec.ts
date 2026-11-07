@@ -39,7 +39,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await page.getByLabel('Channel name').fill('code-review')
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(page.getByRole('heading', { name: 'Welcome to #code-review' })).toBeVisible()
-    await page.getByRole('button', { name: 'Home', exact: true }).click()
+    await railTile(page, 'Home').click()
     await expect(setup).toContainText('2 of 3 done')
     await expect(setup.getByRole('listitem')).toHaveText([
       /^Create your first roomDevelopmentDone$/,
@@ -67,7 +67,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
 
     await expect(setup).toHaveCount(0)
     await expect(page.getByText('Friday, October 9', { exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Good morning, avery' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Good morning, avery.' })).toBeVisible()
 
     const roomTile = railTile(page, 'Development')
     const badge = roomTile.locator('.rail-count')
@@ -77,11 +77,11 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(pill).toHaveCSS('height', '8px')
     await expect(railTile(page, 'Home')).toHaveAccessibleDescription('')
     await expect(railTile(page, 'Home').locator('.rail-count')).toHaveCount(0)
-    await expect(home).toHaveText('MembersDirect MessagesNo messages yet.')
+    await expect(home).toHaveText('HomeDirect messagesNo messages yet.')
     const main = page.getByRole('main')
     await expect(main.getByRole('heading', { name: 'No messages yet' })).toBeVisible()
     await expect(main.getByRole('button', { name: 'New message', exact: true })).toHaveClass(
-      /primary/,
+      /header-pill/,
     )
     await expect(main).not.toContainText('PR 482')
     await expect(page.getByRole('tab')).toHaveCount(0)
@@ -106,7 +106,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(row.locator('.nav-count')).toHaveCount(0)
     await expect(roomTile).toHaveAccessibleDescription('')
     await expect(badge).toHaveCount(0)
-    await page.getByRole('button', { name: 'Home', exact: true }).click()
+    await railTile(page, 'Home').click()
     await expect(pill).toHaveCSS('height', '0px')
 
     await composer.fill('Standup moved to 10')

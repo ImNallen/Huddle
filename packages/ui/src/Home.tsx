@@ -1,7 +1,17 @@
-import { Check, MessageSquarePlus, UserPlus } from 'lucide-react'
-import type { Channel, ConversationId, Member, Room, Me, Server } from '@huddle/contracts'
+import { Check, Plus, Volume2 } from 'lucide-react'
+import type {
+  Channel,
+  ConversationId,
+  Member,
+  Room,
+  RoomId,
+  Me,
+  Server,
+  VoicePresence,
+} from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { Dialog, DirectRow } from './ServerView'
+import { threadKey, type Unread } from './useServer'
 import { Avatar } from './Avatar'
 import { clock, sentence } from './Badges'
 import { MemberToggle, shortDate } from './Members'
@@ -10,7 +20,22 @@ function greeting(hour: number) {
   return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
 }
 function when(iso: string) {
-  return new Date(iso).toDateString() === new Date().toDateString() ? clock(iso) : shortDate(iso)
+  const date = new Date(iso)
+  const today = new Date()
+  if (date.toDateString() === today.toDateString()) return clock(iso)
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+  return date.toDateString() === yesterday.toDateString() ? 'Yesterday' : shortDate(iso)
+}
+function activityInRoom(room: Room, channels: Channel[], unread: Unread) {
+  const inRoom = channels.filter((channel) => channel.roomId === room.id)
+  const active = inRoom.flatMap((channel) => {
+    const count = unread.get(threadKey({ kind: 'channel', id: channel.id }))?.count ?? 0
+    return count ? [{ channel, count }] : []
+  })
+  const [first] = active
+  if (!first) return inRoom.length ? 'A place to catch up' : 'No channels yet'
+  if (active.length === 1) return `${first.count} new in #${first.channel.name}`
+  return `${active.reduce((total, item) => total + item.count, 0)} new across ${active.length} channels`
 }
 export function Home({
   client,
@@ -20,7 +45,11 @@ export function Home({
   channels,
   members,
   directs,
+  unread,
+  presence,
   onDirect,
+  onRoom,
+  onChannel,
   onDialog,
   memberList,
   onMemberList,
@@ -32,29 +61,41 @@ export function Home({
   channels: Channel[]
   members: Member[] | null
   directs: DirectRow[]
+  unread: Unread
+  presence: VoicePresence
   onDirect: (conversationId: ConversationId) => void
+  onRoom: (roomId: RoomId) => void
+  onChannel: (channel: Channel) => void
   onDialog: (dialog: Dialog) => void
   memberList: boolean
   onMemberList: () => void
 }) {
   const now = new Date()
   const admin = server.role === 'admin'
-  const firstName = me.user.name.split(/\s+/)[0]
+  const [firstName = me.user.name] = me.user.name.split(/\s+/)
   const memberCount = members?.length ?? server.memberCount
   const steps = admin ? adminSteps(rooms, channels, memberCount) : memberSteps(rooms, channels)
   const started = directs.flatMap((direct) =>
     direct.latest ? [{ ...direct, latest: direct.latest }] : [],
   )
+  const activeVoice = presence.flatMap((present) => {
+    const channel = channels.find(
+      (channel) => channel.id === present.channelId && channel.kind === 'voice',
+    )
+    const room = rooms.find((room) => room.id === channel?.roomId)
+    return channel && room && present.people.length ? [{ ...present, channel, room }] : []
+  })
   const topbar = (
     <header className="topbar">
       <strong>Home</strong>
-      {admin && (
-        <button className="button small topbar-action" onClick={() => onDialog({ kind: 'invite' })}>
-          <UserPlus size={16} />
-          Share invite
-        </button>
-      )}
-      <MemberToggle pressed={memberList} onToggle={onMemberList} />
+      <div className="channel-actions">
+        {admin && (
+          <button className="header-pill" onClick={() => onDialog({ kind: 'invite' })}>
+            Share invite
+          </button>
+        )}
+        <MemberToggle pressed={memberList} onToggle={onMemberList} count={memberCount} />
+      </div>
     </header>
   )
   if (steps.some((step) => !step.done))
@@ -76,68 +117,109 @@ export function Home({
     <main className="main">
       {topbar}
       <div className="scroll">
-        <div className="home">
-          <h1 className="home-greeting">
-            {greeting(now.getHours())}, {firstName}
-          </h1>
-          <p className="home-date">
-            {now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
-          {started.length ? (
-            <section aria-labelledby="directs-title">
-              <h2 id="directs-title" className="feed-heading">
-                Direct messages
-              </h2>
+        <div className="home home-dashboard">
+          <div className="home-welcome">
+            <h1 className="home-greeting">
+              {greeting(now.getHours())}, {firstName}.
+            </h1>
+            <p className="home-date">
+              {now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <section className="home-directs" aria-labelledby="directs-title">
+            <div className="home-section-heading">
+              <h2 id="directs-title">Direct messages</h2>
+              <button className="header-pill" onClick={() => onDialog({ kind: 'direct' })}>
+                <Plus size={16} strokeWidth={1.6} />
+                New message
+              </button>
+            </div>
+            {started.length ? (
               <ul className="feed">
                 {started.map((direct) => (
                   <li key={direct.id}>
-                    <button className="feed-row" onClick={() => onDirect(direct.id)}>
+                    <button
+                      className={`feed-row ${direct.unread ? 'unread' : ''}`}
+                      onClick={() => onDirect(direct.id)}
+                    >
                       <span className="feed-badge" aria-hidden="true">
                         <Avatar
                           avatar={direct.peer.avatar}
                           name={direct.peer.name}
                           photo={client.photo?.bind(client)}
-                          size={32}
+                          size={40}
                         />
                       </span>
                       <span className="feed-main">
-                        <span className="feed-title">
-                          <strong>{direct.peer.name}</strong>
-                          <span>{when(direct.latest.createdAt)}</span>
-                        </span>
+                        <strong>{direct.peer.name}</strong>
                         <span className="feed-body">
                           {direct.latest.authorId === me.user.id && 'You: '}
                           {direct.latest.body}
                         </span>
                       </span>
-                      {direct.unread > 0 && <span className="tag accent">{direct.unread} new</span>}
+                      <span className="feed-meta">
+                        <time dateTime={direct.latest.createdAt}>
+                          {when(direct.latest.createdAt)}
+                        </time>
+                        {direct.unread > 0 && (
+                          <span className="feed-unread">{direct.unread} new</span>
+                        )}
+                      </span>
                     </button>
                   </li>
                 ))}
               </ul>
-            </section>
-          ) : (
-            <section className="home-empty">
-              <h2>No messages yet</h2>
-              {memberCount > 1 ? (
-                <>
-                  <p>Start a conversation with anyone on {server.name}.</p>
-                  <button className="button primary" onClick={() => onDialog({ kind: 'direct' })}>
-                    <MessageSquarePlus size={16} />
-                    New message
+            ) : (
+              <div className="home-empty">
+                <h3>No messages yet</h3>
+                <p>Start a conversation with anyone on {server.name}.</p>
+              </div>
+            )}
+          </section>
+          <section className="home-rooms" aria-labelledby="rooms-title">
+            <h2 id="rooms-title">Your rooms</h2>
+            <ul>
+              {rooms.map((room) => (
+                <li key={room.id}>
+                  <button className="home-room-card" onClick={() => onRoom(room.id)}>
+                    <span className="home-room-title">
+                      <strong>{room.name}</strong>
+                      <span aria-hidden="true">↗</span>
+                    </span>
+                    <span className="home-room-activity">
+                      {activityInRoom(room, channels, unread)}
+                    </span>
                   </button>
-                </>
-              ) : (
-                <>
-                  <p>You’re the only one here. Invite a friend so you have someone to message.</p>
-                  {admin && (
-                    <button className="button primary" onClick={() => onDialog({ kind: 'invite' })}>
-                      <UserPlus size={16} />
-                      Share invite
+                </li>
+              ))}
+            </ul>
+          </section>
+          {activeVoice.length > 0 && (
+            <section className="home-voice-list" aria-label="People in voice">
+              {activeVoice.map(({ channel, room, people }) => {
+                const names = people.map(
+                  (person) =>
+                    members?.find((member) => member.id === person.id)?.name ?? person.name,
+                )
+                const who = new Intl.ListFormat(undefined, {
+                  style: 'long',
+                  type: 'conjunction',
+                }).format(names)
+                return (
+                  <div className="home-voice" key={channel.id}>
+                    <Volume2 size={20} strokeWidth={1.6} aria-hidden="true" />
+                    <div className="home-voice-copy">
+                      <strong>A little company?</strong>
+                      <p>
+                        {who} {people.length === 1 ? 'is' : 'are'} in {channel.name} · {room.name}
+                      </p>
+                    </div>
+                    <button className="header-pill" onClick={() => onChannel(channel)}>
+                      Open {channel.name}
                     </button>
-                  )}
-                </>
-              )}
+                  </div>
+                )
+              })}
             </section>
           )}
         </div>

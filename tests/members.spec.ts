@@ -15,6 +15,7 @@ test('admins share an invite and see who joined; a friend moved to a new login k
   const second = await colleague.newPage()
   try {
     await onboard(page, 'nallen', 'Harbor members')
+    await page.getByRole('button', { name: 'Harbor members menu', exact: true }).click()
     await page.getByRole('button', { name: 'Members', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'People on Harbor members' })).toBeVisible()
     const roster = page.getByRole('region', { name: /^Members/ })
@@ -58,7 +59,8 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     const denied = await second.evaluate(async () => (await fetch('/api/invite')).status)
     expect(denied).toBe(403)
 
-    await page.getByRole('button', { name: 'Home', exact: true }).click()
+    await railTile(page, 'Home').click()
+    await page.getByRole('button', { name: 'Harbor members menu', exact: true }).click()
     await page.getByRole('button', { name: 'Members', exact: true }).click()
     await expect(roster.getByRole('row')).toHaveText([
       'NameRoleJoined',
@@ -79,7 +81,7 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(setup).toHaveCount(0)
     await expect(
-      second.getByRole('heading', { name: /^Good (morning|afternoon|evening), aiko$/ }),
+      second.getByRole('heading', { name: /^Good (morning|afternoon|evening), aiko\.$/ }),
     ).toBeVisible()
 
     const history = `Written before my login changed ${randomUUID()}`

@@ -273,20 +273,29 @@ export function Sidebar({
           <ChevronDown size={18} />
         </button>
         <div ref={menu} id="server-menu" popover="auto" className="menu">
+          {admin && !room && (
+            <button onClick={act(() => onView({ kind: 'members' }))}>
+              <Users size={16} />
+              <span>Members</span>
+            </button>
+          )}
           <button onClick={act(onSettings)}>
             <Settings size={16} />
             <span>Settings</span>
           </button>
         </div>
-        <nav className="sidebar-nav" aria-label={room ? `${room.name} channels` : server.name}>
-          {admin && !room && (
+        <nav
+          className={`sidebar-nav ${room ? '' : 'home-nav'}`}
+          aria-label={room ? `${room.name} channels` : server.name}
+        >
+          {!room && (
             <button
-              className="nav-row members-row"
-              aria-current={view.kind === 'members' ? 'page' : undefined}
-              onClick={() => onView({ kind: 'members' })}
+              className="nav-row home-nav-row"
+              aria-current={view.kind === 'home' ? 'page' : undefined}
+              onClick={() => onView({ kind: 'home' })}
             >
-              <Users size={18} />
-              <span>Members</span>
+              <Logo size={24} />
+              <span>Home</span>
             </button>
           )}
           {room ? (
@@ -375,7 +384,7 @@ export function Sidebar({
             </>
           ) : (
             <Section
-              label="Direct Messages"
+              label="Direct messages"
               create={{ name: 'New message', onClick: () => onDialog({ kind: 'direct' }) }}
             >
               {directs.map((direct) => (
@@ -392,15 +401,15 @@ export function Sidebar({
                       avatar={direct.peer.avatar}
                       name={direct.peer.name}
                       photo={client.photo?.bind(client)}
-                      size={24}
+                      size={28}
                     />
                   </i>
                   <span>{direct.peer.name}</span>
                   {direct.unread > 0 && (
-                    <>
-                      <i className="unread-pill" />
-                      <span className="sr-only">unread</span>
-                    </>
+                    <b className="direct-count">
+                      {direct.unread}
+                      <span className="sr-only"> unread</span>
+                    </b>
                   )}
                 </button>
               ))}
