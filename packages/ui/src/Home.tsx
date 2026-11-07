@@ -110,10 +110,14 @@ export function Home({
         {topbar}
         <div className="scroll">
           <div className="home setup-home">
-            <h1 className="home-greeting">
-              {admin ? 'Your server is ready' : `You’re in ${sentence(server.name)}`}
+            <h1 className="home-greeting" aria-label={admin ? 'Your server is ready' : undefined}>
+              {admin ? 'Your server is ready.' : `You’re in ${sentence(server.name)}`}
             </h1>
-            <p className="home-date">Welcome, {firstName}</p>
+            <p className="home-date">
+              {admin
+                ? 'A few steps and your friends have a place to talk.'
+                : `Welcome, ${firstName}`}
+            </p>
             <Setup server={server} steps={steps} admin={admin} onDialog={onDialog} />
           </div>
         </div>
@@ -264,7 +268,7 @@ type Step = {
   done: boolean
   action: { label: string; dialog: Dialog | null } | null
 }
-const channelPurpose = 'Channels are where a room’s conversations happen.'
+const channelPurpose = 'Channels hold the conversation.'
 function placed(rooms: Room[], channels: Channel[]) {
   const channel = channels.find((channel) => channel.kind === 'text') ?? channels[0]
   const room = rooms.find((room) => room.id === channel?.roomId)
@@ -295,7 +299,7 @@ function adminSteps(rooms: Room[], channels: Channel[], memberCount: number): St
       title: 'Share Huddle',
       detail: coworkers
         ? `${coworkers} ${coworkers === 1 ? 'friend has' : 'friends have'} joined.`
-        : 'Copy the invite link and send it to a friend. They need access to this machine in Tailscale first.',
+        : 'Friends need access to this machine in Tailscale.',
       done: coworkers > 0,
       action: { label: 'Share invite', dialog: { kind: 'invite' } },
     },
@@ -346,11 +350,11 @@ function Setup({
           <span className="setup-count">
             {done} of {steps.length} done
           </span>
-          <p>
-            {admin
-              ? 'A few steps and your friends have a place to talk.'
-              : 'An admin is still setting things up. Rooms appear here as soon as they’re created.'}
-          </p>
+          {!admin && (
+            <p>
+              An admin is still setting things up. Rooms appear here as soon as they’re created.
+            </p>
+          )}
         </div>
         <ol>
           {steps.map((step, index) => (
@@ -383,7 +387,7 @@ function Setup({
       </section>
       {admin && (
         <p className="setup-note">
-          You can come back to this list from Home until every step is done. Only admins see it.
+          You can return to this checklist from Home until every step is done.
         </p>
       )}
     </>

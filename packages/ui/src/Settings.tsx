@@ -136,7 +136,7 @@ export function Settings({
                   upload={(file) => client.upload(file)}
                   photo={(id, signal) => client.photo(id, signal)}
                   submitLabel="Save profile"
-                  settings={{ serverName }}
+                  context={{ kind: 'settings', serverName }}
                 />
                 <Alert message={error} />
               </>

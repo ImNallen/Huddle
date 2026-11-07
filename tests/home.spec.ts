@@ -18,7 +18,9 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
   try {
     await onboard(page, 'avery', 'Harbor home')
     await page.clock.setFixedTime(new Date('2026-10-09T09:30:00'))
-    await expect(page.getByText('Welcome, avery', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText('A few steps and your friends have a place to talk.', { exact: true }),
+    ).toBeVisible()
     await expect(
       page.getByRole('heading', { name: 'Your server is ready', level: 1 }),
     ).toBeVisible()
@@ -27,7 +29,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(setup).toContainText('0 of 3 done')
     await expect(setup.getByRole('button', { name: 'Add channel' })).toBeDisabled()
     await expect(setup.getByRole('listitem').nth(1)).toContainText(
-      'Channels are where a room’s conversations happen. Create a room first.',
+      'Channels hold the conversation. Create a room first.',
     )
     await expect(setup.getByRole('button', { name: 'Create room' })).toHaveClass(/primary/)
     await page.getByRole('button', { name: 'Member list', exact: true }).click()
@@ -44,7 +46,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(setup.getByRole('listitem')).toHaveText([
       /^Create your first roomDevelopmentDone$/,
       /^Add a channel#code-review in DevelopmentDone$/,
-      /^3Share HuddleCopy the invite link and send it to a friend\. They need access to this machine in Tailscale first\.Share invite$/,
+      /^3Share HuddleFriends need access to this machine in Tailscale\.Share invite$/,
     ])
     await expect(setup.getByRole('button', { name: 'Share invite' })).toHaveClass(/primary/)
     const code = await shareInvite(page)

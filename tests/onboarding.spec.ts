@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { tailscale } from '../apps/server/scripts/harness'
-import { actAs, browserApp, expectHome, inviteCode, loginOf, onboard, serverURL } from './accounts'
+import {
+  actAs,
+  browserApp,
+  expectHome,
+  inviteCode,
+  loginOf,
+  onboard,
+  serverURL,
+  skipProfile,
+} from './accounts'
 import { setupCode, useScratchServer } from './server'
 
 useScratchServer('ui')
@@ -89,9 +98,7 @@ test('the host sets up with the setup code and only a friend with the invite can
     await expect(stranger.getByLabel('Setup code')).toHaveCount(0)
     await expect(stranger.getByRole('button', { name: 'Create account' })).toHaveCount(0)
     await expect(stranger.getByText(loginOf('nobody'), { exact: true })).toBeVisible()
-    await expect(
-      stranger.getByText("Had an account here before? Don't create a new one.", { exact: false }),
-    ).toBeVisible()
+    await expect(stranger.getByText('Been here before?', { exact: false })).toBeVisible()
     await stranger.screenshot({ path: test.info().outputPath('uninvited-join.png') })
     const invite = stranger.getByLabel('Invite link')
     const proceed = stranger.getByRole('button', { name: 'Continue', exact: true })
@@ -142,6 +149,7 @@ test('the host sets up with the setup code and only a friend with the invite can
     await expect(invited.getByLabel('Your name')).toHaveValue('jonas')
     await invited.getByLabel('Your name').fill('Jonas H')
     await invited.getByRole('button', { name: 'Create account', exact: true }).click()
+    await skipProfile(invited)
     await expectHome(invited)
     await expect(
       invited.getByText('An admin is still setting things up.', { exact: false }),

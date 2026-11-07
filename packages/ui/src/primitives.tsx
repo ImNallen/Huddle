@@ -5,12 +5,12 @@ import { serverInitials } from '@huddle/contracts'
 import huddleSymbol from './assets/huddle-symbol.svg'
 
 export type FrameServer = { name?: string; origin: string }
-export function Frame({ children }: { children: ReactNode }) {
+export function Frame({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className="access-shell">
+    <div className={`access-shell ${className}`}>
       <header className="access-header">
         <a className="access-brand" href="/">
-          <Logo size={20} />
+          <Logo size={36} />
           <span>huddle</span>
         </a>
       </header>
@@ -110,7 +110,7 @@ export function ServerCard({
 }) {
   return (
     <div className="access-server-card">
-      <ServerTile name={server.name} />
+      <Logo size={28} />
       <div>
         <strong>{label ?? server.name ?? 'Server'}</strong>
         <code>{hostOf(server.origin)}</code>
@@ -128,8 +128,10 @@ export function Heading({
   description,
   icon,
   back,
+  label,
 }: {
   title: string
+  label?: string
   description?: ReactNode
   icon?: ReactNode
   back?: () => void
@@ -142,9 +144,11 @@ export function Heading({
           Back
         </button>
       )}
-      {icon && <div className="access-symbol">{icon}</div>}
-      <h1>{title}</h1>
-      {description && <p className="access-description">{description}</p>}
+      <div className="access-introduction">
+        {icon && <div className="access-symbol">{icon}</div>}
+        <h1 aria-label={label}>{title}</h1>
+        {description && <p className="access-description">{description}</p>}
+      </div>
     </>
   )
 }
