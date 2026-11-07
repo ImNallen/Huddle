@@ -67,7 +67,7 @@ export function ServerView({
 }) {
   const [view, setView] = useState<View>({ kind: 'home' })
   const [remembered, setRemembered] = useState<ReadonlyMap<RoomId, ChannelId>>(new Map())
-  const [memberList, setMemberList] = useState(true)
+  const [memberList, setMemberList] = useState(false)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const voice = useVoiceCall(client)
@@ -218,6 +218,9 @@ export function ServerView({
           client={client}
           me={me}
           channel={channel}
+          memberCount={server.memberCount}
+          onInvite={server.role === 'admin' ? () => setDialog({ kind: 'invite' }) : undefined}
+          onSettings={onSettings}
           sync={sync}
           draft={drafts[channel.id] ?? ''}
           onDraft={(value) => setDrafts((current) => ({ ...current, [channel.id]: value }))}

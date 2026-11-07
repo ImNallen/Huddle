@@ -49,10 +49,11 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     ])
     await expect(setup.getByRole('button')).toHaveCount(0)
     await expect(second.getByText('Only admins see it.', { exact: false })).toHaveCount(0)
+    await second.getByRole('button', { name: 'Member list', exact: true }).click()
     await expect(second.getByRole('list', { name: 'Members' })).toHaveText(
       'Admins — 1nallenMembers — 1aiko',
     )
-    await expect(second.locator('.account-name > span').first()).toHaveText('Member')
+    await expect(second.locator('.account-name > span').first()).toHaveText('Connected')
 
     const denied = await second.evaluate(async () => (await fetch('/api/invite')).status)
     expect(denied).toBe(403)

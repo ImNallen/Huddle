@@ -55,6 +55,7 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     ).toBeVisible()
     await expect(sidebar(avery)).toContainText('Direct Messages')
     await expect(sidebar(avery)).toContainText('No messages yet.')
+    await avery.getByRole('button', { name: 'Member list', exact: true }).click()
     const memberPanel = avery.getByRole('list', { name: 'Members' })
     await expect(memberPanel.getByRole('button', { name: 'Message avery' })).toHaveCount(0)
     await expect(memberPanel.getByText('avery', { exact: true })).toBeVisible()

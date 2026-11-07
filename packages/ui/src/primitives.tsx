@@ -1,6 +1,8 @@
+/// <reference path="./assets.d.ts" />
 import { Check, ChevronLeft, CircleAlert, Copy, Server } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { serverInitials } from '@huddle/contracts'
+import huddleSymbol from './assets/huddle-symbol.svg'
 
 export type FrameServer = { name?: string; origin: string }
 export function Frame({ children }: { children: ReactNode }) {
@@ -74,16 +76,15 @@ export function Overlay({
 }
 export function Logo({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <mask id="huddle-logo-cut">
-        <rect width="24" height="24" fill="white" />
-        <rect x="5.9" width="1.3" height="24" fill="black" />
-        <rect x="16.8" width="1.3" height="24" fill="black" />
-        <rect x="10.8" width="2.4" height="9.6" fill="black" />
-        <rect x="10.8" y="14.4" width="2.4" height="9.6" fill="black" />
-      </mask>
-      <circle cx="12" cy="12" r="12" fill="currentColor" mask="url(#huddle-logo-cut)" />
-    </svg>
+    <span
+      className="huddle-logo"
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        maskImage: `url("${huddleSymbol}")`,
+      }}
+    />
   )
 }
 export function hostOf(origin: string) {

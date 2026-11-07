@@ -45,14 +45,14 @@ test('rooms hold their own channels, remember one, and voice channels say when a
     await createTextChannel(page, 'critique')
 
     await expect(channelList(page, 'Design')).toHaveText(
-      'MembersText ChannelscritiquegeneralVoice Channels',
+      'Text channelscritiquegeneralVoice channels',
     )
     await railTile(page, 'Gaming').click()
     await expect(railTile(page, 'Gaming')).toHaveAttribute('aria-current', 'true')
     await expect(railTile(page, 'Design')).not.toHaveAttribute('aria-current', 'true')
     await expect(page.getByRole('button', { name: 'Gaming menu', exact: true })).toBeVisible()
     await expect(channelList(page, 'Gaming')).toHaveText(
-      'MembersText ChannelsgeneralstrategyVoice Channels',
+      'Text channelsgeneralstrategyVoice channels',
     )
 
     await expect(page.getByRole('heading', { name: 'Welcome to #strategy' })).toBeVisible()
@@ -74,7 +74,7 @@ test('rooms hold their own channels, remember one, and voice channels say when a
     await page.getByLabel('Channel name').fill('hangout')
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(channelList(page, 'Gaming')).toHaveText(
-      'MembersText ChannelsgeneralstrategyVoice Channelshangout',
+      'Text channelsgeneralstrategyVoice channelshangout',
     )
     const main = page.getByRole('main')
     await expect(main.getByRole('heading', { name: 'hangout', exact: true })).toBeVisible()
@@ -118,7 +118,7 @@ test('rooms hold their own channels, remember one, and voice channels say when a
     await railTile(member, 'Gaming').click()
     await expect(member.getByRole('heading', { name: 'Welcome to #general' })).toBeVisible()
     await expect(channelList(member, 'Gaming')).toHaveText(
-      'Text ChannelsgeneralstrategyVoice Channelshangout',
+      'Text channelsgeneralstrategyVoice channelshangout',
     )
     await channelList(member, 'Gaming').getByRole('button', { name: 'hangout' }).click()
     await expect(member.getByText(voiceNotice, { exact: true })).toBeVisible()

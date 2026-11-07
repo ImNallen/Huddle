@@ -6,7 +6,7 @@ import { TOKEN_NAMES } from '../packages/ui/src/appearance/palette'
 
 const server = useScratchServer('api')
 
-const DARK_GROUND = 'rgb(10, 10, 10)'
+const DARK_GROUND = 'rgb(22, 22, 22)'
 const LIGHT_GROUND = 'rgb(252, 252, 252)'
 const APPEARANCE_KEYS = {
   mode: 'huddle.appearance.mode',
@@ -588,8 +588,8 @@ test("copying Huddle reads CSS under another theme, and pasting it back is Huddl
   const text = await page.evaluate(() => navigator.clipboard.readText())
   const file = JSON.parse(text) as { name: string; colors: Record<string, string> }
   expect(file.name).toBe('Huddle')
-  expect(file.colors.canvas).toBe('#0a0a0a')
-  expect(file.colors.accent).toBe('#346bf1')
+  expect(file.colors.canvas).toBe('#161616')
+  expect(file.colors.accent).toBe('#eaeaea')
 
   await settings(page).getByRole('button', { name: 'Add theme', exact: true }).click()
   const dialog = addDialog(page)

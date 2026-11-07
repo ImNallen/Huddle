@@ -29,7 +29,7 @@ export function Badge({ id, name, size = 22 }: { id: string; name: string; size?
 }
 export function ChannelIcon({ kind, size }: { kind: ChannelKind; size: number }) {
   const Icon = kind === 'voice' ? Volume2 : Hash
-  return <Icon size={size} />
+  return <Icon size={size} strokeWidth={1.6} />
 }
 export function Mentions({ text }: { text: string }) {
   return text.split(/(@[\p{L}\p{N}_-]+)/u).map((part, index) =>

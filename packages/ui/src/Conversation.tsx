@@ -1,4 +1,4 @@
-import { Hash } from 'lucide-react'
+import { Hash, MoreHorizontal } from 'lucide-react'
 import type { Channel, Me } from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { useServer } from './useServer'
@@ -18,9 +18,15 @@ export function ChannelConversation({
   channel,
   memberList,
   onMemberList,
+  memberCount,
+  onInvite,
+  onSettings,
   ...shared
 }: Shared & {
   channel: Channel
+  memberCount: number
+  onInvite?: () => void
+  onSettings: () => void
   memberList: boolean
   onMemberList: () => void
 }) {
@@ -31,18 +37,39 @@ export function ChannelConversation({
       label={`Message #${channel.name}`}
       topbar={
         <header className="topbar">
-          <Hash size={20} />
+          <Hash size={18} />
           <strong>{channel.name}</strong>
-          <MemberToggle pressed={memberList} onToggle={onMemberList} />
+          <div className="channel-actions">
+            {onInvite && (
+              <button className="header-pill" onClick={onInvite}>
+                <span>Share invite</span>
+              </button>
+            )}
+            <MemberToggle pressed={memberList} onToggle={onMemberList} count={memberCount} />
+            <button
+              className="icon-button"
+              aria-label="Channel options"
+              popoverTarget="channel-menu"
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          </div>
+          <div id="channel-menu" popover="auto" className="menu channel-menu">
+            <button
+              onClick={(event) => {
+                event.currentTarget.parentElement?.hidePopover()
+                onSettings()
+              }}
+            >
+              Settings
+            </button>
+          </div>
         </header>
       }
       welcome={
         <>
-          <span className="empty-mark">
-            <Hash size={40} />
-          </span>
-          <h1>Welcome to #{channel.name}</h1>
-          <p>This is the start of #{channel.name}.</p>
+          <h1 aria-label={`Welcome to #${channel.name}`}>A place for the everyday.</h1>
+          <p>Plans, little updates, and whatever’s on your mind.</p>
         </>
       }
     />

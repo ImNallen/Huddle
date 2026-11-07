@@ -254,6 +254,7 @@ test('a saved profile name reaches the member list behind the Settings window', 
   page,
 }) => {
   await member(server.admin, page, 'renamer', browserApp)
+  await page.getByRole('button', { name: 'Member list', exact: true }).click()
   const members = page.getByRole('list', { name: 'Members', exact: true })
   await expect(members.getByText('renamer', { exact: true })).toBeVisible()
 

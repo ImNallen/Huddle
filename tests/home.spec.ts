@@ -30,6 +30,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
       'Channels are where a room’s conversations happen. Create a room first.',
     )
     await expect(setup.getByRole('button', { name: 'Create room' })).toHaveClass(/primary/)
+    await page.getByRole('button', { name: 'Member list', exact: true }).click()
     await expect(page.getByRole('list', { name: 'Members' })).toHaveText('Admins — 1avery')
     await setup.getByRole('button', { name: 'Create room' }).click()
     await page.getByLabel('Room name').fill('Development')
@@ -116,6 +117,7 @@ test('room activity sits on the rail and Home holds direct messages', async ({ b
     await expect(roomTile).toHaveAccessibleDescription('1 unread')
 
     await railTile(second, 'Home').click()
+    await second.getByRole('button', { name: 'Member list', exact: true }).click()
     await second
       .getByRole('list', { name: 'Members' })
       .getByRole('button', { name: 'Message avery', exact: true })

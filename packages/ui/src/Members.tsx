@@ -41,16 +41,25 @@ export function useMembers(client: Transport, revision: unknown): Resource<Membe
 export function shortDate(iso: string) {
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
-export function MemberToggle({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+export function MemberToggle({
+  pressed,
+  onToggle,
+  count,
+}: {
+  pressed: boolean
+  onToggle: () => void
+  count?: number
+}) {
   return (
     <button
-      className="icon-button member-toggle"
+      className={`member-toggle ${count === undefined ? 'icon-button' : 'header-pill'}`}
       aria-label="Member list"
       title="Member list"
       aria-pressed={pressed}
       onClick={onToggle}
     >
-      <Users size={20} />
+      <Users size={count === undefined ? 20 : 16} />
+      {count !== undefined && <span>Members · {count}</span>}
     </button>
   )
 }

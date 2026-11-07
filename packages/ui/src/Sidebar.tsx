@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeftRight, ChevronDown, Plus, Settings, UserPlus, Users } from 'lucide-react'
+import { ArrowLeftRight, ChevronDown, Plus, Settings, Users } from 'lucide-react'
 import type {
   Channel,
   ChannelKind,
@@ -14,7 +14,6 @@ import type {
 import type { Transport } from './transport'
 import { threadKey, type Activity, type Unread } from './useServer'
 import type { Dialog, DirectRow, View } from './ServerView'
-import { roleLabels } from './Members'
 import { Avatar } from './Avatar'
 import { ChannelIcon, initials } from './Badges'
 import { Logo } from './primitives'
@@ -34,6 +33,7 @@ function RailTile({
   description,
   current = false,
   pill = false,
+  bottom = false,
   hints,
   onClick,
   children,
@@ -43,12 +43,15 @@ function RailTile({
   description?: string
   current?: boolean
   pill?: boolean
+  bottom?: boolean
   hints: RailHints
   onClick: () => void
   children: ReactNode
 }) {
   return (
-    <div className={`rail-item ${current ? 'current' : ''} ${pill ? 'unread' : ''}`}>
+    <div
+      className={`rail-item ${current ? 'current' : ''} ${pill ? 'unread' : ''} ${bottom ? 'bottom' : ''}`}
+    >
       <i className="rail-pill" />
       <button
         className="rail-tile"
@@ -118,7 +121,7 @@ function Rail({
         hints={hints}
         onClick={() => onView({ kind: 'home' })}
       >
-        <Logo size={24} />
+        <Logo size={36} />
       </RailTile>
       <i className="rail-separator" />
       {rooms.map((room) => {
@@ -140,12 +143,12 @@ function Rail({
       })}
       {admin && (
         <RailTile name="Create room" hints={hints} onClick={() => onDialog({ kind: 'room' })}>
-          <Plus size={20} />
+          <Plus size={18} />
         </RailTile>
       )}
       {onServer && (
-        <RailTile name="Switch server" hints={hints} onClick={onServer}>
-          <ArrowLeftRight size={20} />
+        <RailTile bottom name="Switch server" hints={hints} onClick={onServer}>
+          <ArrowLeftRight size={18} />
         </RailTile>
       )}
       <span
@@ -178,7 +181,7 @@ function Section({
             title={create.name}
             onClick={create.onClick}
           >
-            <Plus size={16} />
+            <Plus size={14} />
           </button>
         )}
       </div>
@@ -187,8 +190,8 @@ function Section({
   )
 }
 const channelSections: { kind: ChannelKind; label: string; create: string }[] = [
-  { kind: 'text', label: 'Text Channels', create: 'Create text channel' },
-  { kind: 'voice', label: 'Voice Channels', create: 'Create voice channel' },
+  { kind: 'text', label: 'Text channels', create: 'Create text channel' },
+  { kind: 'voice', label: 'Voice channels', create: 'Create voice channel' },
 ]
 export function Sidebar({
   client,
@@ -270,19 +273,13 @@ export function Sidebar({
           <ChevronDown size={18} />
         </button>
         <div ref={menu} id="server-menu" popover="auto" className="menu">
-          {admin && (
-            <button onClick={act(() => onDialog({ kind: 'invite' }))}>
-              <UserPlus size={16} />
-              <span>Share invite</span>
-            </button>
-          )}
           <button onClick={act(onSettings)}>
             <Settings size={16} />
             <span>Settings</span>
           </button>
         </div>
         <nav className="sidebar-nav" aria-label={room ? `${room.name} channels` : server.name}>
-          {admin && (
+          {admin && !room && (
             <button
               className="nav-row members-row"
               aria-current={view.kind === 'members' ? 'page' : undefined}
@@ -428,11 +425,10 @@ export function Sidebar({
             photo={client.photo?.bind(client)}
             size={32}
           />
-          <i className={`presence ${connection === 'Connected' ? 'online' : ''}`} />
         </span>
         <span className="account-name">
           <strong>{me.user.name}</strong>
-          <span>{connection === 'Connected' ? roleLabels[server.role] : connection}</span>
+          <span>{connection}</span>
           <span className="sr-only" role="status">
             {connection}
           </span>

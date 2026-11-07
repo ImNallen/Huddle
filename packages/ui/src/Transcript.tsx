@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { SendHorizontal } from 'lucide-react'
+import { ArrowUp, Plus, Smile } from 'lucide-react'
 import type { Avatar as AvatarValue, Me } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import {
@@ -67,7 +67,8 @@ function day(createdAt: string) {
   const date = new Date(createdAt)
   const today = new Date()
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
-  if (date.toDateString() === today.toDateString()) return 'Today'
+  if (date.toDateString() === today.toDateString())
+    return `Today, ${date.toLocaleDateString([], { month: 'long', day: 'numeric' })}`
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
   return date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
 }
@@ -103,6 +104,8 @@ export function Transcript({
   const [more, setMore] = useState(true)
   const [error, setError] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
+  const emojiPicker = useRef<HTMLDivElement>(null)
   const atEnd = useRef(true)
   const measured = useRef('')
   const key = threadKey(thread)
@@ -124,6 +127,18 @@ export function Transcript({
     observer.observe(view.firstElementChild)
     return () => observer.disconnect()
   }, [])
+  function insert(text: string) {
+    const field = input.current
+    const start = field?.selectionStart ?? draft.length
+    const end = field?.selectionEnd ?? start
+    const next = `${draft.slice(0, start)}${text}${draft.slice(end)}`
+    if (next.length > 8000) return
+    onDraft(next)
+    requestAnimationFrame(() => {
+      field?.focus()
+      field?.setSelectionRange(start + text.length, start + text.length)
+    })
+  }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const body = draft.trim()
@@ -199,7 +214,7 @@ export function Transcript({
                         avatar={row.author.avatar}
                         name={row.author.name}
                         photo={photo}
-                        size={40}
+                        size={36}
                       />
                     </span>
                     <div className="message-meta">
@@ -232,6 +247,7 @@ export function Transcript({
           {label}
         </label>
         <textarea
+          ref={input}
           id="message"
           rows={1}
           maxLength={8000}
@@ -245,9 +261,62 @@ export function Transcript({
           }}
           placeholder={label}
         />
-        <button aria-label="Send message" title="Send message" disabled={!draft.trim()}>
-          <SendHorizontal size={20} />
-        </button>
+        <div className="composer-actions">
+          <button
+            type="button"
+            className="composer-tool"
+            aria-label="Add mention"
+            title="Add mention"
+            onClick={() => insert('@')}
+          >
+            <Plus size={18} />
+          </button>
+          <button
+            type="button"
+            className="composer-tool"
+            aria-label="Add emoji"
+            title="Add emoji"
+            popoverTarget="composer-emoji"
+          >
+            <Smile size={18} />
+          </button>
+          <div
+            ref={emojiPicker}
+            id="composer-emoji"
+            popover="auto"
+            className="emoji-picker"
+            onToggle={(event) => {
+              if (event.newState !== 'open' || !input.current) return
+              const box = input.current.getBoundingClientRect()
+              event.currentTarget.style.left = `${box.left}px`
+              event.currentTarget.style.bottom = `${window.innerHeight - box.bottom + 8}px`
+            }}
+          >
+            {['😊', '💛', '✨', '👍', '🎉', '❤️', '👋', '😂', '🙌', '☕', '🌿', '💭'].map(
+              (emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  aria-label={`Insert ${emoji}`}
+                  onClick={() => {
+                    emojiPicker.current?.hidePopover()
+                    insert(emoji)
+                  }}
+                >
+                  {emoji}
+                </button>
+              ),
+            )}
+          </div>
+          <button
+            className="composer-send"
+            aria-label="Send message"
+            title="Send message"
+            disabled={!draft.trim()}
+          >
+            <ArrowUp size={18} />
+          </button>
+        </div>
       </form>
     </main>
   )
