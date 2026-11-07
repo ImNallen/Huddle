@@ -1,7 +1,14 @@
-import { Mic, MicOff, PhoneOff, Volume2, X } from 'lucide-react'
-import type { Avatar as AvatarValue, Channel, Me, Member, VoicePresence } from '@huddle/contracts'
+import { Headphones, Mic, MicOff, PhoneOff, Volume2 } from 'lucide-react'
+import type {
+  Avatar as AvatarValue,
+  Channel,
+  Me,
+  Member,
+  Room,
+  VoicePresence,
+} from '@huddle/contracts'
 import type { Transport } from './transport'
-import type { Call, VoiceCall } from './voiceCall'
+import { microphoneMuted, type Call, type VoiceCall } from './voiceCall'
 import { Avatar } from './Avatar'
 import { MemberToggle } from './Members'
 import { Spinner } from './primitives'
@@ -118,7 +125,7 @@ export function VoiceChannel({
               client={client}
               name={me.user.name}
               avatar={me.user.avatar}
-              muted={inCall.muted}
+              muted={microphoneMuted(inCall.audio)}
             />
             {inCall.people.map((person) => (
               <CallPersonTile
@@ -159,74 +166,107 @@ export function VoiceChannel({
   )
 }
 
-const panelStatus: Record<Exclude<Call['phase'], 'idle'>, string> = {
-  'requesting-mic': 'Waiting for microphone',
-  connecting: 'Joining',
-  connected: 'Voice connected',
-  reconnecting: 'Reconnecting',
-  failed: 'Call ended',
+function callStatus(call: Exclude<Call, { phase: 'idle' }>): string {
+  switch (call.phase) {
+    case 'requesting-mic':
+      return 'Waiting for microphone'
+    case 'connecting':
+      return 'Joining the call…'
+    case 'failed':
+      return call.title
+    case 'reconnecting':
+      return call.audio.kind === 'deafened'
+        ? 'Reconnecting · deafened'
+        : microphoneMuted(call.audio)
+          ? 'Reconnecting · muted'
+          : 'Reconnecting…'
+    case 'connected':
+      return call.audio.kind === 'deafened'
+        ? 'Deafened'
+        : microphoneMuted(call.audio)
+          ? 'Microphone muted'
+          : 'Voice connected'
+  }
 }
 /** Holds the call's controls wherever the person goes, like the account panel below it. */
 export function CallPanel({
   voice,
   channels,
+  rooms,
   viewing,
   onOpen,
 }: {
   voice: VoiceCall
   channels: Channel[]
+  rooms: Room[]
   viewing: Channel['id'] | null
   onOpen: (channel: Channel) => void
 }) {
   const { call } = voice
   if (call.phase === 'idle' || (call.phase === 'failed' && call.channelId === viewing)) return null
   const channel = channels.find((item) => item.id === call.channelId)
+  const room = rooms.find((item) => item.id === channel?.roomId)
   const inCall = call.phase === 'connected' || call.phase === 'reconnecting' ? call : null
+  const muted = inCall ? microphoneMuted(inCall.audio) : false
+  const deafened = inCall?.audio.kind === 'deafened'
   return (
     <section className="call-panel" aria-label="Call">
-      <div className="call-panel-row">
-        <button
-          className="call-place"
-          title={channel && `Open ${channel.name}`}
-          onClick={() => channel && onOpen(channel)}
-        >
-          <strong className={`call-status ${call.phase}`} role="status">
-            {call.phase === 'failed' ? call.title : panelStatus[call.phase]}
+      <button
+        className="call-place"
+        aria-label={channel ? `Open ${channel.name}` : 'Open voice channel'}
+        disabled={!channel}
+        onClick={() => channel && onOpen(channel)}
+      >
+        <span className="call-summary">
+          <strong className={`call-status ${call.phase}${muted ? ' is-muted' : ''}`} role="status">
+            {callStatus(call)}
           </strong>
-          <span>{channel?.name ?? 'Voice channel'}</span>
-        </button>
-        {inCall && (
+          <span className="call-location">
+            {channel?.name ?? 'Voice channel'}
+            {room && ` · ${room.name}`}
+          </span>
+        </span>
+        <span className="call-open">Open</span>
+      </button>
+      {inCall ? (
+        <div className="call-controls">
           <button
-            className="icon-button call-mute"
+            className="call-control call-mute"
             aria-label="Mute"
-            title={inCall.muted ? 'Unmute' : 'Mute'}
-            aria-pressed={inCall.muted}
-            onClick={() => voice.setMuted(!inCall.muted)}
+            title={deafened ? 'Undeafen to unmute' : muted ? 'Unmute' : 'Mute'}
+            aria-pressed={muted}
+            disabled={deafened}
+            onClick={() => voice.setMuted(!muted)}
           >
-            {inCall.muted ? <MicOff size={18} /> : <Mic size={18} />}
+            <Mic size={18} aria-hidden="true" />
+            <span>{muted ? 'Unmute' : 'Mute'}</span>
           </button>
-        )}
-        {call.phase === 'failed' ? (
           <button
-            className="icon-button"
-            aria-label="Dismiss"
-            title="Dismiss"
+            className="call-control"
+            aria-label="Deafen"
+            title={deafened ? 'Undeafen' : 'Deafen'}
+            aria-pressed={deafened}
+            onClick={() => voice.setDeafened(!deafened)}
+          >
+            <Headphones size={18} aria-hidden="true" />
+            <span>{deafened ? 'Undeafen' : 'Deafen'}</span>
+          </button>
+          <button
+            className="call-control call-leave"
+            aria-label="Leave call"
+            title="Leave call"
             onClick={voice.leave}
           >
-            <X size={18} />
+            <PhoneOff size={18} aria-hidden="true" />
+            <span>Leave</span>
           </button>
-        ) : (
-          <button
-            className="icon-button"
-            aria-label={inCall ? 'Leave call' : 'Cancel'}
-            title={inCall ? 'Leave call' : 'Cancel'}
-            onClick={voice.leave}
-          >
-            <PhoneOff size={18} />
-          </button>
-        )}
-      </div>
-      {inCall?.soundBlocked && (
+        </div>
+      ) : (
+        <button className="button small call-finish" onClick={voice.leave}>
+          {call.phase === 'failed' ? 'Dismiss' : 'Cancel'}
+        </button>
+      )}
+      {inCall?.soundBlocked && !deafened && (
         <button className="button small primary call-sound" onClick={voice.startSound}>
           Turn on sound
         </button>

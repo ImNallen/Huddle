@@ -350,7 +350,14 @@ export function Sidebar({
                           >
                             <ChannelIcon kind={channel.kind} size={18} />
                             <span>{channel.name}</span>
-                            {inCall && <span className="sr-only">you're in this call</span>}
+                            {inCall && (
+                              <>
+                                <span className="voice-in-call" aria-hidden="true">
+                                  In call
+                                </span>
+                                <span className="sr-only">you're in this call</span>
+                              </>
+                            )}
                             {mentions > 0 && (
                               <b className="nav-count">
                                 {mentions}
@@ -379,7 +386,7 @@ export function Sidebar({
                                       photo={client.photo?.bind(client)}
                                       size={20}
                                     />
-                                    <span>{name}</span>
+                                    <span>{person.id === me.user.id ? 'You' : name}</span>
                                   </li>
                                 )
                               })}
@@ -476,6 +483,7 @@ export function Sidebar({
       <CallPanel
         voice={voice}
         channels={channels}
+        rooms={rooms}
         viewing={view.kind === 'room' ? view.channelId : null}
         onOpen={(channel) =>
           onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })

@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { VoiceGrant, type ChannelId } from '@huddle/contracts'
-import type { LocalAudioTrack, Room } from 'livekit-client'
+import type { LocalAudioTrack, RemoteAudioTrack, Room } from 'livekit-client'
 import { errorText, type Transport } from './transport'
+
+export type CallAudio =
+  | { kind: 'listening'; muted: boolean }
+  | { kind: 'deafened'; restoreMuted: boolean }
+
+export const microphoneMuted = (audio: CallAudio) => audio.kind === 'deafened' || audio.muted
 
 export type CallPerson = { id: string; name: string; muted: boolean }
 export type Call =
@@ -11,14 +17,14 @@ export type Call =
       phase: 'connected' | 'reconnecting'
       channelId: ChannelId
       people: CallPerson[]
-      muted: boolean
+      audio: CallAudio
       soundBlocked: boolean
     }
   | { phase: 'failed'; channelId: ChannelId; title: string; message: string }
 
 type Session = {
   leave: () => void
-  setMuted: (muted: boolean) => void
+  setAudio: (audio: CallAudio) => void
   startSound: () => void
 }
 type LiveKit = typeof import('livekit-client')
@@ -62,20 +68,23 @@ function endedMessage(lk: LiveKit, reason: number | undefined) {
 function startCall(
   client: Transport,
   channelId: ChannelId,
-  startMuted: boolean,
+  initialAudio: CallAudio,
   onChange: (call: Call) => void,
 ): Session {
   let over = false
   let inCall = false
   let room: Room | null = null
   let microphone: LocalAudioTrack | null = null
-  const sounds = new Set<HTMLMediaElement>()
+  const sounds = new Map<HTMLMediaElement, RemoteAudioTrack>()
+  let audio = initialAudio
+  let changingAudio = false
+  let audioChanges = Promise.resolve()
 
   function release() {
     over = true
     microphone?.stop()
     void room?.disconnect()
-    for (const sound of sounds) sound.remove()
+    for (const sound of sounds.keys()) sound.remove()
     sounds.clear()
   }
   function fail(title: string, message: string) {
@@ -85,7 +94,7 @@ function startCall(
   }
   const joinFailed = (message: string) => fail("Couldn't join", message)
   function report() {
-    if (over || !inCall || !room || !microphone) return
+    if (over || changingAudio || !inCall || !room || !microphone) return
     const { state } = room
     if (state === 'disconnected') return
     onChange({
@@ -96,7 +105,7 @@ function startCall(
         name: person.name || 'Friend',
         muted: !person.isMicrophoneEnabled,
       })),
-      muted: microphone.isMuted,
+      audio: audio.kind === 'deafened' ? audio : { kind: 'listening', muted: microphone.isMuted },
       soundBlocked: !room.canPlaybackAudio,
     })
   }
@@ -133,9 +142,13 @@ function startCall(
     joining
       .on(lk.RoomEvent.SignalConnected, () => (reachedService = true))
       .on(lk.RoomEvent.TrackSubscribed, (track) => {
-        if (track.kind !== 'audio' || over) return
-        const sound = track.attach()
-        sounds.add(sound)
+        if (!(track instanceof lk.RemoteAudioTrack) || over) return
+        const volume = audio.kind === 'deafened' ? 0 : 1
+        track.setVolume(volume)
+        const sound = document.createElement('audio')
+        sound.volume = volume
+        track.attach(sound)
+        sounds.set(sound, track)
         document.body.append(sound)
       })
       .on(lk.RoomEvent.TrackUnsubscribed, (track) => {
@@ -160,7 +173,7 @@ function startCall(
     try {
       await joining.connect(grant.url, grant.token)
       if (over) return
-      if (startMuted) await grabbed.mute()
+      if (microphoneMuted(audio)) await grabbed.mute()
       await joining.localParticipant.publishTrack(grabbed)
     } catch (error) {
       return joinFailed(connectionProblem(lk, error, url, reachedService))
@@ -173,11 +186,24 @@ function startCall(
 
   return {
     leave: release,
-    setMuted(muted) {
-      if (!microphone) return
-      ;(muted ? microphone.mute() : microphone.unmute()).then(report, () =>
-        fail('Call ended', 'Your microphone stopped working.'),
-      )
+    setAudio(next) {
+      audioChanges = audioChanges
+        .then(async () => {
+          if (over || !microphone) return
+          changingAudio = true
+          if (microphoneMuted(next)) await microphone.mute()
+          if (over) return void microphone.stop()
+          audio = next
+          for (const track of sounds.values()) track.setVolume(next.kind === 'deafened' ? 0 : 1)
+          if (!microphoneMuted(next)) await microphone.unmute()
+          if (over) return void microphone.stop()
+          changingAudio = false
+          report()
+        })
+        .catch(() => {
+          changingAudio = false
+          fail('Call ended', 'Your microphone stopped working.')
+        })
     },
     startSound() {
       room?.startAudio().then(report, report)
@@ -188,7 +214,7 @@ function startCall(
 export function useVoiceCall(client: Transport) {
   const [call, setCall] = useState<Call>({ phase: 'idle' })
   const session = useRef<Session | null>(null)
-  const muted = useRef(false)
+  const audio = useRef<CallAudio>({ kind: 'listening', muted: false })
   useEffect(
     () => () => {
       session.current?.leave()
@@ -198,20 +224,29 @@ export function useVoiceCall(client: Transport) {
   )
   return {
     call,
-    /** Joins a channel, leaving any call already open. A person who muted stays muted. */
+    /** Joins a channel, leaving any call already open and preserving the person's audio choices. */
     join(channelId: ChannelId) {
       session.current?.leave()
-      session.current = startCall(client, channelId, muted.current, (next) => {
-        if (next.phase === 'connected' || next.phase === 'reconnecting') muted.current = next.muted
-        setCall(next)
-      })
+      session.current = startCall(client, channelId, audio.current, setCall)
     },
     leave() {
       session.current?.leave()
       session.current = null
       setCall({ phase: 'idle' })
     },
-    setMuted: (next: boolean) => session.current?.setMuted(next),
+    setMuted(next: boolean) {
+      if (audio.current.kind === 'deafened') return
+      audio.current = { kind: 'listening', muted: next }
+      session.current?.setAudio(audio.current)
+    },
+    setDeafened(next: boolean) {
+      if (next && audio.current.kind === 'listening') {
+        audio.current = { kind: 'deafened', restoreMuted: audio.current.muted }
+      } else if (!next && audio.current.kind === 'deafened') {
+        audio.current = { kind: 'listening', muted: audio.current.restoreMuted }
+      }
+      session.current?.setAudio(audio.current)
+    },
     startSound: () => session.current?.startSound(),
   }
 }
