@@ -76,6 +76,7 @@ export function ProfileEditor({
   photo,
   busy,
   submitLabel,
+  settings,
 }: {
   initial: Profile
   save: (profile: Profile) => Promise<void>
@@ -83,6 +84,7 @@ export function ProfileEditor({
   photo: (id: string, signal: AbortSignal) => Promise<string>
   busy: boolean
   submitLabel: string
+  settings?: { serverName: string }
 }) {
   const [profile, setProfile] = useState(initial)
   const [tab, setTab] = useState<'mascot' | 'photo'>(initial.avatar.kind)
@@ -123,7 +125,7 @@ export function ProfileEditor({
   const hasPhoto = profile.avatar.kind === 'photo'
   const name = profile.name.trim() || 'Your name'
   return (
-    <form onSubmit={submit}>
+    <form className="profile-editor" onSubmit={submit}>
       <label className="access-label">
         Name
         <input
@@ -135,26 +137,28 @@ export function ProfileEditor({
           autoComplete="name"
         />
       </label>
-      <p className="access-label-row access-profile-label">Avatar</p>
-      <div className="access-segmented" role="group" aria-label="Avatar type">
-        <button
-          type="button"
-          aria-pressed={tab === 'mascot'}
-          onClick={() => {
-            setTab('mascot')
-            setProfile((current) => ({ ...current, avatar: mascot }))
-          }}
-        >
-          Mascot
-        </button>
-        <button type="button" aria-pressed={tab === 'photo'} onClick={() => setTab('photo')}>
-          Photo
-        </button>
+      <div className="profile-avatar-heading">
+        <p className="access-label-row access-profile-label">Avatar</p>
+        <div className="access-segmented" role="group" aria-label="Avatar type">
+          <button
+            type="button"
+            aria-pressed={tab === 'mascot'}
+            onClick={() => {
+              setTab('mascot')
+              setProfile((current) => ({ ...current, avatar: mascot }))
+            }}
+          >
+            Mascot
+          </button>
+          <button type="button" aria-pressed={tab === 'photo'} onClick={() => setTab('photo')}>
+            Photo
+          </button>
+        </div>
       </div>
       {tab === 'mascot' ? (
         <div className="access-avatar-panel">
           <div className="access-avatar-stage">
-            <Avatar avatar={mascot} name={name} size={52} />
+            <Avatar avatar={mascot} name={name} size={settings ? 72 : 52} />
           </div>
           <div>
             <p>Shape</p>
@@ -167,7 +171,7 @@ export function ProfileEditor({
                   aria-pressed={mascot.shape === shape}
                   onClick={() => pick({ ...mascot, shape })}
                 >
-                  <Avatar avatar={{ ...mascot, shape }} name={shape} size={19} />
+                  <Avatar avatar={{ ...mascot, shape }} name={shape} size={settings ? 28 : 19} />
                 </button>
               ))}
             </div>
@@ -193,7 +197,7 @@ export function ProfileEditor({
         <div className="access-avatar-panel">
           <div className="access-avatar-stage">
             {hasPhoto ? (
-              <Avatar avatar={profile.avatar} name={name} photo={photo} size={60} />
+              <Avatar avatar={profile.avatar} name={name} photo={photo} size={settings ? 72 : 60} />
             ) : (
               <UserRound size={22} aria-hidden="true" />
             )}
@@ -244,7 +248,7 @@ export function ProfileEditor({
       )}
       <p className="access-label-row access-profile-label is-muted">Preview</p>
       <div className="access-preview">
-        <Avatar avatar={profile.avatar} name={name} photo={photo} size={28} />
+        <Avatar avatar={profile.avatar} name={name} photo={photo} size={settings ? 36 : 28} />
         <div>
           <strong>{name}</strong>
           <time>{clock(new Date(now).toISOString())}</time>
@@ -252,12 +256,15 @@ export function ProfileEditor({
         </div>
       </div>
       <Alert message={error} />
-      <Primary
-        busy={busy || uploading}
-        disabled={!profile.name.trim() || (tab === 'photo' && !hasPhoto)}
-      >
-        {submitLabel}
-      </Primary>
+      <footer className="profile-actions">
+        {settings && <p>Changes appear to everyone on {settings.serverName}.</p>}
+        <Primary
+          busy={busy || uploading}
+          disabled={!profile.name.trim() || (tab === 'photo' && !hasPhoto)}
+        >
+          {submitLabel}
+        </Primary>
+      </footer>
     </form>
   )
 }

@@ -69,7 +69,7 @@ export function ServerView({
   covered: boolean
   voiceAvailable: boolean
   onAccessChanged: () => void
-  onSettings: () => void
+  onSettings: (serverName?: string) => void
   onServer?: () => void
 }) {
   const [requestedView, setView] = useState<View>({ kind: 'home' })
@@ -86,6 +86,8 @@ export function ServerView({
     covered || dialog.kind !== 'none',
     onAccessChanged,
   )
+  const showSettings = () =>
+    onSettings(sync.state.kind === 'ready' ? sync.state.snapshot.server.name : undefined)
   const group =
     requestedView.kind === 'group'
       ? sync.groups.find((g) => threadKey(g.thread) === threadKey(requestedView.thread))
@@ -144,7 +146,7 @@ export function ServerView({
             <button className="access-primary" onClick={sync.retry}>
               Try again
             </button>
-            <button className="access-link" onClick={onSettings}>
+            <button className="access-link" onClick={showSettings}>
               Settings
             </button>
           </>
@@ -203,7 +205,7 @@ export function ServerView({
         onDirect={openDirect}
         onRoom={openRoom}
         onDialog={setDialog}
-        onSettings={onSettings}
+        onSettings={showSettings}
         onServer={onServer}
       />
       {view.kind === 'members' && server.role === 'admin' ? (
@@ -236,7 +238,7 @@ export function ServerView({
           me={me}
           sync={sync}
           onMembers={() => setDialog({ kind: 'group-members', thread: group.thread })}
-          onSettings={onSettings}
+          onSettings={showSettings}
           draft={sync.groupDraft(group.thread)}
           onDraft={(value) => sync.setGroupDraft(group.thread, value)}
         />
@@ -246,7 +248,7 @@ export function ServerView({
           client={client}
           me={me}
           direct={direct}
-          onSettings={onSettings}
+          onSettings={showSettings}
           sync={sync}
           draft={drafts[direct.id] ?? ''}
           onDraft={(value) => setDrafts((current) => ({ ...current, [direct.id]: value }))}
@@ -259,7 +261,7 @@ export function ServerView({
           channel={channel}
           memberCount={server.memberCount}
           onInvite={server.role === 'admin' ? () => setDialog({ kind: 'invite' }) : undefined}
-          onSettings={onSettings}
+          onSettings={showSettings}
           sync={sync}
           draft={drafts[channel.id] ?? ''}
           onDraft={(value) => setDrafts((current) => ({ ...current, [channel.id]: value }))}

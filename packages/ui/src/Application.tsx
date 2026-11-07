@@ -108,6 +108,7 @@ export function Application({
       key={state.stage.user.id}
       client={client}
       stage={state.stage}
+      serverName={state.info.name}
       voiceAvailable={state.info.voice}
       accept={accept}
       onAccessChanged={onAccessChanged}
@@ -118,6 +119,7 @@ export function Application({
 function ReadyView({
   client,
   stage,
+  serverName,
   voiceAvailable,
   accept,
   onAccessChanged,
@@ -125,24 +127,32 @@ function ReadyView({
 }: {
   client: Connection
   stage: Extract<AccessStage, { kind: 'ready' }>
+  serverName: string
   voiceAvailable: boolean
   accept: (stage: AccessStage) => void
   onAccessChanged: () => void
   onServer?: () => void
 }) {
-  const [settings, setSettings] = useState(false)
+  const [settings, setSettings] = useState<string | null>(null)
   return (
     <>
       <ServerView
         client={client}
         me={{ user: stage.user }}
-        covered={settings}
+        covered={settings !== null}
         voiceAvailable={voiceAvailable}
         onAccessChanged={onAccessChanged}
         onServer={onServer}
-        onSettings={() => setSettings(true)}
+        onSettings={(name) => setSettings(name ?? serverName)}
       />
-      {settings && <Settings client={client} accept={accept} close={() => setSettings(false)} />}
+      {settings !== null && (
+        <Settings
+          client={client}
+          serverName={settings}
+          accept={accept}
+          close={() => setSettings(null)}
+        />
+      )}
     </>
   )
 }
