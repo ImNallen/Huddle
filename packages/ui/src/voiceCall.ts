@@ -167,7 +167,8 @@ function startCall(
       .on(lk.RoomEvent.ConnectionStateChanged, report)
       .on(lk.RoomEvent.AudioPlaybackStatusChanged, report)
       .on(lk.RoomEvent.Disconnected, (reason) => {
-        if (inCall) fail('Call ended', endedMessage(lk, reason))
+        if (inCall || reason === lk.DisconnectReason.PARTICIPANT_REMOVED)
+          fail('Call ended', endedMessage(lk, reason))
       })
     const url = new URL(grant.url)
     try {
