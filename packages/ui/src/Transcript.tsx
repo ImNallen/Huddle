@@ -88,6 +88,7 @@ export function Transcript({
   placeholder = label,
   topbar,
   welcome,
+  emptyWelcome,
   sync,
   draft,
   onDraft,
@@ -99,6 +100,7 @@ export function Transcript({
   placeholder?: string
   topbar: ReactNode
   welcome: ReactNode
+  emptyWelcome?: ReactNode
   sync: ReturnType<typeof useServer>
   draft: string
   onDraft: (value: string) => void
@@ -113,6 +115,7 @@ export function Transcript({
   const key = threadKey(thread)
   const messages = sync.messages.filter((message) => threadKey(message.thread) === key)
   const pending = sync.pending.filter((message) => threadKey(message.thread) === key)
+  const isEmpty = sync.historyState === 'ready' && !messages.length && !pending.length
   const photo = client.photo?.bind(client)
   function keepAtEnd() {
     const view = scroller.current
@@ -170,15 +173,32 @@ export function Transcript({
         }}
       >
         <div className="thread">
-          <section className="channel-welcome">{welcome}</section>
-          {sync.historyState === 'loading' && <p className="thread-note">Loading conversation…</p>}
+          <section className="channel-welcome">
+            {isEmpty && emptyWelcome ? emptyWelcome : welcome}
+          </section>
+          {sync.connection === 'Offline · reconnecting' && (
+            <div className="thread-state" role="status">
+              <strong>Reconnecting…</strong>
+              <p>
+                The conversation stays here while Huddle reconnects. Your draft stays in the
+                composer.
+              </p>
+            </div>
+          )}
+          {sync.historyState === 'loading' && (
+            <p className="thread-state" role="status">
+              Loading conversation…
+            </p>
+          )}
           {sync.historyState === 'failed' && (
-            <p className="form-error thread-note" role="alert">
-              {sync.historyError}{' '}
-              <button className="link" onClick={sync.retry}>
+            <div className="thread-state" role="alert">
+              <strong>Couldn’t load messages</strong>
+              <p>Your conversation is still here. Try loading the messages again.</p>
+              <p>{sync.historyError}</p>
+              <button className="button small" onClick={sync.retry}>
                 Try again
               </button>
-            </p>
+            </div>
           )}
           {messages.length >= 100 && more && (
             <button className="button older" onClick={() => void older()}>
@@ -229,15 +249,18 @@ export function Transcript({
                   <Mentions text={row.body} />
                 </p>
                 {row.pending?.kind === 'failed' && (
-                  <p className="form-error">
-                    {row.pending.error}{' '}
+                  <div className="message-retry" role="alert">
+                    <span>
+                      Couldn’t send this message.
+                      <span className="message-retry-detail">{row.pending.error}</span>
+                    </span>
                     <button
-                      className="link"
+                      className="button small"
                       onClick={() => row.pending && void sync.send(row.pending)}
                     >
                       Retry
                     </button>
-                  </p>
+                  </div>
                 )}
               </article>
             ),

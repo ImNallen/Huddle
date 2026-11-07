@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { Check, X } from 'lucide-react'
 import {
   Channel,
   Room,
@@ -52,6 +52,7 @@ function FormDialog({
   title,
   description,
   action,
+  busyLabel,
   onClose,
   submit,
   children,
@@ -59,6 +60,7 @@ function FormDialog({
   title: string
   description: string
   action: string
+  busyLabel: string
   onClose: () => void
   submit: (form: FormData) => Promise<void>
   children: ReactNode
@@ -90,7 +92,7 @@ function FormDialog({
             Cancel
           </button>
           <button className="button primary" disabled={busy}>
-            {busy ? 'Please wait…' : action}
+            {busy ? busyLabel : action}
           </button>
         </div>
       </form>
@@ -111,6 +113,7 @@ export function RoomDialog({
       title="Create a room"
       description="A room gathers the channels for one group or topic, like Gaming or Book Club."
       action="Create room"
+      busyLabel="Creating your room…"
       onClose={onClose}
       submit={async (form) =>
         onDone(await client.request('/api/rooms', Room, { name: form.get('name') }))
@@ -143,9 +146,10 @@ export function ChannelDialog({
   const [kind, setKind] = useState(initialKind)
   return (
     <FormDialog
-      title={`Add a channel to ${room.name}`}
-      description="Use lowercase letters, numbers, and hyphens."
+      title="Add a channel"
+      description={`In ${room.name}. Choose how people will talk here.`}
       action="Create channel"
+      busyLabel="Creating your channel…"
       onClose={onClose}
       submit={async (form) =>
         onDone(
@@ -158,35 +162,36 @@ export function ChannelDialog({
       }
     >
       <fieldset className="kind-options">
-        <legend>Channel type</legend>
+        <legend className="sr-only">Channel type</legend>
         {channelKinds.map((option) => (
           <label key={option.kind}>
             <input
               type="radio"
+              aria-label={option.label}
               name="kind"
               value={option.kind}
               checked={kind === option.kind}
               onChange={() => setKind(option.kind)}
             />
             <ChannelIcon kind={option.kind} size={18} />
-            {option.label}
+            <strong>{option.label}</strong>
+            {kind === option.kind && <Check className="kind-check" size={16} />}
+            <span>{option.kind === 'text' ? 'Messages, at your pace' : 'A place to drop in'}</span>
           </label>
         ))}
       </fieldset>
       <label className="field">
         Channel name
-        <span className="input-icon">
-          <ChannelIcon kind={kind} size={16} />
-          <input
-            name="name"
-            placeholder={channelKinds.find((option) => option.kind === kind)?.placeholder}
-            pattern={'[a-z0-9][a-z0-9\\-]{0,39}'}
-            maxLength={40}
-            required
-            autoFocus
-          />
-        </span>
+        <input
+          name="name"
+          placeholder={channelKinds.find((option) => option.kind === kind)?.placeholder}
+          pattern={'[a-z0-9][a-z0-9\\-]{0,39}'}
+          maxLength={40}
+          required
+          autoFocus
+        />
       </label>
+      <p className="field-hint">Use lowercase letters, numbers, and hyphens.</p>
     </FormDialog>
   )
 }
@@ -391,8 +396,15 @@ export function InviteDialog({
   }, [client])
   return (
     <Modal
-      title={`Share ${serverName}`}
-      description="Copy this link and send it to a friend. They need access to this machine in Tailscale first. Then they open the link and confirm their name."
+      className="invite-dialog"
+      title="Share invite"
+      description={
+        <>
+          <span className="invite-introduction">Bring a friend to {serverName}.</span>
+          They need access to this machine in Tailscale first. Then they open your invite link and
+          confirm their name.
+        </>
+      }
       onClose={onClose}
     >
       {problem && (
@@ -406,7 +418,12 @@ export function InviteDialog({
           <CopyButton value={invite} label="Copy invite" />
         </p>
       )}
-      {!invite && !problem && <p>Loading invite…</p>}
+      {!invite && !problem && (
+        <div className="invite-loading" role="status">
+          <strong>Loading invite…</strong>
+          <p>Your invite link will appear here.</p>
+        </div>
+      )}
       <div className="modal-actions">
         <button type="button" className="button primary" onClick={onClose}>
           Done

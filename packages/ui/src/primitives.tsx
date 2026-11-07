@@ -254,6 +254,7 @@ export function CopyButton({
     <button
       type="button"
       className={`access-tool ${state === 'copied' ? 'is-copied' : ''}`}
+      aria-live="polite"
       onClick={() => void copy()}
     >
       {icon}

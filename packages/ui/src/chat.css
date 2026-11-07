@@ -1428,20 +1428,23 @@ button.member-row:hover {
 }
 .center-state h1 {
   color: var(--strong);
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   text-wrap: balance;
 }
 .center-state p {
-  max-width: 380px;
-  margin-top: 4px;
+  max-width: 600px;
+  margin-top: 12px;
   color: var(--muted);
-  font-size: 16px;
+  font-size: 15px;
 }
 .center-state .button {
+  height: 36px;
   margin-top: 20px;
+  border-radius: 18px;
+  font-size: 13px;
 }
 .center-state .call-problem {
   color: var(--danger);
@@ -1495,12 +1498,10 @@ button.member-row:hover {
 .empty-mark {
   display: grid;
   place-items: center;
-  width: 68px;
-  height: 68px;
-  margin-bottom: 8px;
-  border-radius: 50%;
-  background: var(--tile);
-  color: var(--strong);
+  width: 32px;
+  height: 32px;
+  margin-bottom: 16px;
+  color: var(--muted);
 }
 .channel-welcome h1 {
   color: var(--strong);
@@ -1520,6 +1521,62 @@ button.member-row:hover {
 }
 .channel-welcome .welcome-note {
   font-size: 14px;
+}
+.thread:has(.empty-conversation) {
+  justify-content: center;
+}
+.empty-conversation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 0;
+  text-align: center;
+}
+.empty-conversation p {
+  margin-top: 0;
+}
+.thread-state {
+  margin: 16px 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.thread-state strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.thread-state p {
+  margin-top: 8px;
+}
+.thread-state .button,
+.message-retry .button {
+  height: 32px;
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+.thread-state .button {
+  margin-top: 16px;
+}
+.message-retry-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.message-retry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--danger);
+  font-size: 13px;
 }
 .thread-note {
   margin: 8px 16px;
@@ -1624,9 +1681,6 @@ button.member-row:hover {
 .message.sending .message-body {
   opacity: 0.5;
 }
-.message.failed .message-body {
-  color: var(--danger);
-}
 .message .form-error {
   margin-top: 2px;
   overflow-wrap: anywhere;
@@ -1724,11 +1778,13 @@ button.member-row:hover {
 }
 
 .modal {
-  width: min(460px, calc(100vw - 32px));
-  padding: 24px;
+  width: min(504px, calc(100vw - 32px));
+  max-height: calc(100dvh - var(--window-bar-height) - 32px);
+  padding: 32px;
+  overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--raised);
+  border-radius: 24px;
+  background: var(--bg);
   color: var(--text);
   box-shadow: var(--shadow-modal);
   font-family: var(--font);
@@ -1763,19 +1819,58 @@ button.member-row:hover {
   }
 }
 .modal h2 {
-  padding: 0 24px;
+  min-height: 32px;
+  padding-right: 44px;
   color: var(--strong);
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.4;
   overflow-wrap: anywhere;
-  text-align: center;
-  text-wrap: balance;
 }
 .modal .modal-description {
-  margin-top: 8px;
+  margin-top: 20px;
   color: var(--muted);
   font-size: 14px;
-  text-align: center;
+  line-height: 1.45;
+}
+.modal .button {
+  height: 36px;
+  border-radius: 18px;
+  font-size: 13px;
+}
+.modal .button.text {
+  background: var(--panel);
+}
+.modal .button.text:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+.modal .field input {
+  height: 44px;
+  padding: 0 14px;
+  border-color: transparent;
+  border-radius: 14px;
+  background: var(--input);
+}
+.modal .field input:focus {
+  border-color: var(--line-strong);
+}
+.modal .field input:user-invalid {
+  border-color: var(--danger);
+}
+.modal .field {
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 400;
+}
+.modal > form > .modal-actions {
+  justify-content: space-between;
+  margin-top: 20px;
+}
+.field-hint {
+  margin-top: 20px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .people-list {
   max-height: 320px;
@@ -1793,6 +1888,7 @@ button.member-row:hover {
   text-align: center;
 }
 .new-message {
+  padding: 24px;
   width: min(480px, calc(100vw - 32px));
   min-height: min(376px, calc(100dvh - 32px));
   max-height: calc(100dvh - 32px);
@@ -1872,8 +1968,12 @@ button.member-row:hover {
 }
 .modal-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 32px;
+  right: 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--panel);
 }
 .field {
   display: grid;
@@ -1883,67 +1983,65 @@ button.member-row:hover {
   font-size: 14px;
   font-weight: 500;
 }
-.input-icon {
-  position: relative;
-  display: block;
-}
-.input-icon svg {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  color: var(--muted);
-}
-.input-icon input {
-  padding-left: 34px;
-}
 .kind-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
   margin: 20px 0 0;
   padding: 0;
   border: 0;
 }
-.kind-options legend {
-  margin-bottom: 8px;
-  padding: 0;
-  color: var(--strong);
-  font-size: 14px;
-  font-weight: 500;
-}
 .kind-options label {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-content: center;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
+  gap: 10px 8px;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: var(--panel);
   color: var(--text);
   font-size: 14px;
-  font-weight: 500;
   cursor: pointer;
-  transition:
-    background-color 120ms,
-    border-color 120ms;
 }
 .kind-options label:hover {
   background: var(--hover);
 }
 .kind-options label:has(:checked) {
-  border-color: var(--accent);
-  background: var(--selected);
-  color: var(--strong);
+  border-color: var(--text);
+}
+.kind-options label:has(:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
 }
 .kind-options input {
-  flex: none;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
-  accent-color: var(--accent);
+  opacity: 0;
+  cursor: pointer;
+}
+.kind-options strong {
+  font-weight: 500;
+}
+.kind-options label > span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
 }
 .kind-options svg {
-  flex: none;
   color: var(--muted);
+}
+.kind-options .kind-check {
+  grid-column: 3;
+  color: var(--text);
 }
 .modal .form-error {
   margin-top: 12px;
@@ -1961,23 +2059,49 @@ button.member-row:hover {
 .notice.warning {
   background: color-mix(in srgb, var(--amber) 14%, transparent);
 }
-.invite-sent {
+.invite-introduction {
+  display: block;
+  margin-bottom: 20px;
+  color: var(--text);
+  font-size: 16px;
+}
+.invite-sent,
+.invite-loading {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 8px 8px 8px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  font-size: 14px;
+  gap: 12px;
+  min-height: 64px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--panel);
+  font-size: 13px;
 }
-.invite-sent + .invite-sent {
-  margin-top: 8px;
-}
-.invite-sent span {
+.invite-sent > span {
+  min-width: 0;
   overflow: hidden;
   flex: 1;
   text-overflow: ellipsis;
+}
+.invite-sent .access-tool {
+  flex: none;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+}
+.invite-sent .access-tool svg {
+  display: none;
+}
+.invite-loading {
+  display: block;
+}
+.invite-loading p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+.invite-dialog .modal-actions {
+  margin-top: 20px;
 }
 .modal-actions {
   display: flex;
@@ -2122,6 +2246,7 @@ button.member-row:hover {
   white-space: nowrap;
 }
 .group-dialog {
+  padding: 24px;
   width: min(460px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow-y: auto;

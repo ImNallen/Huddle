@@ -72,6 +72,12 @@ export function ChannelConversation({
           <p>Plans, little updates, and whatever’s on your mind.</p>
         </>
       }
+      emptyWelcome={
+        <>
+          <h1 aria-label={`Welcome to #${channel.name}`}>The start of #{channel.name}</h1>
+          <p>No messages yet. Say hello when you’re ready.</p>
+        </>
+      }
     />
   )
 }
@@ -131,6 +137,13 @@ export function DirectConversation({
           <h1 aria-label={`Conversation with ${name}`}>Just the two of you.</h1>
           <p>This is your conversation with {firstName}.</p>
         </>
+      }
+      emptyWelcome={
+        <div className="empty-conversation">
+          <Avatar avatar={avatar} name={name} photo={photo} size={52} />
+          <h1 aria-label={`Conversation with ${name}`}>Say hello to {firstName}.</h1>
+          <p>This is the start of your conversation with {firstName}.</p>
+        </div>
       }
     />
   )

@@ -67,7 +67,7 @@ test('direct messages reach the two people in them and nobody else', async ({ br
     ).toBeVisible()
     await expect(thread.locator('.direct-person')).toHaveText('jonasDirect message')
     await expect(
-      thread.getByText('This is your conversation with jonas.', { exact: true }),
+      thread.getByText('This is the start of your conversation with jonas.', { exact: true }),
     ).toBeVisible()
     await thread.getByRole('button', { name: 'Conversation details', exact: true }).click()
     await expect(

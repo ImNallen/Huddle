@@ -271,6 +271,7 @@ export function ServerView({
       ) : room ? (
         <EmptyRoom
           room={room}
+          memberCount={server.memberCount}
           admin={server.role === 'admin'}
           onDialog={setDialog}
           memberList={memberList}

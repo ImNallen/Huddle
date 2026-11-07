@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, LoaderCircle, Palette, Search } from 'lucide-react'
+import { Download, LoaderCircle, Palette } from 'lucide-react'
 import { Alert } from '../primitives'
 import { loadThemes, POPULAR, searchThemes, SORTS, type Sort, type ThemeExtension } from './openVsx'
 import { appearance, type Undo } from './store'
@@ -118,55 +118,64 @@ export function ThemeSearch({
       : ''
   return (
     <section className="vsx" aria-labelledby="vsx-heading">
-      <h3 id="vsx-heading">
+      <h3 id="vsx-heading" className="sr-only">
         Search community themes
-        <small>Finds themes on open-vsx.org. Nothing is sent there until you search.</small>
       </h3>
-      <label className="vsx-search">
-        <Search size={14} aria-hidden="true" />
+      <form
+        className="vsx-search"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (term) setAttempt((count) => count + 1)
+        }}
+      >
         <input
           type="text"
           role="searchbox"
           aria-label="Search community themes"
           spellCheck={false}
           autoComplete="off"
-          placeholder="Search themes"
+          placeholder="Search Open VSX themes"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
         {searching && <LoaderCircle className="vsx-spin" size={14} aria-hidden="true" />}
-      </label>
-      <div className="vsx-controls">
-        <span className="vsx-popular">
-          Popular
-          {POPULAR.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={term === name}
-              onClick={() => setQuery(name)}
-            >
-              {name}
-            </button>
-          ))}
-        </span>
-        <label className="vsx-sort">
-          Sort
-          <select
-            value={sort}
-            onChange={(event) => {
-              const next = SORTS.find((option) => option.value === event.target.value)
-              if (next) setSort(next.value)
-            }}
-          >
-            {SORTS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
+        <button type="submit" disabled={!term || searching}>
+          Search
+        </button>
+      </form>
+      {term && (
+        <div className="vsx-controls">
+          <span className="vsx-popular">
+            Popular
+            {POPULAR.map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={term === name}
+                onClick={() => setQuery(name)}
+              >
+                {name}
+              </button>
             ))}
-          </select>
-        </label>
-      </div>
+          </span>
+          <label className="vsx-sort">
+            Sort
+            <select
+              value={sort}
+              onChange={(event) => {
+                const next = SORTS.find((option) => option.value === event.target.value)
+                if (next) setSort(next.value)
+              }}
+            >
+              {SORTS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
       <p className="vsx-status" role="status">
         {status}
       </p>
