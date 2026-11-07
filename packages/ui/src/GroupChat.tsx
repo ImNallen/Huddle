@@ -1,3 +1,4 @@
+import { Popover } from './Popover'
 import { useRef, useState, type FormEvent } from 'react'
 import { Users, MoreHorizontal } from 'lucide-react'
 import type { Member, Me, UserId } from '@huddle/contracts'
@@ -63,16 +64,17 @@ export function GroupConversation({
             <button
               className="icon-button"
               aria-label="Group details"
+              data-tooltip="Group details"
               popoverTarget="group-details"
             >
               <MoreHorizontal size={18} />
             </button>
           </div>
-          <section
+          <Popover
             id="group-details"
-            popover="auto"
+            role="region"
+            label="Group details"
             className="direct-details"
-            aria-labelledby="group-details-title"
           >
             <h2 id="group-details-title">Group details</h2>
             <p>
@@ -88,7 +90,7 @@ export function GroupConversation({
             >
               Settings
             </button>
-          </section>
+          </Popover>
         </header>
       }
       welcome={

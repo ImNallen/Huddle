@@ -11,6 +11,7 @@ import {
 } from './useServer'
 import { Avatar } from './Avatar'
 import { Mentions, clock } from './Badges'
+import { EmojiPicker } from './EmojiPicker'
 
 type Author = { id: string; name: string; avatar?: AvatarValue | null }
 type MessageRow = {
@@ -109,7 +110,7 @@ export function Transcript({
   const [error, setError] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
-  const emojiPicker = useRef<HTMLDivElement>(null)
+  const composer = useRef<HTMLFormElement>(null)
   const atEnd = useRef(true)
   const measured = useRef('')
   const key = threadKey(thread)
@@ -267,7 +268,7 @@ export function Transcript({
           )}
         </div>
       </div>
-      <form className="composer" onSubmit={submit}>
+      <form ref={composer} className="composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="message">
           {label}
         </label>
@@ -291,7 +292,7 @@ export function Transcript({
             type="button"
             className="composer-tool"
             aria-label="Add mention"
-            title="Add mention"
+            data-tooltip="Add mention"
             onClick={() => insert('@')}
           >
             <Plus size={18} />
@@ -300,43 +301,16 @@ export function Transcript({
             type="button"
             className="composer-tool"
             aria-label="Add emoji"
-            title="Add emoji"
+            data-tooltip="Add emoji"
             popoverTarget="composer-emoji"
           >
             <Smile size={18} />
           </button>
-          <div
-            ref={emojiPicker}
-            id="composer-emoji"
-            popover="auto"
-            className="emoji-picker"
-            onToggle={(event) => {
-              if (event.newState !== 'open' || !input.current) return
-              const box = input.current.getBoundingClientRect()
-              event.currentTarget.style.left = `${box.left}px`
-              event.currentTarget.style.bottom = `${window.innerHeight - box.bottom + 8}px`
-            }}
-          >
-            {['😊', '💛', '✨', '👍', '🎉', '❤️', '👋', '😂', '🙌', '☕', '🌿', '💭'].map(
-              (emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  aria-label={`Insert ${emoji}`}
-                  onClick={() => {
-                    emojiPicker.current?.hidePopover()
-                    insert(emoji)
-                  }}
-                >
-                  {emoji}
-                </button>
-              ),
-            )}
-          </div>
+          <EmojiPicker onInsert={insert} anchorRef={composer} />
           <button
             className="composer-send"
             aria-label="Send message"
-            title="Send message"
+            data-tooltip="Send message"
             disabled={!draft.trim()}
           >
             <ArrowUp size={18} />

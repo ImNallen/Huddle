@@ -220,10 +220,12 @@ export function CopyButton({
   value,
   label = 'Copy',
   iconOnly = false,
+  menuLabel,
 }: {
   value: string | (() => string)
   label?: string
   iconOnly?: boolean
+  menuLabel?: string
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   async function copy() {
@@ -237,13 +239,26 @@ export function CopyButton({
   const text = state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label
   const icon =
     state === 'copied' ? <Check size={iconOnly ? 15 : 13} /> : <Copy size={iconOnly ? 15 : 13} />
+  if (menuLabel) {
+    return (
+      <button
+        type="button"
+        data-keep-open
+        aria-label={label}
+        aria-live="polite"
+        onClick={() => void copy()}
+      >
+        {state === 'idle' ? menuLabel : text}
+      </button>
+    )
+  }
   if (iconOnly) {
     return (
       <button
         type="button"
         className={`icon-button ${state === 'copied' ? 'is-copied' : ''}`}
         aria-label={label}
-        title={text}
+        data-tooltip={text}
         onClick={() => void copy()}
       >
         {icon}

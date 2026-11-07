@@ -1,3 +1,4 @@
+import { Popover } from './Popover'
 import { Hash, MoreHorizontal } from 'lucide-react'
 import type { Channel, Me } from '@huddle/contracts'
 import type { Transport } from './transport'
@@ -49,21 +50,18 @@ export function ChannelConversation({
             <button
               className="icon-button"
               aria-label="Channel options"
+              data-tooltip="Channel options"
               popoverTarget="channel-menu"
             >
               <MoreHorizontal size={18} />
             </button>
           </div>
-          <div id="channel-menu" popover="auto" className="menu channel-menu">
-            <button
-              onClick={(event) => {
-                event.currentTarget.parentElement?.hidePopover()
-                onSettings()
-              }}
-            >
+          <Popover id="channel-menu" label="Channel actions" menu>
+            <p className="menu-context">#{channel.name}</p>
+            <button type="button" onClick={onSettings}>
               Settings
             </button>
-          </div>
+          </Popover>
         </header>
       }
       welcome={
@@ -107,16 +105,16 @@ export function DirectConversation({
           <button
             className="icon-button direct-details-trigger"
             aria-label="Conversation details"
-            title="Conversation details"
+            data-tooltip="Conversation details"
             popoverTarget="direct-details"
           >
             <MoreHorizontal size={18} />
           </button>
-          <section
+          <Popover
             id="direct-details"
-            popover="auto"
+            role="region"
+            label="Conversation details"
             className="direct-details"
-            aria-labelledby="direct-details-title"
           >
             <h2 id="direct-details-title">Conversation details</h2>
             <p>Messages are stored on this server unencrypted, so its host could read them.</p>
@@ -129,7 +127,7 @@ export function DirectConversation({
             >
               Settings
             </button>
-          </section>
+          </Popover>
         </header>
       }
       welcome={

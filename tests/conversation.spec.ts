@@ -116,7 +116,11 @@ test('an invited colleague joins the server, sends, reconnects, and loses their 
     const toggle = page.getByRole('button', { name: 'Member list', exact: true })
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
     await toggle.click()
-    await expect(members).toHaveText('Admins · 1uiowner · YouMembers · 1colleague')
+    await expect(members.getByRole('heading', { level: 3 })).toHaveText([
+      'Admins · 1',
+      'Members · 1',
+    ])
+    await expect(members.locator('.member-row')).toHaveText(['uiowner · You', 'colleague'])
     await expect(toggle).toHaveAttribute('aria-pressed', 'true')
     await toggle.click()
     await expect(members).toHaveCount(0)

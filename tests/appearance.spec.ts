@@ -584,7 +584,7 @@ test("copying Huddle reads CSS under another theme, and pasting it back is Huddl
   await page.getByRole('button', { name: 'Copy Huddle as JSON', exact: true }).click()
   await expect(
     page.getByRole('button', { name: 'Copy Huddle as JSON', exact: true }),
-  ).toHaveAttribute('title', 'Copied')
+  ).toHaveAttribute('data-tooltip', 'Copied')
   const text = await page.evaluate(() => navigator.clipboard.readText())
   const file = JSON.parse(text) as { name: string; colors: Record<string, string> }
   expect(file.name).toBe('Huddle')
@@ -629,10 +629,12 @@ test('Huddle takes over from a deleted, corrupt, or unreadable theme', async ({ 
 
   await expect(page.getByRole('button', { name: 'Delete Clay', exact: true })).toHaveCount(0)
   const remove = page.getByRole('button', { name: 'Delete Doomed', exact: true })
+  await page.getByRole('button', { name: 'More actions for Doomed', exact: true }).click()
   await remove.click()
   const confirm = page.getByRole('dialog', { name: 'Delete Doomed?', exact: true })
   await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(swatch(page, 'Doomed dark')).toBeChecked()
+  await page.getByRole('button', { name: 'More actions for Doomed', exact: true }).click()
   await remove.click()
   await confirm.getByRole('button', { name: 'Delete theme', exact: true }).click()
   await expect(swatch(page, 'Doomed dark')).toHaveCount(0)
@@ -1000,6 +1002,12 @@ test('Edit restores on Cancel, renames in place, and keeps the other side', asyn
   const edit = page.getByRole('dialog', { name: 'Edit theme', exact: true })
   const editButton = (name: string) =>
     settings(page).getByRole('button', { name: `Edit ${name}`, exact: true })
+  const openEdit = async (name: string) => {
+    await settings(page)
+      .getByRole('button', { name: `More actions for ${name}`, exact: true })
+      .click()
+    await editButton(name).click()
+  }
   const background = edit.getByRole('textbox', { name: 'Background', exact: true })
   const accent = edit.getByRole('textbox', { name: 'Accent', exact: true })
   const nameField = edit.getByRole('textbox', { name: 'Theme name' })
@@ -1017,7 +1025,7 @@ test('Edit restores on Cancel, renames in place, and keeps the other side', asyn
   const original = await stored()
   const painted = await tokens(page)
 
-  await editButton('Aurora').click()
+  await openEdit('Aurora')
   await expect(nameField).toHaveValue('Aurora')
   await expect(background).toHaveValue('#101820')
   await expect(accent).toHaveValue('#ff0066')
@@ -1027,9 +1035,11 @@ test('Edit restores on Cancel, renames in place, and keeps the other side', asyn
   await expect(edit).toHaveCount(0)
   expect(await tokens(page)).toEqual(painted)
   expect(await stored()).toBe(original)
-  await expect(editButton('Aurora')).toBeFocused()
+  await expect(
+    settings(page).getByRole('button', { name: 'More actions for Aurora', exact: true }),
+  ).toBeFocused()
 
-  await editButton('Aurora').click()
+  await openEdit('Aurora')
   await nameField.fill('huddle')
   await save.click()
   await expect(edit.getByRole('alert')).toHaveText('Another theme is already named Huddle.')
@@ -1048,7 +1058,7 @@ test('Edit restores on Cancel, renames in place, and keeps the other side', asyn
   const id = JSON.parse((await stored()) ?? '[]')[0].id
   expect(id).toBe(JSON.parse(original ?? '[]')[0].id)
 
-  await editButton('Boreal').click()
+  await openEdit('Boreal')
   await edit.getByRole('radio', { name: 'Light', exact: true }).check()
   await expect(background).not.toHaveValue('#101820')
   await background.fill('#fdf6e3')
@@ -1061,7 +1071,7 @@ test('Edit restores on Cancel, renames in place, and keeps the other side', asyn
   )
   expect((await rootStyle(page)).background).toBe('rgb(16, 24, 32)')
 
-  await editButton('Boreal').click()
+  await openEdit('Boreal')
   await expect(background).toHaveValue('#101820')
   await background.fill('not a color')
   await edit.getByRole('radio', { name: 'Light', exact: true }).check()

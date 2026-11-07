@@ -23,6 +23,7 @@ import { useVoiceCall } from './voiceCall'
 import { ChannelDialog, InviteDialog, NewMessageDialog, RoomDialog } from './Dialogs'
 import { MemberDetails, MemberList, MembersPage, useMembers } from './Members'
 import { Badge } from './Badges'
+import { Tooltips } from './Tooltips'
 import { Frame, ServerCard } from './primitives'
 
 export type View =
@@ -187,6 +188,7 @@ export function ServerView({
   }
   return (
     <div className="app">
+      <Tooltips />
       <header className="titlebar">
         <Badge id={server.name} name={server.name} size={16} />
         <span>{server.name}</span>
@@ -313,6 +315,7 @@ export function ServerView({
           members={members}
           serverName={server.name}
           onSelect={(member, anchor) => setDialog({ kind: 'member', member, anchor })}
+          onMessage={messageMember}
           onClose={() => setMemberList(false)}
           onRetry={() => setMemberAttempt((value) => value + 1)}
         />

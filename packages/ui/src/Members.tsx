@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useId } from 'react'
 import { z } from 'zod'
-import { Users, X } from 'lucide-react'
+import { MoreHorizontal, Users, X } from 'lucide-react'
 import {
   Members,
   type Member,
@@ -11,6 +11,7 @@ import {
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
+import { Popover } from './Popover'
 
 export type Resource<T> =
   | { kind: 'loading' }
@@ -55,7 +56,7 @@ export function MemberToggle({
     <button
       className={`member-toggle ${count === undefined ? 'icon-button' : 'header-pill'}`}
       aria-label="Member list"
-      title="Member list"
+      data-tooltip="Member list"
       aria-pressed={pressed}
       onClick={onToggle}
     >
@@ -104,6 +105,7 @@ export function MemberList({
   members,
   serverName,
   onSelect,
+  onMessage,
   onClose,
   onRetry,
 }: {
@@ -112,6 +114,7 @@ export function MemberList({
   members: Resource<Member[]>
   serverName: string
   onSelect: (member: Member, anchor: HTMLButtonElement) => void
+  onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
   onClose: () => void
   onRetry: () => void
 }) {
@@ -160,16 +163,14 @@ export function MemberList({
                             {row}
                           </li>
                         ) : (
-                          <li key={member.id}>
-                            <button
-                              className="member-row"
-                              aria-label={`View ${member.name}`}
-                              aria-haspopup="dialog"
-                              onClick={(event) => onSelect(member, event.currentTarget)}
-                            >
-                              {row}
-                            </button>
-                          </li>
+                          <MemberActions
+                            key={member.id}
+                            member={member}
+                            onSelect={onSelect}
+                            onMessage={onMessage}
+                          >
+                            {row}
+                          </MemberActions>
                         )
                       })}
                     </ul>
@@ -182,6 +183,119 @@ export function MemberList({
       </div>
       <p className="member-list-note">Choose a person to message.</p>
     </aside>
+  )
+}
+
+function MemberActions({
+  member,
+  children,
+  onSelect,
+  onMessage,
+}: {
+  member: Member
+  children: React.ReactNode
+  onSelect: (member: Member, anchor: HTMLButtonElement) => void
+  onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+}) {
+  const id = useId()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const row = useRef<HTMLButtonElement>(null)
+  const popover = useRef<HTMLDivElement>(null)
+  const request = useRef<AbortController | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => () => request.current?.abort(), [])
+  function cancel() {
+    request.current?.abort()
+    request.current = null
+    setBusy(false)
+    setError('')
+  }
+  async function message() {
+    request.current?.abort()
+    const abort = new AbortController()
+    request.current = abort
+    setBusy(true)
+    setError('')
+    try {
+      await onMessage(member.id, abort.signal)
+    } catch (failure) {
+      if (!abort.signal.aborted) setError(errorText(failure))
+    } finally {
+      if (!abort.signal.aborted) setBusy(false)
+    }
+  }
+  return (
+    <li
+      className="member-action-row"
+      onContextMenu={(event) => {
+        event.preventDefault()
+        trigger.current?.focus()
+        if (!popover.current?.matches(':popover-open')) trigger.current?.click()
+      }}
+    >
+      <button
+        ref={row}
+        className="member-row"
+        aria-label={`View ${member.name}`}
+        aria-haspopup="dialog"
+        onClick={(event) => onSelect(member, event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key === 'F10' && event.shiftKey) {
+            event.preventDefault()
+            trigger.current?.click()
+          }
+        }}
+      >
+        {children}
+      </button>
+      <button
+        ref={trigger}
+        type="button"
+        className="icon-button member-actions-trigger"
+        aria-label={`Actions for ${member.name}`}
+        data-tooltip="Member actions"
+        popoverTarget={id}
+      >
+        <MoreHorizontal size={16} />
+      </button>
+      <Popover
+        id={id}
+        label={`${member.name} actions`}
+        className="member-actions-menu"
+        side="left"
+        menu
+        closeOnAction={false}
+        popoverRef={popover}
+        anchorRef={row}
+        gap={40}
+        onClose={cancel}
+      >
+        <p className="menu-context">{member.name}</p>
+        <button
+          type="button"
+          aria-label={`Message ${member.name}`}
+          disabled={busy}
+          onClick={() => void message()}
+        >
+          {busy ? 'Opening conversation…' : `Message ${member.name.split(/\s+/)[0]}`}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            popover.current?.hidePopover()
+            if (trigger.current) onSelect(member, trigger.current)
+          }}
+        >
+          View profile
+        </button>
+        {error && (
+          <p className="menu-error" role="alert">
+            {error}
+          </p>
+        )}
+      </Popover>
+    </li>
   )
 }
 

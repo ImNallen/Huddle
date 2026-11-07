@@ -19,6 +19,7 @@ import type { Dialog, DirectRow, View } from './ServerView'
 import { Avatar } from './Avatar'
 import { ChannelIcon, initials } from './Badges'
 import { Logo } from './primitives'
+import { Popover } from './Popover'
 import { CallPanel } from './Voice'
 import type { VoiceCall } from './voiceCall'
 
@@ -114,7 +115,14 @@ function Rail({
     },
   }
   return (
-    <nav className="rail" aria-label="Rooms" onScroll={place}>
+    <nav
+      className="rail"
+      aria-label="Rooms"
+      onScroll={place}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') hints.hide()
+      }}
+    >
       <RailTile
         name="Home"
         badge={homeCount}
@@ -180,7 +188,7 @@ function Section({
           <button
             className="icon-button"
             aria-label={create.name}
-            title={create.name}
+            data-tooltip={create.name}
             onClick={create.onClick}
           >
             <Plus size={14} />
@@ -253,11 +261,6 @@ export function Sidebar({
         }),
         { count: 0, mentions: 0 },
       )
-  const menu = useRef<HTMLDivElement>(null)
-  const act = (action: () => void) => () => {
-    menu.current?.hidePopover()
-    action()
-  }
   return (
     <>
       <Rail
@@ -279,12 +282,36 @@ export function Sidebar({
           <strong>{title}</strong>
           <ChevronDown size={18} />
         </button>
-        <div ref={menu} id="server-menu" popover="auto" className="menu">
-          <button onClick={act(onSettings)}>
-            <Settings size={16} />
-            <span>Settings</span>
+        <Popover id="server-menu" label={`${title} actions`} menu align="start">
+          <p className="menu-context">{title}</p>
+          {admin && room && (
+            <button
+              type="button"
+              onClick={() => onDialog({ kind: 'channel', roomId: room.id, channelKind: 'text' })}
+            >
+              Create a channel
+            </button>
+          )}
+          {admin && !room && (
+            <button type="button" onClick={() => onView({ kind: 'members' })}>
+              Members
+            </button>
+          )}
+          {admin && (
+            <button type="button" onClick={() => onDialog({ kind: 'room' })}>
+              Create a room
+            </button>
+          )}
+          {admin && <hr />}
+          <button type="button" onClick={onSettings}>
+            Settings
           </button>
-        </div>
+          {!room && onServer && (
+            <button type="button" onClick={onServer}>
+              Switch server
+            </button>
+          )}
+        </Popover>
         <nav
           className={`sidebar-nav ${room ? '' : 'home-nav'}`}
           aria-label={room ? `${room.name} channels` : server.name}
@@ -505,7 +532,12 @@ export function Sidebar({
             {connection}
           </span>
         </span>
-        <button className="icon-button" aria-label="Settings" title="Settings" onClick={onSettings}>
+        <button
+          className="icon-button"
+          aria-label="Settings"
+          data-tooltip="Settings"
+          onClick={onSettings}
+        >
           <Settings size={18} />
         </button>
       </footer>

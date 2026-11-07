@@ -1,5 +1,7 @@
-import { Check, Pencil, Trash2 } from 'lucide-react'
+import { useId } from 'react'
+import { Check, MoreHorizontal } from 'lucide-react'
 import { CopyButton } from '../primitives'
+import { Popover } from '../Popover'
 import { PaletteScope } from './PaletteScope'
 import { SCHEMES, type Scheme } from './palette'
 import { appearance, type ListedTheme, type Selected } from './store'
@@ -44,6 +46,7 @@ export function ThemeCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const menuId = useId()
   return (
     <li className="theme-card">
       <div className="theme-swatches">
@@ -74,32 +77,43 @@ export function ThemeCard({
       </div>
       <div className="theme-card-footer">
         <span title={theme.name}>{theme.name}</span>
-        {theme.kind === 'custom' && (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Edit ${theme.name}`}
-            title={`Edit ${theme.name}`}
-            onClick={onEdit}
-          >
-            <Pencil size={14} />
-          </button>
-        )}
-        <CopyButton
-          iconOnly
-          label={`Copy ${theme.name} as JSON`}
-          value={() => appearance.fileText(theme.id)}
-        />
-        {theme.kind === 'custom' && (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label={`Delete ${theme.name}`}
-            title={`Delete ${theme.name}`}
-            onClick={onDelete}
-          >
-            <Trash2 size={15} />
-          </button>
+        {theme.kind === 'custom' ? (
+          <>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={`More actions for ${theme.name}`}
+              data-tooltip="Theme actions"
+              popoverTarget={menuId}
+            >
+              <MoreHorizontal size={16} />
+            </button>
+            <Popover id={menuId} label={`${theme.name} actions`} className="theme-menu" menu>
+              <button type="button" aria-label={`Edit ${theme.name}`} onClick={onEdit}>
+                Edit theme
+              </button>
+              <CopyButton
+                label={`Copy ${theme.name} as JSON`}
+                menuLabel="Copy as JSON"
+                value={() => appearance.fileText(theme.id)}
+              />
+              <hr />
+              <button
+                type="button"
+                className="menu-danger"
+                aria-label={`Delete ${theme.name}`}
+                onClick={onDelete}
+              >
+                Delete theme
+              </button>
+            </Popover>
+          </>
+        ) : (
+          <CopyButton
+            iconOnly
+            label={`Copy ${theme.name} as JSON`}
+            value={() => appearance.fileText(theme.id)}
+          />
         )}
       </div>
     </li>

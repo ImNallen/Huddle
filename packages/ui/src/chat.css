@@ -423,12 +423,11 @@ textarea::placeholder {
   max-width: 240px;
   overflow: hidden;
   padding: 6px 10px;
-  border: 1px solid var(--line-strong);
+  border: 0;
   border-radius: 6px;
-  background: var(--raised);
-  color: var(--strong);
-  box-shadow: var(--shadow-menu);
-  font-size: 14px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
   font-weight: 500;
   line-height: 20px;
   text-overflow: ellipsis;
@@ -502,44 +501,111 @@ textarea::placeholder {
 .sidebar-header svg {
   flex: none;
 }
-.menu {
+.anchored-popover {
   position: fixed;
-  inset: calc(var(--window-bar-height) + 82px) auto auto calc(var(--rail-width) + 18px);
-  width: 220px;
+  inset: auto;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
   margin: 0;
-  padding: 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--raised);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
   color: var(--text);
-  box-shadow: var(--shadow-menu);
-  font-size: 14px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 14%);
+}
+.menu {
+  width: 244px;
+  padding: 8px;
+  font-size: 13px;
   font-weight: 500;
+}
+.menu-context {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  overflow: hidden;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .menu button {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-direction: row-reverse;
-  gap: 8px;
   width: 100%;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: 4px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font: inherit;
   text-align: left;
 }
-.menu button > svg {
-  flex: none;
+.menu button:hover:not(:disabled) {
+  background: var(--selected);
+}
+.menu button:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
+.menu button:disabled {
   color: var(--muted);
+  opacity: 0.5;
 }
-.menu button span {
-  overflow: hidden;
-  flex: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.menu hr {
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--line);
 }
-.menu button:hover {
-  background: var(--hover);
+.menu .menu-danger {
+  color: var(--danger);
+}
+.menu-error {
+  padding: 8px 12px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 400;
+}
+.theme-menu {
+  width: 234px;
+}
+.member-actions-menu {
+  width: 224px;
+}
+.member-action-row {
+  position: relative;
+}
+.member-action-row .member-row {
+  padding-right: 28px;
+}
+.member-actions-trigger {
+  position: absolute;
+  right: 0;
+  top: 8px;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+}
+.member-action-row:hover .member-actions-trigger,
+.member-action-row:focus-within .member-actions-trigger {
+  opacity: 1;
+}
+.action-tooltip {
+  position: fixed;
+  inset: auto;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 16px));
+  margin: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
 }
 .sidebar-nav {
   flex: 1;
@@ -885,9 +951,6 @@ textarea::placeholder {
   background: var(--selected);
   color: var(--text);
 }
-.channel-menu {
-  inset: calc(var(--window-bar-height) + 68px) 24px auto auto;
-}
 .topbar strong {
   overflow: hidden;
   font-weight: 600;
@@ -927,16 +990,8 @@ textarea::placeholder {
   margin-left: auto;
 }
 .direct-details {
-  position: fixed;
-  inset: calc(var(--window-bar-height) + 68px) 24px auto auto;
   width: min(320px, calc(100vw - 32px));
-  margin: 0;
   padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--raised);
-  color: var(--text);
-  box-shadow: var(--shadow-menu);
 }
 .direct-details h2 {
   font-size: 15px;
@@ -1985,30 +2040,136 @@ button.member-row:hover {
   cursor: default;
 }
 .emoji-picker {
-  position: fixed;
-  inset: auto;
-  display: none;
-  grid-template-columns: repeat(6, 32px);
-  gap: 4px;
-  margin: 0;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--raised);
-  color: var(--text);
-  box-shadow: var(--shadow-menu);
+  width: 360px;
+  height: 369px;
+  padding: 12px;
 }
 .emoji-picker:popover-open {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.emoji-picker button {
-  width: 32px;
-  height: 32px;
+.emoji-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+}
+.emoji-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.emoji-header .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--panel);
+}
+.emoji-picker input {
+  flex: none;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+}
+.emoji-picker input:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+}
+.emoji-picker input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.emoji-categories {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  height: 28px;
+}
+.emoji-categories button {
+  flex: 1;
+  min-width: 0;
   border-radius: 8px;
-  font-size: 20px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
 }
-.emoji-picker button:hover {
-  background: var(--hover);
+.emoji-categories button[aria-pressed='true'] {
+  background: var(--selected);
+  color: var(--text);
+}
+.emoji-section {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.emoji-choices {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-auto-rows: 36px;
+  align-content: start;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.emoji-choices > button {
+  height: 36px;
+  border-radius: 8px;
+  font-family: 'Noto Emoji Variable', sans-serif;
+  font-weight: 400;
+  font-size: 23px;
+}
+.emoji-choices > button:hover,
+.emoji-choices > button:focus-visible {
+  background: var(--selected);
+}
+.emoji-empty {
+  grid-column: 1 / -1;
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.emoji-empty strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.emoji-empty p {
+  margin-top: 4px;
+}
+.emoji-empty button {
+  margin-top: 12px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+}
+.emoji-name {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.emoji-name span {
+  font-family: 'Noto Emoji Variable', sans-serif;
+  font-weight: 400;
+  color: var(--text);
+  font-size: 19px;
 }
 
 .modal {

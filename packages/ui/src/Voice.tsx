@@ -233,7 +233,7 @@ export function CallPanel({
           <button
             className="call-control call-mute"
             aria-label="Mute"
-            title={deafened ? 'Undeafen to unmute' : muted ? 'Unmute' : 'Mute'}
+            data-tooltip={deafened ? 'Undeafen to unmute' : muted ? 'Unmute' : 'Mute'}
             aria-pressed={muted}
             disabled={deafened}
             onClick={() => voice.setMuted(!muted)}
@@ -244,7 +244,7 @@ export function CallPanel({
           <button
             className="call-control"
             aria-label="Deafen"
-            title={deafened ? 'Undeafen' : 'Deafen'}
+            data-tooltip={deafened ? 'Undeafen' : 'Deafen'}
             aria-pressed={deafened}
             onClick={() => voice.setDeafened(!deafened)}
           >
@@ -254,7 +254,7 @@ export function CallPanel({
           <button
             className="call-control call-leave"
             aria-label="Leave call"
-            title="Leave call"
+            data-tooltip="Leave call"
             onClick={voice.leave}
           >
             <PhoneOff size={18} aria-hidden="true" />
