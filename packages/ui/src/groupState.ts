@@ -6,7 +6,14 @@ import type {
   GroupMessage,
   UserId,
 } from '@huddle/contracts'
-import { threadKey, type Pending, type Thread, type ThreadMessage } from './chat'
+import {
+  newerMessage,
+  latestMessage,
+  threadKey,
+  type Pending,
+  type Thread,
+  type ThreadMessage,
+} from './chat'
 
 export type GroupThread = Extract<Thread, { kind: 'group' }>
 type Authority = {
@@ -63,18 +70,25 @@ export function observeGroup(
       thread: { kind: 'group', id: group.id, admission: member.admission },
       group: {
         ...group,
-        latest:
-          previous?.group.latest &&
-          (!group.latest || BigInt(previous.group.latest.cursor) > BigInt(group.latest.cursor))
-            ? previous.group.latest
-            : group.latest,
+        latest: latestMessage(previous?.group.latest ?? null, group.latest),
         readCursor: observed?.readCursor ?? previous?.group.readCursor ?? member.admission,
         unread: observed?.unread ?? previous?.group.unread ?? 0,
       },
       contentFloor: observed ? at : (previous?.contentFloor ?? member.admission),
     },
   }
-  return { ...next, authority: new Map(next.authority).set(group.id, value) }
+  const observedState = { ...next, authority: new Map(next.authority).set(group.id, value) }
+  const latest = value.current?.group.latest
+  return latest
+    ? {
+        ...observedState,
+        messages: observedState.messages.map((message) =>
+          message.id === latest.id
+            ? newerMessage(message, { ...latest, thread: message.thread })
+            : message,
+        ),
+      }
+    : observedState
 }
 export function revokeGroup(state: GroupState, thread: GroupThread, at?: string): GroupState {
   const old = state.authority.get(thread.id)
@@ -117,19 +131,21 @@ export function groupMessage(
   message: GroupMessage,
   live = false,
   countUnread = false,
+  eventCursor = message.cursor,
 ): GroupState {
   if (
     message.groupId !== thread.id ||
     !hasGroup(state, thread) ||
-    (live && BigInt(message.cursor) < BigInt(thread.admission))
+    (live && BigInt(eventCursor) < BigInt(thread.admission))
   )
     return state
   const entry = state.authority.get(thread.id)
   if (!entry?.current) return state
   const duplicate = state.messages.some((m) => m.id === message.id)
-  const { groupId: _, ...content } = message
+  const canonical = newerMessage(entry.current.group.latest, message)
+  const { groupId: _, ...content } = canonical
   const messages = new Map(state.messages.map((m) => [m.id, m]))
-  messages.set(message.id, { ...content, thread })
+  messages.set(message.id, newerMessage(messages.get(message.id), { ...content, thread }))
   const current = entry.current
   const latest = current.group.latest
   return {
@@ -144,7 +160,7 @@ export function groupMessage(
         ...current,
         group: {
           ...current.group,
-          latest: !latest || BigInt(message.cursor) > BigInt(latest.cursor) ? message : latest,
+          latest: latestMessage(latest, message),
           unread:
             current.group.unread +
             (live &&

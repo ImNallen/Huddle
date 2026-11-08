@@ -3,6 +3,9 @@ import { AccessToken, TrackSource } from 'livekit-server-sdk'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
+  type EditMessage,
+  type EditDirectMessage,
+  type EditGroupMessage,
   GroupConversation,
   GroupMetadata,
   GroupMessage,
@@ -49,7 +52,7 @@ export class DomainError extends Error {
 }
 const channelColumns = 'id, room_id AS "roomId", name, kind'
 const authoredColumns =
-  'm.id, m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
+  'm.id, m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.revision::text, to_char(m.edited_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "editedAt", m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
 const messageColumns = `m.channel_id AS "channelId", ${authoredColumns}`
 const directColumns = `m.conversation_id AS "conversationId", ${authoredColumns}`
 const conversationRows = `SELECT c.id, CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END AS "peerId",
@@ -214,12 +217,16 @@ export async function sendMessage(
     await requireMember(sql, user.id)
     if (channel.kind === 'voice') throw new DomainError(409, 'Voice channels do not hold messages.')
     const duplicate = await sql.query<Record<string, unknown>>(
-      `SELECT ${messageColumns} FROM message m WHERE m.author_id = $1 AND m.retry_id = $2`,
+      `SELECT ${messageColumns}, m.original_body FROM message m WHERE m.author_id = $1 AND m.retry_id = $2`,
       [user.id, input.retryId],
     )
     if (duplicate.rowCount) {
       const message = Message.parse(duplicate.rows[0])
-      if (message.body !== input.body || message.channelId !== input.channelId)
+      if (
+        z.object({ original_body: z.string() }).parse(duplicate.rows[0]).original_body !==
+          input.body ||
+        message.channelId !== input.channelId
+      )
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return message
     }
@@ -245,12 +252,14 @@ export async function sendMessage(
           authorAvatar: user.avatar,
           cursor,
           createdAt: new Date().toISOString(),
+          revision: '0',
+          editedAt: null,
         },
       }),
       'everyone',
     )
     await sql.query(
-      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar, original_body) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$6)',
       [
         message.id,
         message.channelId,
@@ -356,12 +365,16 @@ export async function sendDirectMessage(
     await requireMember(sql, user.id)
     const { peerId } = await requireConversation(sql, input.conversationId, user.id)
     const duplicate = await sql.query<Record<string, unknown>>(
-      `SELECT ${directColumns} FROM direct_message m WHERE m.author_id = $1 AND m.retry_id = $2`,
+      `SELECT ${directColumns}, m.original_body FROM direct_message m WHERE m.author_id = $1 AND m.retry_id = $2`,
       [user.id, input.retryId],
     )
     if (duplicate.rowCount) {
       const message = DirectMessage.parse(duplicate.rows[0])
-      if (message.body !== input.body || message.conversationId !== input.conversationId)
+      if (
+        z.object({ original_body: z.string() }).parse(duplicate.rows[0]).original_body !==
+          input.body ||
+        message.conversationId !== input.conversationId
+      )
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return message
     }
@@ -380,12 +393,14 @@ export async function sendDirectMessage(
           authorAvatar: user.avatar,
           cursor,
           createdAt: new Date().toISOString(),
+          revision: '0',
+          editedAt: null,
         },
       }),
       participants,
     )
     await sql.query(
-      'INSERT INTO direct_message(id, conversation_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      'INSERT INTO direct_message(id, conversation_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar, original_body) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$6)',
       [
         message.id,
         message.conversationId,
@@ -626,7 +641,7 @@ export async function sendGroupMessage(
     await requireMember(sql, user.id)
     await requireGroup(sql, user.id, input)
     const duplicates = await sql.query<Record<string, unknown>>(
-      `SELECT ${groupColumns}, m.author_admission::text AS admission FROM group_message m WHERE m.author_id=$1 AND m.retry_id=$2`,
+      `SELECT ${groupColumns}, m.original_body, m.author_admission::text AS admission FROM group_message m WHERE m.author_id=$1 AND m.retry_id=$2`,
       [user.id, input.retryId],
     )
     if (duplicates.rowCount) {
@@ -634,7 +649,8 @@ export async function sendGroupMessage(
       if (
         old.groupId !== input.groupId ||
         old.admission !== input.admission ||
-        old.body !== input.body
+        z.object({ original_body: z.string() }).parse(duplicates.rows[0]).original_body !==
+          input.body
       )
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return GroupMessage.parse(old)
@@ -663,13 +679,15 @@ export async function sendGroupMessage(
           authorAvatar: user.avatar,
           cursor,
           createdAt: new Date().toISOString(),
+          revision: '0',
+          editedAt: null,
         },
       }),
       audience,
       input.groupId,
     )
     await sql.query(
-      'INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      'INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,created_at,original_body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$8)',
       [
         message.id,
         message.groupId,
@@ -695,5 +713,119 @@ export async function markGroupRead(userId: UserId, input: z.infer<typeof MarkGr
       'UPDATE group_member SET read_cursor=GREATEST(read_cursor,LEAST($3::numeric,(SELECT cursor FROM server))) WHERE group_id=$1 AND user_id=$2',
       [input.groupId, userId, input.cursor],
     )
+  })
+}
+
+type EditCommand =
+  | ({ kind: 'channel' } & EditMessage)
+  | ({ kind: 'direct' } & EditDirectMessage)
+  | ({ kind: 'group' } & EditGroupMessage)
+
+export async function editMessage(userId: UserId, input: EditCommand) {
+  return transaction(async (sql) => {
+    await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [userId])
+    await lockServer(sql)
+    await requireMember(sql, userId)
+    let audience: UserId[] | 'everyone' = 'everyone'
+    let participants: [UserId, UserId] | null = null
+    try {
+      if (input.kind === 'direct') {
+        const { peerId } = await requireConversation(sql, input.conversationId, userId)
+        participants = [userId, peerId]
+        audience = participants
+      } else if (input.kind === 'group') {
+        await requireGroup(sql, userId, input)
+        const members = await sql.query<Record<string, unknown>>(
+          'SELECT user_id FROM group_member WHERE group_id=$1',
+          [input.groupId],
+        )
+        audience = z
+          .object({ user_id: UserId })
+          .array()
+          .parse(members.rows)
+          .map((m) => m.user_id)
+      }
+    } catch (error) {
+      if (error instanceof DomainError && error.status === 404)
+        throw new DomainError(404, 'Message not found.')
+      throw error
+    }
+    const scope =
+      input.kind === 'channel'
+        ? { table: 'message', column: 'channel_id', id: input.channelId, columns: messageColumns }
+        : input.kind === 'direct'
+          ? {
+              table: 'direct_message',
+              column: 'conversation_id',
+              id: input.conversationId,
+              columns: directColumns,
+            }
+          : { table: 'group_message', column: 'group_id', id: input.groupId, columns: groupColumns }
+    const rows = await sql.query<Record<string, unknown>>(
+      `SELECT ${scope.columns} FROM ${scope.table} m WHERE m.id=$1 AND m.${scope.column}=$2 AND m.author_id=$3`,
+      [input.messageId, scope.id, userId],
+    )
+    if (!rows.rowCount) throw new DomainError(404, 'Message not found.')
+    const parse = (value: unknown) =>
+      input.kind === 'channel'
+        ? Message.parse(value)
+        : input.kind === 'direct'
+          ? DirectMessage.parse(value)
+          : GroupMessage.parse(value)
+    const current = parse(rows.rows[0])
+    const receipt = await sql.query<Record<string, unknown>>(
+      'SELECT request, response FROM message_edit_receipt WHERE author_id=$1 AND retry_id=$2',
+      [userId, input.retryId],
+    )
+    if (receipt.rowCount) {
+      const saved = z.object({ request: z.unknown(), response: z.unknown() }).parse(receipt.rows[0])
+      const same = await sql.query<{ same: boolean }>('SELECT $1::jsonb = $2::jsonb AS same', [
+        saved.request,
+        input,
+      ])
+      if (!same.rows[0]?.same)
+        throw new DomainError(409, 'This retry ID was already used for a different edit.')
+      return parse(saved.response)
+    }
+    if (current.revision !== input.expectedRevision)
+      throw new DomainError(409, 'This message changed. Cancel and edit the latest version.')
+    const editedAt = new Date().toISOString()
+    const event = await appendEvent(
+      sql,
+      (cursor) => {
+        const message = { ...current, body: input.body, revision: cursor, editedAt }
+        if (input.kind === 'channel')
+          return {
+            kind: 'message.edited',
+            cursor,
+            message: Message.parse(message),
+          } satisfies ServerEvent
+        if (input.kind === 'direct' && participants)
+          return {
+            kind: 'direct.message.edited',
+            cursor,
+            message: DirectMessage.parse(message),
+            participants,
+          } satisfies ServerEvent
+        return {
+          kind: 'group.message.edited',
+          cursor,
+          message: GroupMessage.parse(message),
+        } satisfies ServerEvent
+      },
+      audience,
+      input.kind === 'group' ? input.groupId : null,
+    )
+    await sql.query(`UPDATE ${scope.table} SET body=$2, revision=$3, edited_at=$4 WHERE id=$1`, [
+      current.id,
+      input.body,
+      event.cursor,
+      editedAt,
+    ])
+    await sql.query(
+      'INSERT INTO message_edit_receipt(author_id,retry_id,request,response) VALUES($1,$2,$3,$4)',
+      [userId, input.retryId, input, event.message],
+    )
+    return event.message
   })
 }

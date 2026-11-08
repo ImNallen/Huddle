@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import {
+  EditMessage,
+  EditDirectMessage,
+  EditGroupMessage,
   GroupAccess,
   CreateGroup,
   AddGroupPeople,
@@ -119,6 +122,18 @@ export async function applicationRequest(request: Request): Promise<Response> {
         result = {}
       } else if (path === '/api/messages')
         result = await domain.sendMessage(user, SendMessage.parse(body))
+      else if (path === '/api/messages/edit')
+        result = await domain.editMessage(userId, { kind: 'channel', ...EditMessage.parse(body) })
+      else if (path === '/api/direct/messages/edit')
+        result = await domain.editMessage(userId, {
+          kind: 'direct',
+          ...EditDirectMessage.parse(body),
+        })
+      else if (path === '/api/group/messages/edit')
+        result = await domain.editMessage(userId, {
+          kind: 'group',
+          ...EditGroupMessage.parse(body),
+        })
       else if (path === '/api/groups')
         result = await domain.createGroup(userId, CreateGroup.parse(body))
       else if (path === '/api/group/people')

@@ -9,7 +9,7 @@
     "start": "node --env-file=../../.env --import tsx runtime/production.ts",
     "typecheck": "tsc && node --import tsx scripts/check-admission.ts",
     "db:migrate": "node --env-file=../../.env --import tsx scripts/migrate.ts",
-    "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts && node --env-file=../../.env --import tsx scripts/group-integration.ts",
+    "test:integration": "node --env-file=../../.env --import tsx scripts/integration.ts && node --env-file=../../.env --import tsx scripts/group-integration.ts && node --env-file=../../.env --import tsx scripts/editing-integration.ts",
     "test:access": "node --env-file=../../.env --import tsx scripts/access-integration.ts",
     "test:rooms-migration": "node --env-file=../../.env --import tsx scripts/rooms-migration-check.ts",
     "test:serve": "node --env-file=../../.env --import tsx scripts/serve-check.ts",

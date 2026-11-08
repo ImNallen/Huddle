@@ -39,7 +39,15 @@ type SyncState =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'ready'; snapshot: Snapshot }
-import { threadKey, type Thread, type ThreadMessage, type Pending, type Queued } from './chat'
+import {
+  newerMessage,
+  latestMessage,
+  threadKey,
+  type Thread,
+  type ThreadMessage,
+  type Pending,
+  type Queued,
+} from './chat'
 export { threadKey, type Thread, type ThreadMessage, type Pending } from './chat'
 const inChannel = ({ channelId, ...message }: Message): ThreadMessage => ({
   ...message,
@@ -228,7 +236,10 @@ export function useServer(
   const [attempt, setAttempt] = useState(0)
   const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [historyError, setHistoryError] = useState('')
+  const currentClient = useRef(client)
+  currentClient.current = client
   const active = useRef(true)
+  const isActive = () => active.current && currentClient.current === client
   const cursor = useRef('0')
   const openRef = useRef(openKey)
   openRef.current = openKey
@@ -236,6 +247,15 @@ export function useServer(
   coveredRef.current = covered
   const reads = useRef<Promise<unknown>>(Promise.resolve())
   const marked = useRef(new Map<string, string>())
+  const historyBefore = useRef(new Map<string, string>())
+  function rememberHistory(thread: Thread, rows: ThreadMessage[] | GroupMessage[]) {
+    const first = rows[0]
+    if (!first) return
+    const key = threadKey(thread)
+    const previous = historyBefore.current.get(key)
+    if (!previous || BigInt(first.cursor) < BigInt(previous))
+      historyBefore.current.set(key, first.cursor)
+  }
   const flush = useRef<(() => void) | null>(null)
   const [presence, setPresence] = useState<VoicePresence>([])
   const presenceText = useRef('[]')
@@ -258,15 +278,19 @@ export function useServer(
   const merge = (incoming: ThreadMessage[]) =>
     setMessages((current) => {
       const indexed = new Map(current.map((message) => [message.id, message]))
-      for (const message of incoming) indexed.set(message.id, message)
+      for (const message of incoming)
+        indexed.set(message.id, newerMessage(indexed.get(message.id), message))
       return [...indexed.values()].sort((a, b) => (BigInt(a.cursor) < BigInt(b.cursor) ? -1 : 1))
     })
-  const change = (update: Change) =>
+  const change = (update: Change) => {
+    if (update.kind === 'direct.opened' && update.conversation.latest)
+      merge([inDirect(update.conversation.latest)])
     setState((current) =>
       current.kind === 'ready'
         ? { kind: 'ready', snapshot: apply(current.snapshot, update) }
         : current,
     )
+  }
   function read(thread: Thread, cursor: string) {
     if (thread.kind === 'group') {
       if (!allowed(thread)) return
@@ -292,6 +316,8 @@ export function useServer(
     cursor.current = '0'
     setState({ kind: 'loading' })
     setMessages([])
+    historyBefore.current.clear()
+    updateGroups((current) => ({ ...current, messages: [] }))
     setConnection('Connecting')
     async function start() {
       try {
@@ -302,6 +328,9 @@ export function useServer(
         if (stopped) return
         cursor.current = snapshot.cursor
         updateGroups((current) => snapshotGroups(current, snapshot.groups, snapshot.cursor, userId))
+        merge(
+          snapshot.directs.flatMap((direct) => (direct.latest ? [inDirect(direct.latest)] : [])),
+        )
         setState({
           kind: 'ready',
           snapshot: pendingRef.current.reduce<Snapshot>(
@@ -371,7 +400,10 @@ export function useServer(
                   )
                   continue
                 }
-                if (event.kind === 'group.message.created') {
+                if (
+                  event.kind === 'group.message.created' ||
+                  event.kind === 'group.message.edited'
+                ) {
                   const thread = groupsRef.current.authority.get(event.message.groupId)?.current
                     ?.thread
                   if (thread)
@@ -381,20 +413,25 @@ export function useServer(
                         thread,
                         event.message,
                         true,
-                        event.message.authorId !== userId &&
+                        event.kind === 'group.message.created' &&
+                          event.message.authorId !== userId &&
                           (threadKey(thread) !== openRef.current ||
                             coveredRef.current ||
                             !isVisible()),
+                        event.cursor,
                       ),
                     )
-                  heard = true
+                  if (event.kind === 'group.message.created') heard = true
                   continue
                 }
                 if (event.kind === 'room.created' || event.kind === 'channel.created') {
                   change(event)
                   continue
                 }
-                if (event.kind === 'direct.message.created') {
+                if (
+                  event.kind === 'direct.message.created' ||
+                  event.kind === 'direct.message.edited'
+                ) {
                   const [first, second] = event.participants
                   change({
                     kind: 'direct.opened',
@@ -407,12 +444,14 @@ export function useServer(
                   })
                 }
                 const message =
-                  event.kind === 'message.created'
+                  event.kind === 'message.created' || event.kind === 'message.edited'
                     ? inChannel(event.message)
                     : inDirect(event.message)
                 const mentioned =
                   event.kind === 'message.created' && event.mentions.includes(userId)
                 merge([message])
+                if (event.kind === 'message.edited' || event.kind === 'direct.message.edited')
+                  continue
                 if (message.authorId === userId) {
                   updatePending((current) =>
                     current.filter((item) => item.retryId !== message.retryId),
@@ -487,14 +526,15 @@ export function useServer(
           abort.signal,
         )
         .then((rows) => {
-          if (abort.signal.aborted || !active.current || !allowed(open)) return
+          if (abort.signal.aborted || !isActive() || !allowed(open)) return
+          rememberHistory(open, rows)
           updateGroups((state) =>
             rows.reduce((next, message) => groupMessage(next, open, message), state),
           )
           setHistoryState('ready')
         })
         .catch((error) => {
-          if (!abort.signal.aborted && active.current && allowed(open)) {
+          if (!abort.signal.aborted && isActive() && allowed(open)) {
             groupFailure(open, error)
             setHistoryState('failed')
             setHistoryError(errorText(error))
@@ -508,7 +548,8 @@ export function useServer(
     void client
       .request(route.history(open.id), route.message.array(), undefined, abort.signal)
       .then((messages) => {
-        if (!abort.signal.aborted) {
+        if (!abort.signal.aborted && isActive()) {
+          rememberHistory(open, messages)
           merge(messages)
           const confirmed = new Set(
             messages
@@ -570,10 +611,7 @@ export function useServer(
       return {
         id,
         peerId,
-        latest:
-          live && (!stored || BigInt(live.cursor) >= BigInt(stored.cursor))
-            ? live
-            : stored && inDirect(stored),
+        latest: latestMessage(stored && inDirect(stored), live ?? null),
         unread: unread.get(key)?.count ?? 0,
       }
     })
@@ -606,9 +644,9 @@ export function useServer(
           retryId,
           body,
         })
-        if (active.current) updateGroups((state) => groupMessage(state, thread, message))
+        if (isActive()) updateGroups((state) => groupMessage(state, thread, message))
       } catch (error) {
-        if (!active.current || !allowed(thread)) return
+        if (!isActive() || !allowed(thread)) return
         groupFailure(thread, error)
         updateGroups((state) =>
           !hasGroup(state, thread)
@@ -646,11 +684,11 @@ export function useServer(
         route.message,
         route.send.body(thread.id, retryId, body),
       )
-      if (!active.current) return
+      if (!isActive()) return
       merge([message])
       updatePending((current) => current.filter((pending) => pending.retryId !== item.retryId))
     } catch (error) {
-      if (active.current)
+      if (isActive())
         updatePending((current) =>
           current.map((pending) =>
             pending.retryId === item.retryId
@@ -663,29 +701,35 @@ export function useServer(
   async function older() {
     const first = allMessages.find((message) => threadKey(message.thread) === openKey)
     if (!first || !open) return
+    const before = historyBefore.current.get(threadKey(open)) ?? first.cursor
     if (open.kind === 'group') {
       if (!allowed(open)) return
       try {
         const rows = await client.request(
-          `/api/group/messages?groupId=${open.id}&admission=${open.admission}&before=${first.cursor}`,
+          `/api/group/messages?groupId=${open.id}&admission=${open.admission}&before=${before}`,
           GroupMessage.array(),
         )
-        if (active.current && allowed(open))
+        if (isActive() && allowed(open)) {
+          rememberHistory(open, rows)
           updateGroups((state) =>
             rows.reduce((next, message) => groupMessage(next, open, message), state),
           )
+        }
         return rows.length
       } catch (error) {
-        if (active.current) groupFailure(open, error)
+        if (isActive()) groupFailure(open, error)
         throw error
       }
     }
     const route = threadRoutes[open.kind]
     const rows = await client.request(
-      `${route.history(open.id)}&before=${first.cursor}`,
+      `${route.history(open.id)}&before=${before}`,
       route.message.array(),
     )
-    merge(rows)
+    if (isActive()) {
+      rememberHistory(open, rows)
+      merge(rows)
+    }
     return rows.length
   }
   return {
@@ -724,7 +768,7 @@ export function useServer(
       ),
     createGroup: async (input: z.infer<typeof CreateGroup>) => {
       const observation = await client.request('/api/groups', GroupObservation, input)
-      if (!active.current) return null
+      if (!isActive()) return null
       updateGroups((state) =>
         observeGroup(state, observation.group, observation.at, userId, observation.group),
       )
@@ -739,12 +783,12 @@ export function useServer(
           admission: thread.admission,
           userIds,
         })
-        if (active.current && allowed(thread))
+        if (isActive() && allowed(thread))
           updateGroups((state) =>
             observeGroup(state, result.group, result.at, userId, result.group),
           )
       } catch (error) {
-        if (active.current) groupFailure(thread, error)
+        if (isActive()) groupFailure(thread, error)
         throw error
       }
     },
@@ -755,9 +799,9 @@ export function useServer(
           groupId: thread.id,
           admission: thread.admission,
         } satisfies GroupAccess)
-        if (active.current) updateGroups((state) => revokeGroup(state, thread, result.cursor))
+        if (isActive()) updateGroups((state) => revokeGroup(state, thread, result.cursor))
       } catch (error) {
-        if (active.current) groupFailure(thread, error)
+        if (isActive()) groupFailure(thread, error)
         throw error
       }
     },
@@ -769,6 +813,41 @@ export function useServer(
     historyState,
     historyError,
     queueError,
+    edit: async (
+      message: ThreadMessage,
+      body: string,
+      retryId: string,
+      expectedRevision: string,
+    ) => {
+      const thread = message.thread
+      if (!isActive() || !allowed(thread))
+        throw new Error('This conversation is no longer available.')
+      const fields = { messageId: message.id, expectedRevision, retryId, body }
+      try {
+        if (thread.kind === 'group') {
+          const result = await client.request('/api/group/messages/edit', GroupMessage, {
+            groupId: thread.id,
+            admission: thread.admission,
+            ...fields,
+          })
+          if (isActive() && allowed(thread))
+            updateGroups((state) => groupMessage(state, thread, result))
+        } else {
+          const route =
+            thread.kind === 'channel' ? '/api/messages/edit' : '/api/direct/messages/edit'
+          const scope =
+            thread.kind === 'channel' ? { channelId: thread.id } : { conversationId: thread.id }
+          const result = await client.request(route, threadRoutes[thread.kind].message, {
+            ...scope,
+            ...fields,
+          })
+          if (isActive()) merge([result])
+        }
+      } catch (error) {
+        if (isActive() && thread.kind === 'group') groupFailure(thread, error)
+        throw error
+      }
+    },
     send,
     older,
     retry: () => setAttempt((value) => value + 1),

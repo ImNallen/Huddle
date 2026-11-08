@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Reac
 import { ArrowUp, Plus, Smile } from 'lucide-react'
 import type { Avatar as AvatarValue, Me } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
+import { RequestError } from './connection'
 import {
   threadKey,
   type Pending,
@@ -22,8 +23,18 @@ type MessageRow = {
   at: string
   body: string
   pending: Pending | null
+  message: ThreadMessage | null
 }
 type Row = { kind: 'day'; key: string; label: string } | MessageRow
+
+type Editor =
+  | { kind: 'closed' }
+  | ({
+      message: ThreadMessage
+      threadKey: string
+      text: string
+      retryId: string
+    } & { kind: 'editing' | 'saving' | 'failed' | 'conflict' })
 
 const groupWindow = 7 * 60 * 1000
 const atEndTolerance = 2
@@ -43,6 +54,7 @@ function rows(
       at: message.createdAt,
       body: message.body,
       pending: null,
+      message,
     })),
     ...pending.map((message) => ({
       key: message.retryId,
@@ -50,6 +62,7 @@ function rows(
       at: now,
       body: message.body,
       pending: message,
+      message: null,
     })),
   ]
   return entries.flatMap((entry, index): Row[] => {
@@ -106,6 +119,8 @@ export function Transcript({
   draft: string
   onDraft: (value: string) => void
 }) {
+  const [editor, setEditor] = useState<Editor>({ kind: 'closed' })
+  const invoker = useRef<HTMLButtonElement | null>(null)
   const [more, setMore] = useState(true)
   const [error, setError] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
@@ -114,6 +129,41 @@ export function Transcript({
   const atEnd = useRef(true)
   const measured = useRef('')
   const key = threadKey(thread)
+  useEffect(() => setEditor({ kind: 'closed' }), [key, me.user.id, client])
+  function closeEditor() {
+    setEditor({ kind: 'closed' })
+    requestAnimationFrame(() => invoker.current?.isConnected && invoker.current.focus())
+  }
+  async function saveEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (
+      editor.kind === 'closed' ||
+      editor.kind === 'saving' ||
+      editor.kind === 'conflict' ||
+      !editor.text.trim()
+    )
+      return
+    const saving: Editor = { ...editor, kind: 'saving' }
+    setEditor(saving)
+    try {
+      await sync.edit(saving.message, saving.text.trim(), saving.retryId, saving.message.revision)
+      setEditor((current) => {
+        if (current !== saving) return current
+        requestAnimationFrame(() => invoker.current?.isConnected && invoker.current.focus())
+        return { kind: 'closed' }
+      })
+    } catch (failure) {
+      setEditor((current) =>
+        current === saving
+          ? {
+              ...saving,
+              kind:
+                failure instanceof RequestError && failure.status === 409 ? 'conflict' : 'failed',
+            }
+          : current,
+      )
+    }
+  }
   const messages = sync.messages.filter((message) => threadKey(message.thread) === key)
   const pending = sync.pending.filter((message) => threadKey(message.thread) === key)
   const isEmpty = sync.historyState === 'ready' && !messages.length && !pending.length
@@ -246,9 +296,125 @@ export function Transcript({
                     </div>
                   </>
                 )}
-                <p className="message-body">
-                  <Mentions text={row.body} />
-                </p>
+                {editor.kind !== 'closed' &&
+                editor.threadKey === key &&
+                editor.message.id === row.key ? (
+                  <form
+                    className="message-editor"
+                    onSubmit={(event) => void saveEdit(event)}
+                    aria-label="Edit message"
+                    aria-busy={editor.kind === 'saving'}
+                    data-state={editor.kind}
+                    data-empty={!editor.text.trim()}
+                  >
+                    <label className="sr-only" htmlFor="edit-message">
+                      Edit message
+                    </label>
+                    <textarea
+                      id="edit-message"
+                      autoFocus
+                      rows={3}
+                      maxLength={8000}
+                      placeholder="Edit your message"
+                      aria-describedby={
+                        editor.kind === 'failed' || editor.kind === 'conflict'
+                          ? 'edit-message-feedback edit-message-help'
+                          : 'edit-message-help'
+                      }
+                      value={editor.text}
+                      readOnly={editor.kind === 'saving'}
+                      onChange={(event) => {
+                        const text = event.target.value
+                        setEditor({
+                          ...editor,
+                          kind: editor.kind === 'conflict' ? 'conflict' : 'editing',
+                          text,
+                          retryId:
+                            text.trim() === editor.text.trim()
+                              ? editor.retryId
+                              : crypto.randomUUID(),
+                        })
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing) return
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          closeEditor()
+                        }
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault()
+                          event.currentTarget.form?.requestSubmit()
+                        }
+                      }}
+                    />
+                    {(editor.kind === 'failed' || editor.kind === 'conflict') && (
+                      <p id="edit-message-feedback" role="alert" className="form-error">
+                        {editor.kind === 'conflict'
+                          ? 'This message changed elsewhere. Cancel, then edit the latest version.'
+                          : 'Couldn’t save your changes. Your edit is still here.'}
+                      </p>
+                    )}
+                    <div className="message-edit-actions">
+                      <span id="edit-message-help">
+                        {editor.kind === 'saving'
+                          ? 'Saving your changes…'
+                          : !editor.text.trim()
+                            ? 'Enter a message to save.'
+                            : 'Enter to save · Shift+Enter for a new line'}
+                      </span>
+                      <button type="button" className="button small" onClick={closeEditor}>
+                        Cancel
+                      </button>
+                      <button
+                        className="button small primary"
+                        disabled={
+                          editor.kind === 'saving' ||
+                          editor.kind === 'conflict' ||
+                          !editor.text.trim()
+                        }
+                      >
+                        {editor.kind === 'saving' ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <p className="message-body">
+                      <Mentions text={row.body} />
+                      {row.message?.editedAt && (
+                        <time
+                          className="message-edited"
+                          dateTime={row.message.editedAt}
+                          title={`Edited ${new Date(row.message.editedAt).toLocaleString()}`}
+                        >
+                          {' '}
+                          (edited)
+                        </time>
+                      )}
+                    </p>
+                  </>
+                )}
+                {row.message && row.author.id === me.user.id && (
+                  <button
+                    type="button"
+                    className="message-edit button small"
+                    hidden={editor.kind !== 'closed' && editor.message.id === row.key}
+                    aria-label="Edit message"
+                    onClick={(event) => {
+                      if (!row.message) return
+                      invoker.current = event.currentTarget
+                      setEditor({
+                        kind: 'editing',
+                        message: row.message,
+                        threadKey: key,
+                        text: row.body,
+                        retryId: crypto.randomUUID(),
+                      })
+                    }}
+                  >
+                    Edit
+                  </button>
+                )}
                 {row.pending?.kind === 'failed' && (
                   <div className="message-retry" role="alert">
                     <span>
