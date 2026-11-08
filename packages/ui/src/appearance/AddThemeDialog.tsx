@@ -1,18 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Upload } from 'lucide-react'
 import { Modal } from '../Dialogs'
 import { Alert } from '../primitives'
 import { SCHEMES, type Scheme } from './palette'
 import { MAX_FILE_BYTES, parseThemeFile, TOO_LARGE } from './themeFile'
 import { ThemeSearch } from './ThemeSearch'
 import { appearance, type Undo } from './store'
-
-const EXAMPLE = `{
-  "version": 1,
-  "name": "Aurora",
-  "appearance": "light",
-  "colors": { ... }
-}`
 
 export function AddThemeDialog({
   onClose,
@@ -89,10 +81,9 @@ export function AddThemeDialog({
         <div className="add-theme-file">
           <span>
             Theme file
-            <small>Drop a .json file here, or choose one</small>
+            <small>Drop a .json or .jsonc file here</small>
           </span>
           <button type="button" className="button small" onClick={() => picker.current?.click()}>
-            <Upload size={14} />
             Choose file
           </button>
           <input
@@ -113,8 +104,8 @@ export function AddThemeDialog({
           Theme JSON
           <textarea
             spellCheck={false}
-            placeholder={EXAMPLE}
-            rows={8}
+            placeholder="Paste theme JSON here…"
+            rows={3}
             value={text}
             onChange={(event) => {
               setText(event.target.value)

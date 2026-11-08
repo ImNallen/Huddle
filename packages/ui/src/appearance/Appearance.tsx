@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Paintbrush, Plus } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { Modal } from '../Dialogs'
 import { AddThemeDialog } from './AddThemeDialog'
 import { PaletteScope } from './PaletteScope'
@@ -22,9 +22,9 @@ function FloorPlan() {
         <i />
         <i />
         <i />
+        <i />
       </i>
       <i className="plan-side">
-        <i />
         <i />
         <i />
         <i />
@@ -32,10 +32,7 @@ function FloorPlan() {
       <i className="plan-chat">
         <i />
         <i />
-        <i />
-        <i className="plan-composer">
-          <i />
-        </i>
+        <i className="plan-composer" />
       </i>
     </span>
   )
@@ -121,7 +118,10 @@ export function AppearanceTab() {
                   </PaletteScope>
                 )}
               </span>
-              <span className="scheme-label">{option.label}</span>
+              <span className="scheme-label">
+                {option.label}
+                {mode === option.mode && <Check size={15} strokeWidth={2} aria-hidden="true" />}
+              </span>
             </label>
           ))}
         </fieldset>
@@ -134,7 +134,6 @@ export function AppearanceTab() {
             className="button small"
             onClick={() => openDialog({ kind: 'create' })}
           >
-            <Paintbrush size={14} />
             Create theme
           </button>
           <button
@@ -142,7 +141,6 @@ export function AppearanceTab() {
             className="button small"
             onClick={() => openDialog({ kind: 'add' })}
           >
-            <Plus size={14} />
             Add theme
           </button>
         </header>
@@ -179,6 +177,9 @@ export function AppearanceTab() {
           )}
         </p>
       </section>
+      <p className="appearance-footnote">
+        System follows your device. Theme choices stay on this device.
+      </p>
       {dialog?.kind === 'create' && (
         <ThemePanel
           initialScheme={scheme}

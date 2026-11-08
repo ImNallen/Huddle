@@ -128,8 +128,9 @@ export function Connect({
   return (
     <Frame>
       <Heading
-        title="Connect to Huddle"
-        description="Connect to Tailscale, then paste the invite link from the friend who hosts Huddle, or their server's address."
+        title="Your people are here."
+        label="Connect to Huddle"
+        description="Connect to Tailscale, then paste an invite link or your friend’s server address."
         back={close}
       />
       <form onSubmit={submit} noValidate>
@@ -141,7 +142,7 @@ export function Connect({
             type="text"
             required
             defaultValue={initialOrigin}
-            placeholder="https://huddle.your-tailnet.ts.net"
+            placeholder="https://huddle.friends.ts.net"
             autoComplete="url"
             autoCapitalize="off"
             spellCheck={false}
@@ -212,10 +213,10 @@ export function Connect({
           </ul>
         </div>
       )}
-      <p className="access-footer">
-        One friend hosts the server. Everyone else reaches it over Tailscale with that friend's
-        invite link. Messages stay on that server.
-      </p>
+      <section className="access-help">
+        <h2>One friend hosts. Everyone has a place.</h2>
+        <p>Your host shares the server with you through Tailscale. Messages stay on that server.</p>
+      </section>
     </Frame>
   )
 }

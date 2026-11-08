@@ -130,6 +130,9 @@ importers:
       '@fontsource-variable/figtree':
         specifier: 5.3.0
         version: 5.3.0
+      '@fontsource-variable/noto-emoji':
+        specifier: 5.3.2
+        version: 5.3.2
       '@huddle/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -386,6 +389,9 @@ packages:
 
   '@fontsource-variable/figtree@5.3.0':
     resolution: {integrity: sha512-VRVodD7OiG7apQwE8/2fMjaqpY/a0qRJqL5HtYj8CKIVps+9amaFcdfKmDIf7iqYQx6iPLlArVXAfKeIZmVcNQ==}
+
+  '@fontsource-variable/noto-emoji@5.3.2':
+    resolution: {integrity: sha512-LgtrM0SErtdfSvrI3CqtHeCtToGCVN66hX+HVNv9QHF5KX0Ko1swzUsSMv1y6Jwjxp3Wzkp8e5PPcl7GLZadOw==}
 
   '@hono/node-server@2.1.4':
     resolution: {integrity: sha512-2g1qeHl4BduwDn6L8nkAvDrPUWPMlkQ//a5NhP/zIyaXKMjZNRV+cG9Csu+BiJFf6+68pqzjf4Hi5sJGKHuS1g==}
@@ -1708,6 +1714,8 @@ snapshots:
     optional: true
 
   '@fontsource-variable/figtree@5.3.0': {}
+
+  '@fontsource-variable/noto-emoji@5.3.2': {}
 
   '@hono/node-server@2.1.4(hono@4.13.13)':
     dependencies:

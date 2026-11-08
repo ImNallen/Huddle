@@ -20,11 +20,11 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     const roster = page.getByRole('region', { name: /^Members/ })
     await expect(page.getByRole('region', { name: /^Pending invitations/ })).toHaveCount(0)
     await expect(roster.getByRole('row')).toHaveText([
-      'NameRoleJoined',
-      `nallen (you)Admin${shortDate(new Date())}`,
+      'NameRoleJoinedActions',
+      `nallen · YouAdmin${shortDate(new Date())}`,
     ])
-    await expect(page.getByText('You’re the only member so far.', { exact: false })).toBeVisible()
-    await expect(page.getByText("Huddle can't remove a member yet", { exact: false })).toBeVisible()
+    await expect(page.getByText('You’re the first one here', { exact: false })).toBeVisible()
+    await expect(page.getByText('Huddle can’t remove a member yet', { exact: false })).toBeVisible()
 
     await page.getByRole('button', { name: 'Share invite', exact: true }).click()
     const dialog = page.getByRole('dialog')
@@ -49,22 +49,26 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     ])
     await expect(setup.getByRole('button')).toHaveCount(0)
     await expect(second.getByText('Only admins see it.', { exact: false })).toHaveCount(0)
-    await expect(second.getByRole('list', { name: 'Members' })).toHaveText(
-      'Admins — 1nallenMembers — 1aiko',
-    )
-    await expect(second.locator('.account-name > span').first()).toHaveText('Member')
+    await second.getByRole('button', { name: 'Member list', exact: true }).click()
+    const memberList = second.getByRole('list', { name: 'Members', exact: true })
+    await expect(memberList.getByRole('heading', { level: 3 })).toHaveText([
+      'Admins · 1',
+      'Members · 1',
+    ])
+    await expect(memberList.locator('.member-row')).toHaveText(['nallen', 'aiko · You'])
+    await expect(second.locator('.account-name > span').first()).toHaveText('Connected')
 
     const denied = await second.evaluate(async () => (await fetch('/api/invite')).status)
     expect(denied).toBe(403)
 
-    await page.getByRole('button', { name: 'Home', exact: true }).click()
+    await railTile(page, 'Home').click()
     await page.getByRole('button', { name: 'Members', exact: true }).click()
     await expect(roster.getByRole('row')).toHaveText([
-      'NameRoleJoined',
-      `nallen (you)Admin${shortDate(new Date())}`,
-      `aikoMember${shortDate(new Date())}`,
+      'NameRoleJoinedActions',
+      `nallen · YouAdmin${shortDate(new Date())}`,
+      `aikoMember${shortDate(new Date())}Message`,
     ])
-    await expect(page.getByText('You’re the only member so far.', { exact: false })).toHaveCount(0)
+    await expect(page.getByText('You’re the first one here', { exact: false })).toHaveCount(0)
     await expect(page.getByRole('list', { name: 'Members' })).toHaveCount(0)
     await expect(page.locator('main')).not.toContainText('@huddle.test')
 
@@ -78,7 +82,7 @@ test('admins share an invite and see who joined; a friend moved to a new login k
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(setup).toHaveCount(0)
     await expect(
-      second.getByRole('heading', { name: /^Good (morning|afternoon|evening), aiko$/ }),
+      second.getByRole('heading', { name: /^Good (morning|afternoon|evening), aiko\.$/ }),
     ).toBeVisible()
 
     const history = `Written before my login changed ${randomUUID()}`

@@ -436,8 +436,8 @@ export const isTokenName = (name: string): name is TokenName => Object.hasOwn(TO
 const row = (name: TokenName): TokenRow => TOKENS[name]
 
 export const SEEDS: Record<Scheme, { background: ColorLiteral; accent: ColorLiteral }> = {
-  dark: { background: color('#0a0a0a'), accent: color('#346bf1') },
-  light: { background: color('#fcfcfc'), accent: color('#1b4ed8') },
+  dark: { background: color('#161616'), accent: color('#eaeaea') },
+  light: { background: color('#fcfcfc'), accent: color('#242424') },
 }
 
 function groundRgba(ground: Ground, read: (name: string) => ColorLiteral): Rgba {

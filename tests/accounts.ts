@@ -42,6 +42,7 @@ export async function onboard(page: Page, person: string, serverName: string, pa
   await page.getByLabel('Server name').fill(serverName)
   await expect(page.getByLabel('Your name')).toHaveValue(person)
   await page.getByRole('button', { name: 'Create the server', exact: true }).click()
+  await skipProfile(page)
   await expectHome(page)
 }
 export async function join(page: Page, person: string, code: string, path = '/') {
@@ -61,6 +62,7 @@ export async function join(page: Page, person: string, code: string, path = '/')
   })
   await expect(form.getByLabel('Your name')).toHaveValue(person)
   await form.getByRole('button', { name: 'Create account', exact: true }).click()
+  await skipProfile(page)
   await expectHome(page)
 }
 export async function member(admin: Client, page: Page, person: string, path = '/') {
@@ -71,6 +73,10 @@ export async function member(admin: Client, page: Page, person: string, path = '
 export const rail = (page: Page) => page.getByRole('navigation', { name: 'Rooms', exact: true })
 export const railTile = (page: Page, name: string) =>
   rail(page).getByRole('button', { name, exact: true })
+export async function skipProfile(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Make it yours.', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Skip for now', exact: true }).click()
+}
 export async function expectHome(page: Page) {
   await expect(
     page.getByRole('heading', {

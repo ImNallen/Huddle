@@ -76,6 +76,7 @@ export function ProfileEditor({
   photo,
   busy,
   submitLabel,
+  context,
 }: {
   initial: Profile
   save: (profile: Profile) => Promise<void>
@@ -83,6 +84,7 @@ export function ProfileEditor({
   photo: (id: string, signal: AbortSignal) => Promise<string>
   busy: boolean
   submitLabel: string
+  context: { kind: 'settings'; serverName: string } | { kind: 'onboarding'; onSkip: () => void }
 }) {
   const [profile, setProfile] = useState(initial)
   const [tab, setTab] = useState<'mascot' | 'photo'>(initial.avatar.kind)
@@ -123,9 +125,9 @@ export function ProfileEditor({
   const hasPhoto = profile.avatar.kind === 'photo'
   const name = profile.name.trim() || 'Your name'
   return (
-    <form onSubmit={submit}>
+    <form className="profile-editor" onSubmit={submit}>
       <label className="access-label">
-        Name
+        {context.kind === 'settings' ? 'Name' : 'Your name'}
         <input
           required
           maxLength={80}
@@ -135,116 +137,130 @@ export function ProfileEditor({
           autoComplete="name"
         />
       </label>
-      <p className="access-label-row access-profile-label">Avatar</p>
-      <div className="access-segmented" role="group" aria-label="Avatar type">
-        <button
-          type="button"
-          aria-pressed={tab === 'mascot'}
-          onClick={() => {
-            setTab('mascot')
-            setProfile((current) => ({ ...current, avatar: mascot }))
-          }}
-        >
-          Mascot
-        </button>
-        <button type="button" aria-pressed={tab === 'photo'} onClick={() => setTab('photo')}>
-          Photo
-        </button>
-      </div>
-      {tab === 'mascot' ? (
-        <div className="access-avatar-panel">
-          <div className="access-avatar-stage">
-            <Avatar avatar={mascot} name={name} size={52} />
-          </div>
-          <div>
-            <p>Shape</p>
-            <div className="access-avatar-options">
-              {MascotShape.options.map((shape) => (
-                <button
-                  type="button"
-                  key={shape}
-                  aria-label={shape}
-                  aria-pressed={mascot.shape === shape}
-                  onClick={() => pick({ ...mascot, shape })}
-                >
-                  <Avatar avatar={{ ...mascot, shape }} name={shape} size={19} />
-                </button>
-              ))}
-            </div>
-            <p>
-              Color · <strong>{capitalize(mascot.color)}</strong>
-            </p>
-            <div className="access-avatar-options is-colors">
-              {MascotColor.options.map((color) => (
-                <button
-                  type="button"
-                  key={color}
-                  aria-label={color}
-                  aria-pressed={mascot.color === color}
-                  onClick={() => pick({ ...mascot, color })}
-                >
-                  <span className="access-color" style={{ background: colors[color] }} />
-                </button>
-              ))}
-            </div>
+      <div className="profile-avatar-editor">
+        <div className="profile-avatar-heading">
+          <p className="access-label-row access-profile-label">Avatar</p>
+          <div className="access-segmented" role="group" aria-label="Avatar type">
+            <button
+              type="button"
+              aria-pressed={tab === 'mascot'}
+              onClick={() => {
+                setTab('mascot')
+                setProfile((current) => ({ ...current, avatar: mascot }))
+              }}
+            >
+              Mascot
+            </button>
+            <button type="button" aria-pressed={tab === 'photo'} onClick={() => setTab('photo')}>
+              Photo
+            </button>
           </div>
         </div>
-      ) : (
-        <div className="access-avatar-panel">
-          <div className="access-avatar-stage">
-            {hasPhoto ? (
-              <Avatar avatar={profile.avatar} name={name} photo={photo} size={60} />
-            ) : (
-              <UserRound size={22} aria-hidden="true" />
-            )}
-          </div>
-          <div>
-            {hasPhoto && file && (
-              <p>
-                <strong>{file.name}</strong>
-                {file.size && ` · ${file.size}`}
+        {tab === 'mascot' ? (
+          <div className="access-avatar-panel">
+            <div className="access-avatar-stage">
+              <Avatar avatar={mascot} name={name} size={context.kind === 'settings' ? 72 : 64} />
+            </div>
+            <div>
+              <p>Shape</p>
+              <div className="access-avatar-options">
+                {MascotShape.options.map((shape) => (
+                  <button
+                    type="button"
+                    key={shape}
+                    aria-label={shape}
+                    aria-pressed={mascot.shape === shape}
+                    onClick={() => pick({ ...mascot, shape })}
+                  >
+                    <Avatar avatar={{ ...mascot, shape }} name={shape} size={28} />
+                  </button>
+                ))}
+              </div>
+              <p className="avatar-color-label">
+                Color · <strong>{capitalize(mascot.color)}</strong>
               </p>
-            )}
-            <div className="access-photo-actions">
-              <label className="access-tool">
-                <Upload size={13} />
-                {uploading
-                  ? 'Uploading…'
-                  : hasPhoto
-                    ? 'Upload a different photo'
-                    : 'Upload a photo'}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  disabled={uploading}
-                  hidden
-                  onChange={(event) => {
-                    const selected = event.target.files?.[0]
-                    event.target.value = ''
-                    if (selected) void selectPhoto(selected)
-                  }}
+              <div className="access-avatar-options is-colors">
+                {MascotColor.options.map((color) => (
+                  <button
+                    type="button"
+                    key={color}
+                    aria-label={color}
+                    aria-pressed={mascot.color === color}
+                    onClick={() => pick({ ...mascot, color })}
+                  >
+                    <span className="access-color" style={{ background: colors[color] }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="access-avatar-panel">
+            <div className="access-avatar-stage">
+              {hasPhoto ? (
+                <Avatar
+                  avatar={profile.avatar}
+                  name={name}
+                  photo={photo}
+                  size={context.kind === 'settings' ? 72 : 64}
                 />
-              </label>
-              {hasPhoto && (
-                <button
-                  type="button"
-                  className="access-text-button is-inline"
-                  onClick={() => {
-                    setFile(null)
-                    setProfile((current) => ({ ...current, avatar: lastMascot }))
-                  }}
-                >
-                  Remove
-                </button>
+              ) : (
+                <UserRound size={22} aria-hidden="true" />
               )}
             </div>
-            <p>PNG, JPG or WebP up to 5 MB. Cropped to a square.</p>
+            <div>
+              {hasPhoto && file && (
+                <p>
+                  <strong>{file.name}</strong>
+                  {file.size && ` · ${file.size}`}
+                </p>
+              )}
+              <div className="access-photo-actions">
+                <label className="access-tool">
+                  <Upload size={13} />
+                  {uploading
+                    ? 'Uploading…'
+                    : hasPhoto
+                      ? 'Upload a different photo'
+                      : 'Upload a photo'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={uploading}
+                    hidden
+                    onChange={(event) => {
+                      const selected = event.target.files?.[0]
+                      event.target.value = ''
+                      if (selected) void selectPhoto(selected)
+                    }}
+                  />
+                </label>
+                {hasPhoto && (
+                  <button
+                    type="button"
+                    className="access-text-button is-inline"
+                    onClick={() => {
+                      setFile(null)
+                      setProfile((current) => ({ ...current, avatar: lastMascot }))
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <p>PNG, JPG or WebP up to 5 MB. Cropped to a square.</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       <p className="access-label-row access-profile-label is-muted">Preview</p>
       <div className="access-preview">
-        <Avatar avatar={profile.avatar} name={name} photo={photo} size={28} />
+        <Avatar
+          avatar={profile.avatar}
+          name={name}
+          photo={photo}
+          size={context.kind === 'settings' ? 36 : 32}
+        />
         <div>
           <strong>{name}</strong>
           <time>{clock(new Date(now).toISOString())}</time>
@@ -252,12 +268,26 @@ export function ProfileEditor({
         </div>
       </div>
       <Alert message={error} />
-      <Primary
-        busy={busy || uploading}
-        disabled={!profile.name.trim() || (tab === 'photo' && !hasPhoto)}
-      >
-        {submitLabel}
-      </Primary>
+      <footer className="profile-actions">
+        {context.kind === 'settings' ? (
+          <p>Changes appear to everyone on {context.serverName}.</p>
+        ) : (
+          <button
+            type="button"
+            className="access-secondary"
+            onClick={context.onSkip}
+            disabled={busy || uploading}
+          >
+            Skip for now
+          </button>
+        )}
+        <Primary
+          busy={busy || uploading}
+          disabled={!profile.name.trim() || (tab === 'photo' && !hasPhoto)}
+        >
+          {submitLabel}
+        </Primary>
+      </footer>
     </form>
   )
 }

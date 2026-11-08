@@ -4,6 +4,7 @@ import type { AccessStage, ServerInfo } from '@huddle/contracts'
 import { Access } from './Access'
 import { ServerView } from './ServerView'
 import { Settings } from './Settings'
+import { OnboardingProfile } from './OnboardingProfile'
 import { WifiOff } from 'lucide-react'
 import { Frame, Alert, Heading, ServerCard, Spinner, hostOf } from './primitives'
 import { NetworkError, type Connection } from './connection'
@@ -14,6 +15,11 @@ type State =
   | { kind: 'loading' }
   | { kind: 'failed'; error: unknown }
   | { kind: 'loaded'; stage: AccessStage; info: z.infer<typeof ServerInfo> }
+  | {
+      kind: 'personalize'
+      stage: Extract<AccessStage, { kind: 'ready' }>
+      info: z.infer<typeof ServerInfo>
+    }
 export function Application({
   client,
   serverName,
@@ -62,7 +68,8 @@ export function Application({
       client.onAccessChanged = null
     }
   }, [client, onAccessChanged])
-  const ready = state.kind === 'loaded' && state.stage.kind === 'ready'
+  const ready =
+    state.kind === 'personalize' || (state.kind === 'loaded' && state.stage.kind === 'ready')
   useEffect(() => {
     if (ready) clearJoinCode(client.origin)
   }, [client, ready])
@@ -91,12 +98,36 @@ export function Application({
         </button>
       </Frame>
     )
+  if (state.kind === 'personalize')
+    return (
+      <OnboardingProfile
+        key={state.stage.user.id}
+        client={client}
+        stage={state.stage}
+        serverName={state.info.name}
+        onDone={(stage) => setState({ kind: 'loaded', stage, info: state.info })}
+        onAccessChanged={(stage) => setState({ kind: 'loaded', stage, info: state.info })}
+      />
+    )
   if (state.stage.kind !== 'ready')
     return (
       <Access
         key={state.stage.kind}
         client={client}
-        act={async (command, signal) => accept(await client.act(command, signal), signal)}
+        act={async (command, signal) => {
+          const next = await client.act(command, signal)
+          if (!client.active || signal.aborted) return
+          if (
+            next.kind === 'ready' &&
+            (command.kind === 'account.setup' || command.kind === 'account.join')
+          ) {
+            const info =
+              command.kind === 'account.setup'
+                ? { ...state.info, name: command.serverName.trim(), setup: 'complete' as const }
+                : state.info
+            setState({ kind: 'personalize', stage: next, info })
+          } else accept(next, signal)
+        }}
         recheck={recheck}
         stage={state.stage}
         info={state.info}
@@ -108,6 +139,7 @@ export function Application({
       key={state.stage.user.id}
       client={client}
       stage={state.stage}
+      serverName={state.info.name}
       voiceAvailable={state.info.voice}
       accept={accept}
       onAccessChanged={onAccessChanged}
@@ -118,6 +150,7 @@ export function Application({
 function ReadyView({
   client,
   stage,
+  serverName,
   voiceAvailable,
   accept,
   onAccessChanged,
@@ -125,24 +158,32 @@ function ReadyView({
 }: {
   client: Connection
   stage: Extract<AccessStage, { kind: 'ready' }>
+  serverName: string
   voiceAvailable: boolean
   accept: (stage: AccessStage) => void
   onAccessChanged: () => void
   onServer?: () => void
 }) {
-  const [settings, setSettings] = useState(false)
+  const [settings, setSettings] = useState<string | null>(null)
   return (
     <>
       <ServerView
         client={client}
         me={{ user: stage.user }}
-        covered={settings}
+        covered={settings !== null}
         voiceAvailable={voiceAvailable}
         onAccessChanged={onAccessChanged}
         onServer={onServer}
-        onSettings={() => setSettings(true)}
+        onSettings={(name) => setSettings(name ?? serverName)}
       />
-      {settings && <Settings client={client} accept={accept} close={() => setSettings(false)} />}
+      {settings !== null && (
+        <Settings
+          client={client}
+          serverName={settings}
+          accept={accept}
+          close={() => setSettings(null)}
+        />
+      )}
     </>
   )
 }

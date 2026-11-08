@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Paintbrush, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { Overlay } from '../primitives'
 import { parseColor, rgbaOf, withAlpha, type ColorLiteral } from './color'
 import {
@@ -284,6 +284,7 @@ export function ThemePanel({
             <X size={16} />
           </button>
         </header>
+        <p className="theme-panel-description">Two colors. The rest follows.</p>
         <div className="theme-panel-body">
           <label className="theme-panel-row">
             <span>Theme name</span>
@@ -299,7 +300,7 @@ export function ThemePanel({
               }}
             />
           </label>
-          <div className="theme-panel-row">
+          <div className="theme-panel-row theme-appearance-row">
             <span id="theme-panel-appearance">Appearance</span>
             <span
               className="theme-segmented"
@@ -320,10 +321,7 @@ export function ThemePanel({
             </span>
           </div>
           <div className="theme-panel-colors">
-            <span>
-              Colors
-              <small>Two colors, the rest derived</small>
-            </span>
+            <span>Colors</span>
             <label className="theme-switch">
               Advanced
               <input
@@ -398,11 +396,13 @@ export function ThemePanel({
           </p>
         )}
         <footer>
+          <p className="theme-panel-note">
+            Preview updates as you edit. Cancel restores your current theme.
+          </p>
           <button type="button" className="button small text" onClick={onClose}>
             Cancel
           </button>
           <button className="button small primary">
-            <Paintbrush size={14} />
             {editing ? 'Save theme' : 'Create theme'}
           </button>
         </footer>

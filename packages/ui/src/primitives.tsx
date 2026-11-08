@@ -1,14 +1,16 @@
+/// <reference path="./assets.d.ts" />
 import { Check, ChevronLeft, CircleAlert, Copy, Server } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { serverInitials } from '@huddle/contracts'
+import huddleSymbol from './assets/huddle-symbol.svg'
 
 export type FrameServer = { name?: string; origin: string }
-export function Frame({ children }: { children: ReactNode }) {
+export function Frame({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className="access-shell">
+    <div className={`access-shell ${className}`}>
       <header className="access-header">
         <a className="access-brand" href="/">
-          <Logo size={20} />
+          <Logo size={36} />
           <span>huddle</span>
         </a>
       </header>
@@ -74,16 +76,15 @@ export function Overlay({
 }
 export function Logo({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <mask id="huddle-logo-cut">
-        <rect width="24" height="24" fill="white" />
-        <rect x="5.9" width="1.3" height="24" fill="black" />
-        <rect x="16.8" width="1.3" height="24" fill="black" />
-        <rect x="10.8" width="2.4" height="9.6" fill="black" />
-        <rect x="10.8" y="14.4" width="2.4" height="9.6" fill="black" />
-      </mask>
-      <circle cx="12" cy="12" r="12" fill="currentColor" mask="url(#huddle-logo-cut)" />
-    </svg>
+    <span
+      className="huddle-logo"
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        maskImage: `url("${huddleSymbol}")`,
+      }}
+    />
   )
 }
 export function hostOf(origin: string) {
@@ -109,7 +110,7 @@ export function ServerCard({
 }) {
   return (
     <div className="access-server-card">
-      <ServerTile name={server.name} />
+      <Logo size={28} />
       <div>
         <strong>{label ?? server.name ?? 'Server'}</strong>
         <code>{hostOf(server.origin)}</code>
@@ -127,8 +128,10 @@ export function Heading({
   description,
   icon,
   back,
+  label,
 }: {
   title: string
+  label?: string
   description?: ReactNode
   icon?: ReactNode
   back?: () => void
@@ -141,9 +144,11 @@ export function Heading({
           Back
         </button>
       )}
-      {icon && <div className="access-symbol">{icon}</div>}
-      <h1>{title}</h1>
-      {description && <p className="access-description">{description}</p>}
+      <div className="access-introduction">
+        {icon && <div className="access-symbol">{icon}</div>}
+        <h1 aria-label={label}>{title}</h1>
+        {description && <p className="access-description">{description}</p>}
+      </div>
     </>
   )
 }
@@ -215,10 +220,12 @@ export function CopyButton({
   value,
   label = 'Copy',
   iconOnly = false,
+  menuLabel,
 }: {
   value: string | (() => string)
   label?: string
   iconOnly?: boolean
+  menuLabel?: string
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   async function copy() {
@@ -232,13 +239,26 @@ export function CopyButton({
   const text = state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : label
   const icon =
     state === 'copied' ? <Check size={iconOnly ? 15 : 13} /> : <Copy size={iconOnly ? 15 : 13} />
+  if (menuLabel) {
+    return (
+      <button
+        type="button"
+        data-keep-open
+        aria-label={label}
+        aria-live="polite"
+        onClick={() => void copy()}
+      >
+        {state === 'idle' ? menuLabel : text}
+      </button>
+    )
+  }
   if (iconOnly) {
     return (
       <button
         type="button"
         className={`icon-button ${state === 'copied' ? 'is-copied' : ''}`}
         aria-label={label}
-        title={text}
+        data-tooltip={text}
         onClick={() => void copy()}
       >
         {icon}
@@ -249,6 +269,7 @@ export function CopyButton({
     <button
       type="button"
       className={`access-tool ${state === 'copied' ? 'is-copied' : ''}`}
+      aria-live="polite"
       onClick={() => void copy()}
     >
       {icon}

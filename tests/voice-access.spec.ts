@@ -13,6 +13,7 @@ import {
   join,
   main,
   openMicrophones,
+  openPeers,
   openRoom,
   panel,
   voicePeople,
@@ -56,11 +57,27 @@ test('a call without an attested socket is ended by the server, and rejoining bu
     })
     await expect.poll(() => openMicrophones(ada.page)).toBe(0)
 
-    await main(ada.page).getByRole('button', { name: 'Try again', exact: true }).click()
-    await expectInCall(ada.page)
+    // Keep real media negotiation slow enough for the server to remove the rejoin before it
+    // finishes connecting. Rejoining without a watch socket must not buy a fresh grace period.
+    await ada.page.evaluate(() => {
+      const describe = RTCPeerConnection.prototype.setLocalDescription
+      RTCPeerConnection.prototype.setLocalDescription = async function (description) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        return describe.call(this, description)
+      }
+    })
+    const captured = await ada.page.evaluate(() => window.probe.microphones.length)
     const rejoined = Date.now()
-    await expect(main(ada.page).getByRole('alert')).toContainText(removed, { timeout: 20000 })
+    await main(ada.page).getByRole('button', { name: 'Try again', exact: true }).click()
+    await expect
+      .poll(() => ada.page.evaluate(() => window.probe.microphones.length))
+      .toBeGreaterThan(captured)
+    await expect(main(ada.page).getByRole('alert')).toContainText(removed, {
+      timeout: (graceSeconds - 2) * 1000,
+    })
     expect(Date.now() - rejoined).toBeLessThan((graceSeconds - 2) * 1000)
+    await expect.poll(() => openMicrophones(ada.page)).toBe(0)
+    await expect.poll(() => openPeers(ada.page)).toBe(0)
 
     socketsRefused = false
     await ada.page.reload()

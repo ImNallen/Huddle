@@ -15,6 +15,8 @@ export async function accountRequest(request: Request, actor: Member) {
       SELECT 1 FROM member mine, member theirs WHERE mine.user_id=$2 AND theirs.user_id=p.user_id)
       AND (EXISTS(SELECT 1 FROM account_security a WHERE a.avatar->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM message m WHERE m.author_avatar->>'uploadId'=p.id::text)
+      OR EXISTS(SELECT 1 FROM group_message g JOIN group_member gm ON gm.group_id=g.group_id
+        WHERE gm.user_id=$2 AND g.author_avatar->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM direct_message d JOIN direct_conversation c ON c.id=d.conversation_id
         WHERE d.author_avatar->>'uploadId'=p.id::text AND $2 IN (c.user_a, c.user_b)))))`,
       [id, actor.user.id],

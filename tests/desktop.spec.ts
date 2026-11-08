@@ -1,6 +1,5 @@
 import { expect, test, type BrowserContext } from '@playwright/test'
 import { tailscale } from '../apps/server/scripts/harness'
-import { serverInitials } from '../packages/contracts/src/index'
 import { browserApp, expectHome, loginOf, member, serverURL } from './accounts'
 import { serverName, useScratchServer } from './server'
 
@@ -55,9 +54,10 @@ test('the desktop opens to Home with no stored credential and sends none', async
   }
 })
 
-test('the browser build keeps the app title bar', async ({ page }) => {
+test('the browser build gives the conversation the full window height', async ({ page }) => {
   await member(server.admin, page, 'browserbar')
-  await expect(page.getByRole('banner')).toHaveText(`${serverInitials(serverName)}${serverName}`)
+  await expect(page.locator('.titlebar')).toBeHidden()
+  await expect(page.locator('.app')).toHaveJSProperty('offsetTop', 0)
   await expect(page.locator('.window-bar')).toHaveCount(0)
 })
 

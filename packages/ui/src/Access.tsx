@@ -102,14 +102,32 @@ function Identity({ login }: { login: string }) {
     </p>
   )
 }
-function HadAccount({ login }: { login: string }) {
+function HadAccount({
+  login,
+  busy,
+  onCheck,
+}: {
+  login: string
+  busy: boolean
+  onCheck: () => void
+}) {
   return (
-    <div className="access-footer access-had-account">
-      <p>Had an account here before? Don't create a new one. Send your admin this login.</p>
-      <CopyButton value={login} label="Copy login" />
-    </div>
+    <section className="access-had-account">
+      <h2>Been here before?</h2>
+      <p>
+        Ask your admin to link this Tailscale login to your existing account before creating a new
+        one.
+      </p>
+      <div className="access-account-actions">
+        <CopyButton value={login} label="Copy login" />
+        <button type="button" className="access-secondary" disabled={busy} onClick={onCheck}>
+          Check again
+        </button>
+      </div>
+    </section>
   )
 }
+
 export function Access({
   client,
   act,
@@ -126,6 +144,9 @@ export function Access({
   onServer?: () => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [name, setName] = useState(
+    stage.kind === 'setup' || stage.kind === 'join' ? stage.suggestedName : '',
+  )
   const [failure, setFailure] = useState<{ screen: Screen; error: unknown } | null>(null)
   const [retryAt, setRetryAt] = useState(0)
   const [joinCode, setJoinCode] = useState(() => readJoinCode(client.origin))
@@ -222,15 +243,11 @@ export function Access({
         problem?.code === 'invalid' || problem?.code === 'expired' ? problem : null
       return (
         <Frame>
-          <ServerCard
-            server={server}
-            label="New server"
-            onServer={onServer}
-            serverLabel="Change server"
-          />
           <Heading
-            title="Set up this server"
-            description="Name this server and create the first account. Friends join later with the invite link you share from Huddle."
+            title="A place for your people."
+            label="Set up this server"
+            description="Name this server and create the first account. Share an invite with friends once you’re in."
+            back={onServer}
           />
           <Identity login={stage.login} />
           <form
@@ -268,7 +285,8 @@ export function Access({
                 required
                 maxLength={80}
                 autoComplete="name"
-                defaultValue={stage.suggestedName}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
               />
             </label>
             <Primary busy={busy} disabled={working}>
@@ -278,7 +296,7 @@ export function Access({
           {!codeProblem && <ProblemAlert problem={problem} />}
           {!codeProblem && (
             <p className="access-footer">
-              The setup code is in the server log. It works once and changes each time the server
+              Find the setup code in the server log. It works once and changes when the server
               restarts.
             </p>
           )}
@@ -300,6 +318,7 @@ export function Access({
           <Identity login={stage.login} />
           {joinCode ? (
             <form
+              key="create-account"
               onSubmit={(event) =>
                 submit('join', event, (form) => ({
                   kind: 'account.join',
@@ -315,7 +334,8 @@ export function Access({
                   required
                   maxLength={80}
                   autoComplete="name"
-                  defaultValue={stage.suggestedName}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
                 />
               </label>
               <Primary busy={busy} disabled={working}>
@@ -323,7 +343,7 @@ export function Access({
               </Primary>
             </form>
           ) : (
-            <form onSubmit={acceptInvite} noValidate>
+            <form key="accept-invite" onSubmit={acceptInvite} noValidate>
               <label className="access-label">
                 Invite link
                 <input
@@ -342,10 +362,7 @@ export function Access({
           )}
           <Alert message={inviteProblem} />
           <ProblemAlert problem={problemOn('join')} />
-          <HadAccount login={stage.login} />
-          <button type="button" className="access-link" disabled={working} onClick={checkAgain}>
-            Check again
-          </button>
+          <HadAccount login={stage.login} busy={working} onCheck={checkAgain} />
           {checked && !busy && (
             <p className="access-footer" role="status">
               This login isn't linked to an account yet.

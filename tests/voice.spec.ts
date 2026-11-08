@@ -56,8 +56,8 @@ test('everyone in a room sees who is in a voice channel before joining', async (
 
     await join(bo.page).click()
     await expectInCall(bo.page)
-    await expect(inLounge(ada.page)).toHaveText([ada.name, bo.name])
-    await expect(inLounge(bo.page)).toHaveText([ada.name, bo.name])
+    await expect(inLounge(ada.page)).toHaveText(['You', bo.name])
+    await expect(inLounge(bo.page)).toHaveText([ada.name, 'You'])
 
     await panel(bo.page).getByRole('button', { name: 'Leave call', exact: true }).click()
     await expect(inLounge(bo.page)).toHaveText([ada.name])
@@ -456,7 +456,9 @@ test('losing the connection shows Reconnecting and the call comes back', async (
     await join(ada.page).click()
     await expectInCall(ada.page)
     await ada.context.setOffline(true)
-    await expect(panel(ada.page).getByRole('status')).toHaveText('Reconnecting', { timeout: 30000 })
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Reconnecting…', {
+      timeout: 30000,
+    })
     await expect(main(ada.page).getByText('Reconnecting.', { exact: true })).toBeVisible()
     await ada.context.setOffline(false)
     await expectInCall(ada.page)

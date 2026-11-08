@@ -25,7 +25,8 @@ test('the rail scrolls with many rooms, the last tile is reachable, and tooltips
   const tile = await lastTile.boundingBox()
   const panel = await page.locator('.account').boundingBox()
   if (!tile || !panel) throw new Error('The last tile or the account panel is not on screen.')
-  expect(tile.y + tile.height).toBeLessThanOrEqual(panel.y)
+  expect(tile.x + tile.width).toBeLessThanOrEqual(panel.x)
+  expect(tile.y + tile.height).toBeLessThanOrEqual(600)
 
   await last.hover()
   const tip = page.locator('.rail-tooltip')

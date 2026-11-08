@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeftRight, ChevronDown, Plus, Settings, UserPlus, Users } from 'lucide-react'
+import { ArrowLeftRight, ChevronDown, Plus, Settings, Users } from 'lucide-react'
 import type {
   Channel,
   ChannelKind,
@@ -11,13 +11,15 @@ import type {
   Server,
   VoicePresence,
 } from '@huddle/contracts'
+import { GroupIcon } from './GroupChat'
+import type { GroupRow } from './chat'
 import type { Transport } from './transport'
 import { threadKey, type Activity, type Unread } from './useServer'
 import type { Dialog, DirectRow, View } from './ServerView'
-import { roleLabels } from './Members'
 import { Avatar } from './Avatar'
 import { ChannelIcon, initials } from './Badges'
 import { Logo } from './primitives'
+import { Popover } from './Popover'
 import { CallPanel } from './Voice'
 import type { VoiceCall } from './voiceCall'
 
@@ -34,6 +36,7 @@ function RailTile({
   description,
   current = false,
   pill = false,
+  bottom = false,
   hints,
   onClick,
   children,
@@ -43,12 +46,15 @@ function RailTile({
   description?: string
   current?: boolean
   pill?: boolean
+  bottom?: boolean
   hints: RailHints
   onClick: () => void
   children: ReactNode
 }) {
   return (
-    <div className={`rail-item ${current ? 'current' : ''} ${pill ? 'unread' : ''}`}>
+    <div
+      className={`rail-item ${current ? 'current' : ''} ${pill ? 'unread' : ''} ${bottom ? 'bottom' : ''}`}
+    >
       <i className="rail-pill" />
       <button
         className="rail-tile"
@@ -109,7 +115,14 @@ function Rail({
     },
   }
   return (
-    <nav className="rail" aria-label="Rooms" onScroll={place}>
+    <nav
+      className="rail"
+      aria-label="Rooms"
+      onScroll={place}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') hints.hide()
+      }}
+    >
       <RailTile
         name="Home"
         badge={homeCount}
@@ -118,7 +131,7 @@ function Rail({
         hints={hints}
         onClick={() => onView({ kind: 'home' })}
       >
-        <Logo size={24} />
+        <Logo size={36} />
       </RailTile>
       <i className="rail-separator" />
       {rooms.map((room) => {
@@ -140,12 +153,12 @@ function Rail({
       })}
       {admin && (
         <RailTile name="Create room" hints={hints} onClick={() => onDialog({ kind: 'room' })}>
-          <Plus size={20} />
+          <Plus size={18} />
         </RailTile>
       )}
       {onServer && (
-        <RailTile name="Switch server" hints={hints} onClick={onServer}>
-          <ArrowLeftRight size={20} />
+        <RailTile bottom name="Switch server" hints={hints} onClick={onServer}>
+          <ArrowLeftRight size={18} />
         </RailTile>
       )}
       <span
@@ -175,10 +188,10 @@ function Section({
           <button
             className="icon-button"
             aria-label={create.name}
-            title={create.name}
+            data-tooltip={create.name}
             onClick={create.onClick}
           >
-            <Plus size={16} />
+            <Plus size={14} />
           </button>
         )}
       </div>
@@ -187,8 +200,8 @@ function Section({
   )
 }
 const channelSections: { kind: ChannelKind; label: string; create: string }[] = [
-  { kind: 'text', label: 'Text Channels', create: 'Create text channel' },
-  { kind: 'voice', label: 'Voice Channels', create: 'Create voice channel' },
+  { kind: 'text', label: 'Text channels', create: 'Create text channel' },
+  { kind: 'voice', label: 'Voice channels', create: 'Create voice channel' },
 ]
 export function Sidebar({
   client,
@@ -198,6 +211,7 @@ export function Sidebar({
   channels,
   unread,
   directs,
+  groups,
   view,
   connection,
   voice,
@@ -217,6 +231,7 @@ export function Sidebar({
   channels: Channel[]
   unread: Unread
   directs: DirectRow[]
+  groups: GroupRow[]
   view: View
   connection: string
   voice: VoiceCall
@@ -246,18 +261,16 @@ export function Sidebar({
         }),
         { count: 0, mentions: 0 },
       )
-  const menu = useRef<HTMLDivElement>(null)
-  const act = (action: () => void) => () => {
-    menu.current?.hidePopover()
-    action()
-  }
   return (
     <>
       <Rail
         rooms={rooms}
         roomActivity={roomActivity}
         admin={admin}
-        homeCount={directs.reduce((total, direct) => total + direct.unread, 0)}
+        homeCount={
+          directs.reduce((total, direct) => total + direct.unread, 0) +
+          groups.reduce((total, group) => total + group.unread, 0)
+        }
         view={view}
         onView={onView}
         onRoom={onRoom}
@@ -269,22 +282,53 @@ export function Sidebar({
           <strong>{title}</strong>
           <ChevronDown size={18} />
         </button>
-        <div ref={menu} id="server-menu" popover="auto" className="menu">
-          {admin && (
-            <button onClick={act(() => onDialog({ kind: 'invite' }))}>
-              <UserPlus size={16} />
-              <span>Share invite</span>
+        <Popover id="server-menu" label={`${title} actions`} menu align="start">
+          <p className="menu-context">{title}</p>
+          {admin && room && (
+            <button
+              type="button"
+              onClick={() => onDialog({ kind: 'channel', roomId: room.id, channelKind: 'text' })}
+            >
+              Create a channel
             </button>
           )}
-          <button onClick={act(onSettings)}>
-            <Settings size={16} />
-            <span>Settings</span>
-          </button>
-        </div>
-        <nav className="sidebar-nav" aria-label={room ? `${room.name} channels` : server.name}>
+          {admin && !room && (
+            <button type="button" onClick={() => onView({ kind: 'members' })}>
+              Members
+            </button>
+          )}
           {admin && (
+            <button type="button" onClick={() => onDialog({ kind: 'room' })}>
+              Create a room
+            </button>
+          )}
+          {admin && <hr />}
+          <button type="button" onClick={onSettings}>
+            Settings
+          </button>
+          {!room && onServer && (
+            <button type="button" onClick={onServer}>
+              Switch server
+            </button>
+          )}
+        </Popover>
+        <nav
+          className={`sidebar-nav ${room ? '' : 'home-nav'}`}
+          aria-label={room ? `${room.name} channels` : server.name}
+        >
+          {!room && (
             <button
-              className="nav-row members-row"
+              className="nav-row home-nav-row"
+              aria-current={view.kind === 'home' ? 'page' : undefined}
+              onClick={() => onView({ kind: 'home' })}
+            >
+              <Logo size={24} />
+              <span>Home</span>
+            </button>
+          )}
+          {!room && admin && (
+            <button
+              className="nav-row home-nav-row"
               aria-current={view.kind === 'members' ? 'page' : undefined}
               onClick={() => onView({ kind: 'members' })}
             >
@@ -333,7 +377,14 @@ export function Sidebar({
                           >
                             <ChannelIcon kind={channel.kind} size={18} />
                             <span>{channel.name}</span>
-                            {inCall && <span className="sr-only">you're in this call</span>}
+                            {inCall && (
+                              <>
+                                <span className="voice-in-call" aria-hidden="true">
+                                  In call
+                                </span>
+                                <span className="sr-only">you're in this call</span>
+                              </>
+                            )}
                             {mentions > 0 && (
                               <b className="nav-count">
                                 {mentions}
@@ -362,7 +413,7 @@ export function Sidebar({
                                       photo={client.photo?.bind(client)}
                                       size={20}
                                     />
-                                    <span>{name}</span>
+                                    <span>{person.id === me.user.id ? 'You' : name}</span>
                                   </li>
                                 )
                               })}
@@ -378,36 +429,80 @@ export function Sidebar({
             </>
           ) : (
             <Section
-              label="Direct Messages"
+              label={groups.length ? 'Messages' : 'Direct messages'}
               create={{ name: 'New message', onClick: () => onDialog({ kind: 'direct' }) }}
             >
-              {directs.map((direct) => (
-                <button
-                  key={direct.id}
-                  className={`nav-row direct-row ${direct.unread ? 'unread' : ''}`}
-                  aria-current={
-                    view.kind === 'direct' && view.conversationId === direct.id ? 'page' : undefined
-                  }
-                  onClick={() => onDirect(direct.id)}
-                >
-                  <i className="avatar-slot" aria-hidden="true">
-                    <Avatar
-                      avatar={direct.peer.avatar}
-                      name={direct.peer.name}
-                      photo={client.photo?.bind(client)}
-                      size={24}
-                    />
-                  </i>
-                  <span>{direct.peer.name}</span>
-                  {direct.unread > 0 && (
-                    <>
-                      <i className="unread-pill" />
-                      <span className="sr-only">unread</span>
-                    </>
-                  )}
-                </button>
-              ))}
-              {!directs.length && <p className="sidebar-note">No messages yet.</p>}
+              {[
+                ...groups.map((group) => ({
+                  kind: 'group' as const,
+                  group,
+                  cursor: group.latest?.cursor ?? group.revision,
+                })),
+                ...directs.map((direct) => ({
+                  kind: 'direct' as const,
+                  direct,
+                  cursor: direct.latest?.cursor ?? '0',
+                })),
+              ]
+                .sort((a, b) => (BigInt(a.cursor) > BigInt(b.cursor) ? -1 : 1))
+                .map((row) =>
+                  row.kind === 'group' ? (
+                    <button
+                      key={row.group.id}
+                      className={`nav-row direct-row ${row.group.unread ? 'unread' : ''}`}
+                      aria-current={
+                        view.kind === 'group' && view.thread.id === row.group.id
+                          ? 'page'
+                          : undefined
+                      }
+                      onClick={() => onView({ kind: 'group', thread: row.group.thread })}
+                    >
+                      <GroupIcon />
+                      <span>{row.group.name}</span>
+                      {row.group.unread > 0 && (
+                        <b className="direct-count">
+                          {row.group.unread}
+                          <span className="sr-only"> unread</span>
+                        </b>
+                      )}
+                    </button>
+                  ) : (
+                    (() => {
+                      const direct = row.direct
+                      return (
+                        <button
+                          key={direct.id}
+                          className={`nav-row direct-row ${direct.unread ? 'unread' : ''}`}
+                          aria-current={
+                            view.kind === 'direct' && view.conversationId === direct.id
+                              ? 'page'
+                              : undefined
+                          }
+                          onClick={() => onDirect(direct.id)}
+                        >
+                          <i className="avatar-slot" aria-hidden="true">
+                            <Avatar
+                              avatar={direct.peer.avatar}
+                              name={direct.peer.name}
+                              photo={client.photo?.bind(client)}
+                              size={28}
+                            />
+                          </i>
+                          <span>{direct.peer.name}</span>
+                          {direct.unread > 0 && (
+                            <b className="direct-count">
+                              {direct.unread}
+                              <span className="sr-only"> unread</span>
+                            </b>
+                          )}
+                        </button>
+                      )
+                    })()
+                  ),
+                )}
+              {!groups.length && !directs.length && (
+                <p className="sidebar-note">No messages yet.</p>
+              )}
             </Section>
           )}
         </nav>
@@ -415,6 +510,7 @@ export function Sidebar({
       <CallPanel
         voice={voice}
         channels={channels}
+        rooms={rooms}
         viewing={view.kind === 'room' ? view.channelId : null}
         onOpen={(channel) =>
           onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
@@ -428,16 +524,20 @@ export function Sidebar({
             photo={client.photo?.bind(client)}
             size={32}
           />
-          <i className={`presence ${connection === 'Connected' ? 'online' : ''}`} />
         </span>
         <span className="account-name">
           <strong>{me.user.name}</strong>
-          <span>{connection === 'Connected' ? roleLabels[server.role] : connection}</span>
+          <span>{connection}</span>
           <span className="sr-only" role="status">
             {connection}
           </span>
         </span>
-        <button className="icon-button" aria-label="Settings" title="Settings" onClick={onSettings}>
+        <button
+          className="icon-button"
+          aria-label="Settings"
+          data-tooltip="Settings"
+          onClick={onSettings}
+        >
           <Settings size={18} />
         </button>
       </footer>

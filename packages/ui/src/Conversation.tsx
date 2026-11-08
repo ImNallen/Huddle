@@ -1,4 +1,5 @@
-import { Hash } from 'lucide-react'
+import { Popover } from './Popover'
+import { Hash, MoreHorizontal } from 'lucide-react'
 import type { Channel, Me } from '@huddle/contracts'
 import type { Transport } from './transport'
 import type { useServer } from './useServer'
@@ -18,9 +19,15 @@ export function ChannelConversation({
   channel,
   memberList,
   onMemberList,
+  memberCount,
+  onInvite,
+  onSettings,
   ...shared
 }: Shared & {
   channel: Channel
+  memberCount: number
+  onInvite?: () => void
+  onSettings: () => void
   memberList: boolean
   onMemberList: () => void
 }) {
@@ -31,50 +38,110 @@ export function ChannelConversation({
       label={`Message #${channel.name}`}
       topbar={
         <header className="topbar">
-          <Hash size={20} />
+          <Hash size={18} />
           <strong>{channel.name}</strong>
-          <MemberToggle pressed={memberList} onToggle={onMemberList} />
+          <div className="channel-actions">
+            {onInvite && (
+              <button className="header-pill" onClick={onInvite}>
+                <span>Share invite</span>
+              </button>
+            )}
+            <MemberToggle pressed={memberList} onToggle={onMemberList} count={memberCount} />
+            <button
+              className="icon-button"
+              aria-label="Channel options"
+              data-tooltip="Channel options"
+              popoverTarget="channel-menu"
+            >
+              <MoreHorizontal size={18} />
+            </button>
+          </div>
+          <Popover id="channel-menu" label="Channel actions" menu>
+            <p className="menu-context">#{channel.name}</p>
+            <button type="button" onClick={onSettings}>
+              Settings
+            </button>
+          </Popover>
         </header>
       }
       welcome={
         <>
-          <span className="empty-mark">
-            <Hash size={40} />
-          </span>
-          <h1>Welcome to #{channel.name}</h1>
-          <p>This is the start of #{channel.name}.</p>
+          <h1 aria-label={`Welcome to #${channel.name}`}>A place for the everyday.</h1>
+          <p>Plans, little updates, and whatever’s on your mind.</p>
+        </>
+      }
+      emptyWelcome={
+        <>
+          <h1 aria-label={`Welcome to #${channel.name}`}>The start of #{channel.name}</h1>
+          <p>No messages yet. Say hello when you’re ready.</p>
         </>
       }
     />
   )
 }
-export function DirectConversation({ direct, ...shared }: Shared & { direct: DirectRow }) {
+export function DirectConversation({
+  direct,
+  onSettings,
+  ...shared
+}: Shared & { direct: DirectRow; onSettings: () => void }) {
   const { name, avatar } = direct.peer
+  const [firstName = name] = name.split(/\s+/)
   const photo = shared.client.photo?.bind(shared.client)
   return (
     <Transcript
       {...shared}
       thread={{ kind: 'direct', id: direct.id }}
       label={`Message @${name}`}
+      placeholder={`Message ${firstName}`}
       topbar={
-        <header className="topbar">
+        <header className="topbar direct-topbar">
           <i className="avatar-slot" aria-hidden="true">
-            <Avatar avatar={avatar} name={name} photo={photo} size={24} />
+            <Avatar avatar={avatar} name={name} photo={photo} size={32} />
           </i>
-          <strong>{name}</strong>
+          <div className="direct-person">
+            <strong>{name}</strong>
+            <span>Direct message</span>
+          </div>
+          <button
+            className="icon-button direct-details-trigger"
+            aria-label="Conversation details"
+            data-tooltip="Conversation details"
+            popoverTarget="direct-details"
+          >
+            <MoreHorizontal size={18} />
+          </button>
+          <Popover
+            id="direct-details"
+            role="region"
+            label="Conversation details"
+            className="direct-details"
+          >
+            <h2 id="direct-details-title">Conversation details</h2>
+            <p>Messages are stored on this server unencrypted, so its host could read them.</p>
+            <button
+              className="button small"
+              onClick={(event) => {
+                event.currentTarget.parentElement?.hidePopover()
+                onSettings()
+              }}
+            >
+              Settings
+            </button>
+          </Popover>
         </header>
       }
       welcome={
         <>
-          <i className="avatar-slot welcome-avatar" aria-hidden="true">
-            <Avatar avatar={avatar} name={name} photo={photo} size={68} />
-          </i>
-          <h1>{name}</h1>
-          <p>This is the start of your conversation with {name}.</p>
-          <p className="welcome-note">
-            Messages are stored on this server unencrypted, so its host could read them.
-          </p>
+          <h1 aria-label={`Conversation with ${name}`}>Just the two of you.</h1>
+          <p>This is your conversation with {firstName}.</p>
         </>
+      }
+      emptyWelcome={
+        <div className="empty-conversation">
+          <Avatar avatar={avatar} name={name} photo={photo} size={52} />
+          <h1 aria-label={`Conversation with ${name}`}>Say hello to {firstName}.</h1>
+          <p>This is the start of your conversation with {firstName}.</p>
+        </div>
       }
     />
   )

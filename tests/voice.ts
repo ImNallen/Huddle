@@ -136,7 +136,10 @@ export const main = (page: Page) => page.getByRole('main')
 export const join = (page: Page) =>
   main(page).getByRole('button', { name: 'Join voice', exact: true })
 export async function expectInCall(page: Page) {
-  await expect(panel(page).getByRole('status')).toHaveText('Voice connected', { timeout: 40000 })
+  await expect(panel(page).getByRole('status')).toHaveText(
+    /^(Voice connected|Microphone muted|Deafened)$/,
+    { timeout: 40000 },
+  )
 }
 export const inCallList = (page: Page) => main(page).getByRole('list', { name: 'In this call' })
 export const inCallNames = (page: Page) => inCallList(page).locator('.call-person-name')
