@@ -187,7 +187,7 @@ We accept no sign-out and no per-device view in exchange for no session state an
 
 `000_better_auth_baseline.sql` looks like dead code, because 013 drops most of what it creates. It lets 001 to 012 replay on a fresh database and lets `test:rooms-migration` keep proving the legacy paths.
 
-Video, file uploads, message editing, and mobile clients are follow-up slices, and so are calls in the desktop app. The interface must not pretend those features work, so a server without LiveKit and the desktop app show a notice in a voice channel, with no call controls.
+Video, file uploads, and mobile clients are follow-up slices, and so are calls in the desktop app. The interface must not pretend those features work, so a server without LiveKit and the desktop app show a notice in a voice channel, with no call controls.
 
 ## Verification
 
