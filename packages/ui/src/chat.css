@@ -406,12 +406,12 @@ textarea::placeholder {
   stroke-width: 1.6;
 }
 .rail-item:first-child .rail-tile {
+  width: 42px;
+  height: 42px;
   background: transparent;
   color: var(--text);
 }
 .rail-item:first-child .rail-tile[aria-current] {
-  width: 42px;
-  height: 42px;
   border-radius: 13px;
   background: var(--selected);
 }
@@ -475,6 +475,7 @@ textarea::placeholder {
   background: var(--sidebar);
 }
 .sidebar-header {
+  padding: 0 12px;
   display: flex;
   flex: none;
   align-items: center;
@@ -628,7 +629,7 @@ textarea::placeholder {
   font-weight: 500;
   text-align: left;
 }
-.nav-row > span:not(.sr-only, .huddle-logo) {
+.nav-row > span:not(.sr-only, .huddle-logo, .voice-in-call) {
   overflow: hidden;
   flex: 1;
   text-overflow: ellipsis;
@@ -803,7 +804,8 @@ textarea::placeholder {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 40px;
+  min-height: 48px;
+  padding: 6px 8px;
   min-width: 0;
   border-radius: 8px;
   line-height: 1.4;
@@ -816,9 +818,8 @@ textarea::placeholder {
   display: grid;
   flex: 1;
   gap: 3px;
-  align-content: start;
+  align-content: center;
   min-width: 0;
-  height: 40px;
 }
 .call-status {
   overflow: hidden;
@@ -901,10 +902,10 @@ textarea::placeholder {
   font-weight: 500;
 }
 .app:has(.call-panel) .sidebar-nav {
-  padding-bottom: 236px;
+  padding-bottom: 244px;
 }
 .app:has(.call-sound) .sidebar-nav {
-  padding-bottom: 282px;
+  padding-bottom: 290px;
 }
 
 .main {
@@ -2540,7 +2541,7 @@ button.member-row:hover {
     margin-left: 32px;
   }
   .members {
-    padding: 16px;
+    padding: 16px 0;
   }
   .members-table th,
   .members-table td {
@@ -2574,10 +2575,10 @@ button.member-row:hover {
     height: 32px;
   }
   .app:has(.call-panel) .sidebar-nav {
-    padding-bottom: 292px;
+    padding-bottom: 300px;
   }
   .app:has(.call-sound) .sidebar-nav {
-    padding-bottom: 338px;
+    padding-bottom: 346px;
   }
   .rail-tile {
     font-size: 12px;

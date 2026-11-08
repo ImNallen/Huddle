@@ -43,6 +43,19 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   await page.goto(browserApp)
   await expectHome(page)
   const serverButton = page.getByRole('button', { name: 'Huddle UI menu', exact: true })
+  for (const width of [1440, 640]) {
+    await page.setViewportSize({ width, height: 900 })
+    const insets = await serverButton.evaluate((button) => {
+      const title = button.querySelector('strong')?.getBoundingClientRect()
+      const chevron = button.querySelector('svg')?.getBoundingClientRect()
+      if (!title || !chevron) throw new Error('The server menu is missing its labels.')
+      const box = button.getBoundingClientRect()
+      return { left: title.left - box.left, right: box.right - chevron.right }
+    })
+    expect(insets.left).toBeGreaterThanOrEqual(12)
+    expect(insets.right).toBeGreaterThanOrEqual(12)
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await serverButton.focus()
   await page.keyboard.press('Enter')
   const menu = page.locator('#server-menu')

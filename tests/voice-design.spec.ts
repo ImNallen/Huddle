@@ -120,7 +120,7 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await expect.poll(() => page.evaluate(() => !!window.releaseVoiceDesignMicrophone)).toBe(true)
     await channelRow(page, 'The studio', 'general').click()
     await expect(panel(page).getByRole('status')).toHaveText('Waiting for microphone')
-    await expect(panel(page)).toHaveCSS('height', '108px')
+    await expect(panel(page)).toHaveCSS('height', '116px')
     await both(page, 'voice-permission')
     await panel(page).getByRole('button', { name: 'Cancel', exact: true }).click()
     await page.evaluate(() => window.releaseVoiceDesignMicrophone?.())
@@ -147,9 +147,35 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await expectHearing(page)
     await expectHearing(maya)
     await expect(panel(page)).toHaveCSS('width', '244px')
-    await expect(panel(page)).toHaveCSS('height', '124px')
+    await expect(panel(page)).toHaveCSS('height', '132px')
     await expect(panel(page).locator('.call-location')).toHaveText('the-lounge · The studio')
     await expect(page.locator('.voice-in-call')).toHaveText('In call')
+    const badge = page.locator('.voice-in-call')
+    const row = channelRow(page, 'The studio', 'the-lounge')
+    const rowBox = await row.boundingBox()
+    const badgeBox = await badge.boundingBox()
+    if (!rowBox || !badgeBox) throw new Error('The active call row is not visible.')
+    expect(rowBox.x + rowBox.width - (badgeBox.x + badgeBox.width)).toBeCloseTo(12, 0)
+    expect(badgeBox.width).toBeLessThan(40)
+    const headerInsets = await panel(page)
+      .locator('.call-place')
+      .evaluate((button) => {
+        const box = button.getBoundingClientRect()
+        const summary = button.querySelector('.call-summary')?.getBoundingClientRect()
+        const open = button.querySelector('.call-open')?.getBoundingClientRect()
+        if (!summary || !open) throw new Error('The call header is missing its labels.')
+        return {
+          left: summary.left - box.left,
+          right: box.right - open.right,
+          top: summary.top - box.top,
+          bottom: box.bottom - summary.bottom,
+        }
+      })
+    expect(headerInsets.left).toBeGreaterThanOrEqual(8)
+    expect(headerInsets.right).toBeGreaterThanOrEqual(8)
+    expect(headerInsets.top).toBeGreaterThanOrEqual(6)
+    expect(headerInsets.bottom).toBeGreaterThanOrEqual(6)
+
     await expect(page.getByRole('list', { name: 'In the-lounge', exact: true })).toContainText(
       'You',
     )
@@ -242,7 +268,7 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await expect(panel(page).getByRole('status')).toHaveText('Call ended', { timeout: 20000 })
     await expect.poll(() => openMicrophones(page)).toBe(0)
     await expect.poll(() => openPeers(page)).toBe(0)
-    await expect(panel(page)).toHaveCSS('height', '108px')
+    await expect(panel(page)).toHaveCSS('height', '116px')
     await both(page, 'voice-ended')
     await panel(page).getByRole('button', { name: 'Open quiet-corner', exact: true }).click()
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
@@ -276,7 +302,7 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await channelRow(page, 'The studio', 'general').click()
     const sound = panel(page).getByRole('button', { name: 'Turn on sound', exact: true })
     await expect(sound).toBeVisible({ timeout: 20000 })
-    await expect(panel(page)).toHaveCSS('height', '170px')
+    await expect(panel(page)).toHaveCSS('height', '178px')
     await both(page, 'voice-sound-blocked')
     await sound.click()
     await expect(sound).toHaveCount(0)

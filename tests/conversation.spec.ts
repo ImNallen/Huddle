@@ -41,7 +41,7 @@ test('an invited colleague joins the server, sends, reconnects, and loses their 
     await join(second, 'colleague', code)
     await railTile(second, 'Design').click()
     await expect(second.getByRole('heading', { name: 'Welcome to #general' })).toBeVisible()
-    await expect(second.getByRole('status')).toHaveText('Connected')
+    await expect(second.locator('.account').getByRole('status')).toHaveText('Connected')
     await page
       .getByRole('textbox', { name: 'Message #general' })
       .fill('A conversation between two real accounts.')

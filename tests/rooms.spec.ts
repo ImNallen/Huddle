@@ -134,7 +134,50 @@ test('rooms hold their own channels, remember one, and voice channels say when a
     await page.getByLabel('Channel name').fill('reading-list')
     await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
     await expect(member.getByRole('heading', { name: 'Welcome to #reading-list' })).toBeVisible()
+    await checkChannelNamesAndRail(page)
   } finally {
     await friend.close()
   }
 })
+
+async function checkChannelNamesAndRail(page: Page) {
+  await createRoom(page, 'Naming')
+  const roomTile = railTile(page, 'Naming')
+  const homeTile = railTile(page, 'Home')
+  const roomBox = await roomTile.boundingBox()
+  const homeBox = await homeTile.boundingBox()
+  await homeTile.click()
+  expect(await roomTile.boundingBox()).toEqual(roomBox)
+  expect(await homeTile.boundingBox()).toEqual(homeBox)
+  await roomTile.click()
+  expect(await roomTile.boundingBox()).toEqual(roomBox)
+
+  await page.getByRole('button', { name: 'Create text channel', exact: true }).click()
+  const name = page.getByLabel('Channel name')
+  await name.fill('ÅÄÖ-123')
+  await expect(name).toHaveValue('åäö-123')
+  for (const invalid of ['with spaces', 'no_underscores', 'no!']) {
+    await name.fill(invalid)
+    expect(await name.evaluate((input: HTMLInputElement) => input.checkValidity())).toBe(false)
+  }
+  await name.fill('åäö-123')
+  await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
+  await expect(page.getByRole('heading', { name: 'Welcome to #åäö-123' })).toBeVisible()
+  await createTextChannel(page, 'café-2')
+
+  for (const voiceName of ['Game 1', 'B33rs With the B0ys', 'Öppet 🎮!']) {
+    await page.getByRole('button', { name: 'Create voice channel', exact: true }).click()
+    await name.fill(voiceName)
+    await page.getByRole('dialog').getByRole('button', { name: 'Create channel' }).click()
+    await expect(
+      page.getByRole('main').getByRole('heading', { name: voiceName, exact: true }),
+    ).toBeVisible()
+  }
+  await page.reload()
+  await roomTile.click()
+  for (const channel of ['åäö-123', 'café-2', 'Game 1', 'B33rs With the B0ys', 'Öppet 🎮!']) {
+    await expect(
+      channelList(page, 'Naming').getByRole('button', { name: channel, exact: true }),
+    ).toBeVisible()
+  }
+}

@@ -4,6 +4,7 @@ import {
   Channel,
   Room,
   ServerInvite,
+  TEXT_CHANNEL_NAME_PATTERN,
   parseInvite,
   type ChannelKind,
   type Member,
@@ -128,7 +129,7 @@ export function RoomDialog({
 }
 const channelKinds: { kind: ChannelKind; label: string; placeholder: string }[] = [
   { kind: 'text', label: 'Text', placeholder: 'e.g. code-review' },
-  { kind: 'voice', label: 'Voice', placeholder: 'e.g. hangout' },
+  { kind: 'voice', label: 'Voice', placeholder: 'e.g. Game 1' },
 ]
 export function ChannelDialog({
   client,
@@ -144,6 +145,7 @@ export function ChannelDialog({
   onDone: (channel: Channel) => void
 }) {
   const [kind, setKind] = useState(initialKind)
+  const [name, setName] = useState('')
   return (
     <FormDialog
       title="Add a channel"
@@ -171,7 +173,10 @@ export function ChannelDialog({
               name="kind"
               value={option.kind}
               checked={kind === option.kind}
-              onChange={() => setKind(option.kind)}
+              onChange={() => {
+                setKind(option.kind)
+                if (option.kind === 'text') setName((name) => name.toLowerCase())
+              }}
             />
             <ChannelIcon kind={option.kind} size={18} />
             <strong>{option.label}</strong>
@@ -185,13 +190,21 @@ export function ChannelDialog({
         <input
           name="name"
           placeholder={channelKinds.find((option) => option.kind === kind)?.placeholder}
-          pattern={'[a-z0-9][a-z0-9\\-]{0,39}'}
+          pattern={kind === 'text' ? TEXT_CHANNEL_NAME_PATTERN : undefined}
+          value={name}
+          onChange={(event) =>
+            setName(kind === 'text' ? event.target.value.toLowerCase() : event.target.value)
+          }
           maxLength={40}
           required
           autoFocus
         />
       </label>
-      <p className="field-hint">Use lowercase letters, numbers, and hyphens.</p>
+      <p className="field-hint">
+        {kind === 'text'
+          ? 'Use lowercase letters (including å, ä, ö), numbers, and hyphens.'
+          : 'Use any name, including spaces, capitals, and emoji.'}
+      </p>
     </FormDialog>
   )
 }
@@ -227,8 +240,8 @@ export function NewMessageDialog({
   )
   const active = filtered.find((member) => member.id === activeId) ?? filtered[0]
   useEffect(() => {
-    if (members.kind === 'ready') search.current?.focus()
-  }, [members.kind])
+    if (members.kind === 'ready' && !busy) search.current?.focus()
+  }, [members.kind, busy])
   function choose(userId: UserId) {
     if (busy) return
     setBusy(true)
@@ -236,7 +249,6 @@ export function NewMessageDialog({
     onChoose(userId).catch((failure: unknown) => {
       setError(errorText(failure))
       setBusy(false)
-      requestAnimationFrame(() => search.current?.focus())
     })
   }
   function move(direction: -1 | 1) {
