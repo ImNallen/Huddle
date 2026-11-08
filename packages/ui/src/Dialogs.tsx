@@ -240,8 +240,8 @@ export function NewMessageDialog({
   )
   const active = filtered.find((member) => member.id === activeId) ?? filtered[0]
   useEffect(() => {
-    if (members.kind === 'ready') search.current?.focus()
-  }, [members.kind])
+    if (members.kind === 'ready' && !busy) search.current?.focus()
+  }, [members.kind, busy])
   function choose(userId: UserId) {
     if (busy) return
     setBusy(true)
@@ -249,7 +249,6 @@ export function NewMessageDialog({
     onChoose(userId).catch((failure: unknown) => {
       setError(errorText(failure))
       setBusy(false)
-      requestAnimationFrame(() => search.current?.focus())
     })
   }
   function move(direction: -1 | 1) {

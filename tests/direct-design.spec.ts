@@ -166,8 +166,18 @@ test('direct conversations and the searchable person picker match both themes an
 
   await sidebar.getByRole('button', { name: 'New message', exact: true }).click()
   await search.fill('Nora')
-  await page.route('**/api/direct/conversations', (route) => route.abort('connectionfailed'))
+  let rejectOpen = () => {}
+  const opening = new Promise<void>((resolve) => {
+    rejectOpen = resolve
+  })
+  await page.route('**/api/direct/conversations', async (route) => {
+    await opening
+    await route.abort('connectionfailed')
+  })
   await search.press('Enter')
+  await expect(search).toBeDisabled()
+  await expect(picker.getByRole('status')).toHaveText('Opening conversation…')
+  rejectOpen()
   await expect(picker.getByRole('alert')).toBeVisible()
   await expect(search).toBeEnabled()
   await expect(search).toBeFocused()
