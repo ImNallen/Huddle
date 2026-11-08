@@ -47,6 +47,8 @@ export const Message = z.object({
   body: z.string(),
   cursor: Cursor,
   createdAt: z.string(),
+  revision: Cursor.default('0'),
+  editedAt: z.string().nullable().default(null),
 })
 export const DirectMessage = Message.omit({ channelId: true }).extend({
   conversationId: ConversationId,
@@ -100,7 +102,30 @@ export type GroupMessage = z.infer<typeof GroupMessage>
 export type GroupMetadata = z.infer<typeof GroupMetadata>
 export type GroupConversation = z.infer<typeof GroupConversation>
 export type GroupRemoval = z.infer<typeof GroupRemoval>
+const EditFields = {
+  messageId: z.uuid(),
+  expectedRevision: Cursor,
+  retryId: z.uuid(),
+  body: z.string().trim().min(1).max(8000),
+}
+export const EditMessage = z.object({ channelId: ChannelId, ...EditFields }).strict()
+export const EditDirectMessage = z
+  .object({ conversationId: ConversationId, ...EditFields })
+  .strict()
+export const EditGroupMessage = GroupAccess.extend(EditFields).strict()
+export type EditMessage = z.infer<typeof EditMessage>
+export type EditDirectMessage = z.infer<typeof EditDirectMessage>
+export type EditGroupMessage = z.infer<typeof EditGroupMessage>
+
 export const ServerEvent = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('message.edited'), cursor: Cursor, message: Message }),
+  z.object({
+    kind: z.literal('direct.message.edited'),
+    cursor: Cursor,
+    message: DirectMessage,
+    participants: z.tuple([UserId, UserId]),
+  }),
+  z.object({ kind: z.literal('group.message.edited'), cursor: Cursor, message: GroupMessage }),
   z.object({ kind: z.literal('group.changed'), cursor: Cursor, group: GroupMetadata }),
   z.object({
     kind: z.literal('group.removed'),

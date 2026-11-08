@@ -1975,6 +1975,107 @@ button.member-row:hover {
   margin-top: 2px;
   overflow-wrap: anywhere;
 }
+.message-edit.button {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  opacity: 0;
+  min-width: 52px;
+  height: 28px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 13px;
+}
+.message-edit[hidden] {
+  display: none;
+}
+.message:hover .message-edit,
+.message:focus-within .message-edit {
+  opacity: 1;
+}
+.message:has(.message-edit) .message-body,
+.message:has(.message-edit) .message-meta {
+  padding-right: 54px;
+}
+.message-edited {
+  color: var(--muted);
+  font-size: 12px;
+}
+.message:has(.message-editor):hover {
+  background: none;
+}
+.message-editor {
+  margin-top: 6px;
+}
+.message-editor textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  height: 96px;
+  min-height: 96px;
+  padding: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.message-editor textarea:focus-visible {
+  outline: none;
+}
+.message-editor[data-state='editing'][data-empty='false'] textarea:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.message-editor[data-state='failed'] textarea {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.message-editor .form-error {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.message-editor[data-state='conflict'] .form-error {
+  color: var(--muted);
+}
+.message-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.message-edit-actions span {
+  flex: 1;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.message-edit-actions .button {
+  height: 32px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+.message-edit-actions .button:not(.primary) {
+  min-width: 76px;
+  background: var(--panel);
+}
+.message-edit-actions .button:not(.primary):hover {
+  background: var(--secondary);
+}
+.message-edit-actions .primary {
+  min-width: 64px;
+}
+.message-editor[aria-busy='true'] .primary {
+  min-width: 88px;
+}
+.message-edit-actions .button:disabled {
+  opacity: 0.4;
+}
 .composer {
   display: flex;
   flex-direction: column;

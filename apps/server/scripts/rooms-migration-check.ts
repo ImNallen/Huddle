@@ -156,7 +156,8 @@ try {
     const kept = {
       rooms: 'SELECT id, name FROM room ORDER BY id',
       channels: 'SELECT id, room_id, name FROM channel ORDER BY id',
-      messages: 'SELECT * FROM message ORDER BY id',
+      messages:
+        'SELECT id, channel_id, author_id, author_name, author_avatar, retry_id, body, cursor, created_at FROM message ORDER BY id',
       reads: 'SELECT * FROM channel_read ORDER BY user_id, channel_id',
       mentions: 'SELECT * FROM message_mention ORDER BY message_id, user_id',
     }
@@ -369,12 +370,14 @@ try {
       server: 'SELECT singleton, name, cursor::text, created_at FROM server',
       rooms: 'SELECT * FROM room ORDER BY id',
       channels: 'SELECT * FROM channel ORDER BY id',
-      messages: 'SELECT * FROM message ORDER BY id',
+      messages:
+        'SELECT id, channel_id, author_id, author_name, author_avatar, retry_id, body, cursor, created_at FROM message ORDER BY id',
       mentions: 'SELECT * FROM message_mention ORDER BY message_id, user_id',
       reads: 'SELECT * FROM channel_read ORDER BY user_id, channel_id',
       events: 'SELECT cursor, event, audience FROM event ORDER BY cursor',
       conversations: 'SELECT * FROM direct_conversation ORDER BY id',
-      directMessages: 'SELECT * FROM direct_message ORDER BY id',
+      directMessages:
+        'SELECT id, conversation_id, author_id, author_name, author_avatar, retry_id, body, cursor, created_at FROM direct_message ORDER BY id',
       directReads: 'SELECT * FROM direct_read ORDER BY user_id, conversation_id',
       security: 'SELECT * FROM account_security ORDER BY user_id',
       photos: 'SELECT * FROM account_photo ORDER BY id',
@@ -384,12 +387,33 @@ try {
         Object.entries(survivors).map(async ([key, query]) => [key, await rows(query)]),
       ),
     )
+    await applyThrough('014_group_chat.sql')
+    const legacyGroup = randomUUID()
+    await scratch.query(
+      'INSERT INTO group_conversation(id,name,creator_id,create_retry_id,create_others) VALUES($1,$2,$3,$4,$5)',
+      [legacyGroup, 'Legacy group', owner, randomUUID(), []],
+    )
+    await scratch.query(
+      "INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,retry_id,body,cursor) VALUES($1,$2,$3,1,'Legacy owner',$4,'Old group body',1)",
+      [randomUUID(), legacyGroup, owner, randomUUID()],
+    )
     const accepted = await migrate(database.url)
     assert.equal(accepted.code, 0, accepted.output)
     assert.match(accepted.output, /Huddle migrations applied/)
     for (const [key, query] of Object.entries(survivors)) {
       assert.ok(before013[key].length > 0, `the 013 fixture holds ${key}`)
       assert.deepEqual(await rows(query), before013[key], `013 keeps every ${key} row and ID`)
+    }
+    for (const table of ['message', 'direct_message', 'group_message']) {
+      const migrated = await rows(
+        `SELECT body,original_body,revision::text,edited_at FROM ${table}`,
+      )
+      assert.ok(migrated.length > 0)
+      for (const value of migrated) {
+        assert.equal(value.original_body, value.body, `${table} backfills original body`)
+        assert.equal(value.revision, '0')
+        assert.equal(value.edited_at, null)
+      }
     }
     assert.deepEqual(
       await rows(
@@ -501,7 +525,7 @@ try {
       [keptPhoto, prunedPhoto, owner],
     )
     await scratch.query(
-      "INSERT INTO direct_message(id, conversation_id, author_id, author_name, author_avatar, retry_id, body, cursor) VALUES ($1, $2, $3, 'Legacy owner', $4, $5, 'Private', 6)",
+      "INSERT INTO direct_message(id, conversation_id, author_id, author_name, author_avatar, retry_id, body, cursor, original_body) VALUES ($1, $2, $3, 'Legacy owner', $4, $5, 'Private', 6, 'Private')",
       [
         randomUUID(),
         conversation,
@@ -578,7 +602,7 @@ try {
       [retainedGroup, 'Former group', owner, randomUUID(), []],
     )
     await scratch.query(
-      "INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor) VALUES($1,$2,$3,1,'Legacy owner',$4,$5,'Retained',1)",
+      "INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,original_body) VALUES($1,$2,$3,1,'Legacy owner',$4,$5,'Retained',1,'Retained')",
       [
         randomUUID(),
         retainedGroup,
@@ -628,7 +652,7 @@ try {
     await scratch.end()
   }
   process.stdout.write(
-    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
+    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. 015 backfills original bodies, revision zero and null edit timestamps in channel, direct and group messages. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
   )
 } finally {
   await closeDomain()

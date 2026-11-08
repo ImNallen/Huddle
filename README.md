@@ -1,8 +1,8 @@
 # Huddle
 
-Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. Everyone reaches it over [Tailscale](https://tailscale.com), and Tailscale says who they are, so there is nothing to sign in with. You run the server and share an invite link. A friend opens the link on a device signed in to Tailscale, confirms their name, and chats with you in rooms and channels. Any two friends can also message each other directly from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
+Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. Everyone reaches it over [Tailscale](https://tailscale.com), and Tailscale says who they are, so there is nothing to sign in with. You run the server and share an invite link. A friend opens the link on a device signed in to Tailscale, confirms their name, and chats with you in rooms and channels. Friends can also message each other directly or in private groups from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
 
-Huddle has text channels, direct messages, and voice channels. Voice calls work in a browser, and the desktop app can't make them yet. Video, file uploads, message editing, group direct messages, blocking, and mobile apps are not built yet.
+Huddle has text channels, direct messages, private group chats, and voice channels. You can edit your own sent messages with **Edit**, then **Save**. Voice calls work in a browser, and the desktop app can't make them yet. Video, file uploads, blocking, and mobile apps are not built yet.
 
 ## Host a server
 

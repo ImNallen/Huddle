@@ -552,7 +552,7 @@ try {
       createdAt: new Date().toISOString(),
     })
     await fixture.query(
-      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, original_body) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$6)',
       [
         silentMessage.id,
         silentMessage.channelId,

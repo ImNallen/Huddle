@@ -18,3 +18,21 @@ export type Queued = { retryId: string; thread: Thread; peerId?: UserId; body: s
 export type Pending = Queued & ({ kind: 'sending' } | { kind: 'failed'; error: string })
 export type GroupThread = Extract<Thread, { kind: 'group' }>
 export type GroupRow = GroupConversation & { thread: GroupThread }
+
+export function newerMessage<T extends { id: string; revision: string }>(
+  current: T | undefined | null,
+  incoming: T,
+): T {
+  return current?.id === incoming.id && BigInt(current.revision) >= BigInt(incoming.revision)
+    ? current
+    : incoming
+}
+export function latestMessage<T extends { id: string; revision: string; cursor: string }>(
+  current: T | null,
+  incoming: T | null,
+): T | null {
+  if (!incoming) return current
+  if (!current) return incoming
+  if (current.id === incoming.id) return newerMessage(current, incoming)
+  return BigInt(current.cursor) > BigInt(incoming.cursor) ? current : incoming
+}
