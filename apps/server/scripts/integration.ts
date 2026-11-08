@@ -875,6 +875,44 @@ try {
   ])
   pass('admins create rooms with unique names; channel names are unique per room; rooms replay')
 
+  for (const [kind, name, expected] of [
+    ['text', ' ÅÄÖ-123 ', 'åäö-123'],
+    ['text', 'cafe\u0301', 'café'],
+    ['text', '東京-2', '東京-2'],
+    ['voice', ' Game 1 ', 'Game 1'],
+    ['voice', 'B33rs With the B0ys', 'B33rs With the B0ys'],
+    ['voice', 'Öppet 🎮!', 'Öppet 🎮!'],
+  ]) {
+    const created = await call('/api/channels', Channel, owner.login, {
+      roomId: lounge.id,
+      name,
+      kind,
+    })
+    assert.equal(created.name, expected)
+  }
+  for (const [kind, name] of [
+    ['text', 'with spaces'],
+    ['text', 'with_underscores'],
+    ['text', 'no!'],
+    ['text', '-leading'],
+    ['text', '🎮'],
+    ['text', 'a'.repeat(41)],
+    ['voice', '   '],
+    ['voice', 'a'.repeat(41)],
+    ['voice', 'bad\u0000name'],
+  ]) {
+    assert.equal(
+      (
+        await request('/api/channels', {
+          login: owner.login,
+          body: { roomId: lounge.id, name, kind },
+        })
+      ).response.status,
+      400,
+    )
+  }
+  pass('text channel names support Unicode; voice names preserve spaces, capitals and emoji')
+
   const beforeVoice = await snapshotOf(owner.login)
   assert.equal(
     (

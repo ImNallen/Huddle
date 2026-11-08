@@ -162,17 +162,27 @@ export const SendDirectMessage = z
   .strict()
 export const MarkDirectRead = z.object({ conversationId: ConversationId, cursor: Cursor }).strict()
 export const CreateRoom = z.object({ name: z.string().trim().min(1).max(40) }).strict()
-export const CreateChannel = z
-  .object({
-    roomId: RoomId,
-    name: z
+export const TEXT_CHANNEL_NAME_PATTERN = String.raw`[\p{L}\p{N}][\p{L}\p{M}\p{N}\-]*`
+const TextChannelName = z
+  .string()
+  .trim()
+  .transform((name) => name.normalize('NFC').toLowerCase())
+  .pipe(
+    z
       .string()
-      .trim()
-      .toLowerCase()
-      .regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
-    kind: ChannelKind,
-  })
-  .strict()
+      .max(40)
+      .regex(new RegExp(`^${TEXT_CHANNEL_NAME_PATTERN}$`, 'u')),
+  )
+const VoiceChannelName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[^\x00-\x1f\x7f]+$/)
+export const CreateChannel = z.discriminatedUnion('kind', [
+  z.object({ roomId: RoomId, name: TextChannelName, kind: z.literal('text') }).strict(),
+  z.object({ roomId: RoomId, name: VoiceChannelName, kind: z.literal('voice') }).strict(),
+])
 export const Member = z.object({
   id: UserId,
   name: z.string(),

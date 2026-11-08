@@ -40,6 +40,14 @@ test('Members matches both themes and supports roster recovery, profile cards an
   await expect(
     page.getByRole('heading', { name: 'You’re the first one here', exact: true }),
   ).toBeVisible()
+  await page.setViewportSize({ width: 640, height: 480 })
+  const heading = await page
+    .getByRole('heading', { name: 'People on Our place', exact: true })
+    .boundingBox()
+  const title = await page.locator('.topbar strong').boundingBox()
+  if (!heading || !title) throw new Error('The Members heading is not visible.')
+  expect(heading.x).toBe(title.x)
+  await page.setViewportSize({ width: 1440, height: 900 })
   await both(page, 'members-first')
 
   let release = () => {}
