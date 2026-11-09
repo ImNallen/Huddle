@@ -120,7 +120,7 @@ export function Transcript({
   onDraft: (value: string) => void
 }) {
   const [editor, setEditor] = useState<Editor>({ kind: 'closed' })
-  const invoker = useRef<HTMLButtonElement | null>(null)
+  const invoker = useRef<HTMLElement | null>(null)
   const [more, setMore] = useState(true)
   const [error, setError] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
@@ -130,6 +130,16 @@ export function Transcript({
   const measured = useRef('')
   const key = threadKey(thread)
   useEffect(() => setEditor({ kind: 'closed' }), [key, me.user.id, client])
+  function openEditor(message: ThreadMessage, returnFocus: HTMLElement | null) {
+    invoker.current = returnFocus
+    setEditor({
+      kind: 'editing',
+      message,
+      threadKey: key,
+      text: message.body,
+      retryId: crypto.randomUUID(),
+    })
+  }
   function closeEditor() {
     setEditor({ kind: 'closed' })
     requestAnimationFrame(() => invoker.current?.isConnected && invoker.current.focus())
@@ -275,6 +285,11 @@ export function Transcript({
               <article
                 key={row.key}
                 className={`message ${row.continued ? 'continued' : ''} ${row.pending?.kind ?? ''}`}
+                onDoubleClick={(event) => {
+                  if (!row.message || row.author.id !== me.user.id) return
+                  if ((event.target as Element).closest('form, button')) return
+                  openEditor(row.message, input.current)
+                }}
               >
                 {row.continued ? (
                   <span className="message-gutter">
@@ -400,17 +415,7 @@ export function Transcript({
                     className="message-edit button small"
                     hidden={editor.kind !== 'closed' && editor.message.id === row.key}
                     aria-label="Edit message"
-                    onClick={(event) => {
-                      if (!row.message) return
-                      invoker.current = event.currentTarget
-                      setEditor({
-                        kind: 'editing',
-                        message: row.message,
-                        threadKey: key,
-                        text: row.body,
-                        retryId: crypto.randomUUID(),
-                      })
-                    }}
+                    onClick={(event) => row.message && openEditor(row.message, event.currentTarget)}
                   >
                     Edit
                   </button>
