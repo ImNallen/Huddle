@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 import {
   Channel,
   Room,
@@ -29,6 +29,13 @@ const row = (page: Page, body: string) =>
   page
     .locator('article.message')
     .filter({ has: page.locator('.message-body').filter({ hasText: body }) })
+const editByPointer = (page: Page, body: string) =>
+  row(page, body).locator('.message-body').dblclick()
+const underPointer = (button: Locator) =>
+  button.evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === element
+  })
 async function author(page: Page, name: string) {
   await member(fixture.admin, page, name, serverURL)
   const client = new Client(serverURL, loginOf(name))
@@ -146,19 +153,33 @@ test('own persisted channel, direct and group messages have independent accessib
     await expect(
       row(page, `Peer ${index}`).getByRole('button', { name: 'Edit message' }),
     ).toHaveCount(0)
+    const editor = page.getByRole('textbox', { name: 'Edit message', exact: true })
+    await editByPointer(page, `Peer ${index}`)
+    await expect(editor).toHaveCount(0)
     const composer = page.locator('textarea#message')
     await composer.fill('Independent unsent draft')
-    await row(page, body).getByRole('button', { name: 'Edit message' }).focus()
+    const editButton = row(page, body).getByRole('button', { name: 'Edit message' })
+    await row(page, body).hover()
+    expect(await underPointer(editButton), 'Edit is not a pointer target').toBe(false)
+    await composer.focus()
+    await page.keyboard.press('Shift+Tab')
+    await expect(editButton).toBeFocused()
+    expect(await underPointer(editButton), 'Edit shows on keyboard focus').toBe(true)
     await page.keyboard.press('Enter')
-    const editor = page.getByRole('textbox', { name: 'Edit message', exact: true })
     await expect(editor).toBeFocused()
     await expect(editor).toHaveCSS('height', '96px')
     await expect(editor).toHaveCSS('padding-top', '12px')
     await expect(editor).toHaveCSS('font-size', '15px')
     await editor.fill('Cancelled correction')
+    await page.locator('article.message:has(.message-editor) .message-meta strong').dblclick()
+    await expect(editor, 'double-clicking the open row keeps the edit').toHaveValue(
+      'Cancelled correction',
+    )
+    await editor.focus()
     await editor.press('Escape')
-    await expect(row(page, body).getByRole('button', { name: 'Edit message' })).toBeFocused()
-    await row(page, body).getByRole('button', { name: 'Edit message' }).click()
+    await expect(editButton).toBeFocused()
+    await editByPointer(page, body)
+    await expect(editor).toBeFocused()
     await editor.fill('')
     await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
     await expect(editor).toHaveAttribute('placeholder', 'Edit your message')
@@ -192,12 +213,10 @@ test('own persisted channel, direct and group messages have independent accessib
       'font-size',
       '12px',
     )
-    await expect(
-      row(page, `Corrected ${index}\nx`).getByRole('button', { name: 'Edit message' }),
-    ).toBeFocused()
+    await expect(composer).toBeFocused()
     await expect(composer).toHaveValue('Independent unsent draft')
     await page.emulateMedia({ colorScheme: index === 1 ? 'dark' : 'light' })
-    await row(page, `Corrected ${index}\nx`).getByRole('button', { name: 'Edit message' }).click()
+    await editByPointer(page, `Corrected ${index}\nx`)
     await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   }
   await page.reload()
@@ -228,7 +247,7 @@ test('failed and stale edits retain text and stale history and send responses pr
   await heldSend.held
   await expect(
     row(page, 'Original delayed send').getByRole('button', { name: 'Edit message' }),
-  ).toBeVisible()
+  ).toHaveCount(1)
   const message = Message.array().parse(
     (await alice.call(`/api/messages?channelId=${channel.id}`)).value,
   )[0]
@@ -253,7 +272,7 @@ test('failed and stale edits retain text and stale history and send responses pr
   await heldHistory.release()
   await expect(row(page, corrected.body)).toBeVisible()
   await expect(row(page, 'Original delayed send')).toHaveCount(0)
-  await row(page, corrected.body).getByRole('button', { name: 'Edit message' }).click()
+  await editByPointer(page, corrected.body)
   const editor = page.getByRole('textbox', { name: 'Edit message', exact: true })
   await editor.fill('My retained correction')
   await page.route('**/api/messages/edit', (route) => route.abort(), { times: 1 })
@@ -303,7 +322,7 @@ test('failed and stale edits retain text and stale history and send responses pr
   await page.unroute('**/api/messages/edit')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(row(page, 'Other window correction')).toBeVisible()
-  await row(page, 'Other window correction').getByRole('button', { name: 'Edit message' }).click()
+  await editByPointer(page, 'Other window correction')
   await editor.fill('First saved correction')
   const delayedEdit = await hold(page, '**/api/messages/edit')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -380,7 +399,7 @@ test('group edits to pre-admission history apply and delayed edit responses cann
     ).value,
   )
   await expect(row(page, latest.body)).toBeVisible()
-  await row(page, latest.body).getByRole('button', { name: 'Edit message' }).click()
+  await editByPointer(page, latest.body)
   await page
     .getByRole('textbox', { name: 'Edit message', exact: true })
     .fill('Delayed authorized edit')

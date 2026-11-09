@@ -1897,26 +1897,28 @@ button.member-row:hover {
 }
 .message {
   position: relative;
-  width: min(100%, 710px);
-  min-height: 60px;
-  margin-top: 10px;
-  padding: 0 0 4px 50px;
+  width: min(100% + 24px, 734px);
+  margin: 4px -12px 0;
+  padding: 8px 12px 8px 62px;
+  border-radius: 8px;
 }
 .day-divider + .message {
   margin-top: 0;
 }
+.message:has(+ .message.continued) {
+  padding-bottom: 2px;
+}
 .message.continued {
-  min-height: 0;
   margin-top: 0;
-  padding-bottom: 0;
+  padding-top: 2px;
 }
 .message:hover {
   background: var(--message-hover);
 }
 .message-avatar {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 8px;
+  left: 12px;
   display: flex;
 }
 .message-meta {
@@ -1940,8 +1942,8 @@ button.member-row:hover {
 }
 .message-gutter {
   position: absolute;
-  top: 6px;
-  left: 0;
+  top: 8px;
+  left: 12px;
   width: 42px;
   color: var(--faint);
   font-size: 11px;
@@ -1977,9 +1979,8 @@ button.member-row:hover {
 }
 .message-edit.button {
   position: absolute;
-  top: 0;
-  right: 4px;
-  opacity: 0;
+  top: 5px;
+  right: 8px;
   min-width: 52px;
   height: 28px;
   padding: 0 16px;
@@ -1990,12 +1991,10 @@ button.member-row:hover {
 .message-edit[hidden] {
   display: none;
 }
-.message:hover .message-edit,
-.message:focus-within .message-edit {
-  opacity: 1;
+.message-edit:not(:focus-visible) {
+  clip-path: inset(50%);
 }
-.message:has(.message-edit) .message-body,
-.message:has(.message-edit) .message-meta {
+.message:has(.message-edit:focus-visible) .message-meta {
   padding-right: 54px;
 }
 .message-edited {
