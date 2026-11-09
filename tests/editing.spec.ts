@@ -171,6 +171,11 @@ test('own persisted channel, direct and group messages have independent accessib
     await expect(editor).toHaveCSS('padding-top', '12px')
     await expect(editor).toHaveCSS('font-size', '15px')
     await editor.fill('Cancelled correction')
+    await page.locator('article.message:has(.message-editor) .message-meta strong').dblclick()
+    await expect(editor, 'double-clicking the open row keeps the edit').toHaveValue(
+      'Cancelled correction',
+    )
+    await editor.focus()
     await editor.press('Escape')
     await expect(editButton).toBeFocused()
     await editByPointer(page, body)

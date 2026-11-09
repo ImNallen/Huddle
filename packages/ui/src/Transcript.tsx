@@ -287,6 +287,7 @@ export function Transcript({
                 className={`message ${row.continued ? 'continued' : ''} ${row.pending?.kind ?? ''}`}
                 onDoubleClick={(event) => {
                   if (!row.message || row.author.id !== me.user.id) return
+                  if (editor.kind !== 'closed' && editor.message.id === row.key) return
                   if ((event.target as Element).closest('form, button')) return
                   openEditor(row.message, input.current)
                 }}
