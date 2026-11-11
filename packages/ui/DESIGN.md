@@ -335,7 +335,7 @@ A Discord user should know where everything is at first sight. Huddle deliberate
 
 Huddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat room: a shell around a slightly lifted chat ground, one blue accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.
 
-The interface shows only what exists. Controls for unbuilt features (search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. A voice channel on a server with voice off, or in the desktop app, says so and has no call controls. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.
+The interface shows only what exists. Controls for unbuilt features (search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. A voice channel on a server with voice off says so and has no call controls. Desktop and browser calls share controls and lifecycle. Desktop microphone failures point to system privacy settings, and missing WebRTC offers a browser fallback. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.
 
 **Key Characteristics:**
 

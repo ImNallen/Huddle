@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Browser } from '@playwright/test'
 import { runningLivekit, tailscale } from '../apps/server/scripts/harness'
 import { browserApp, loginOf, member, serverURL } from './accounts'
 import { useScratchServer } from './server'
@@ -527,33 +527,120 @@ test('losing identity ends the call and closes the microphone', async ({ browser
   }
 })
 
-test('the desktop app says calls are not there yet and asks for no microphone', async ({
+async function nativeCaller(browser: Browser, roomName: string) {
+  const name = `nativecaller${nextPersonNumber()}`
+  const context = await browser.newContext({ extraHTTPHeaders: tailscale(loginOf(name)) })
+  await watchCalls(context)
+  const page = await context.newPage()
+  await member(server.admin, page, name, browserApp)
+  await context.route('**/*', (route) => route.continue())
+  await context.addInitScript((origin) => {
+    localStorage.setItem('huddle.server', origin)
+    Object.assign(window, {
+      isTauri: true,
+      __TAURI_INTERNALS__: { invoke: async () => null },
+    })
+  }, serverURL)
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-native', 'true')
+  await openRoom(page, roomName)
+  return { context, page }
+}
+
+test('native-marked frontend joins, hears, mutes, deafens, and releases media', async ({
   browser,
 }) => {
   const roomName = await voiceRoom('native')
-  const context = await browser.newContext({
-    extraHTTPHeaders: tailscale(loginOf('nativecaller')),
-  })
-  await watchCalls(context)
-  const page = await context.newPage()
+  const ada = await nativeCaller(browser, roomName)
+  const bo = await person(browser, 'bo', roomName)
   try {
-    await member(server.admin, page, 'nativecaller', browserApp)
-    await context.route('**/*', (route) => route.continue())
-    await context.addInitScript((origin) => {
-      localStorage.setItem('huddle.server', origin)
-      Object.assign(window, {
-        isTauri: true,
-        __TAURI_INTERNALS__: { invoke: async () => null },
-      })
-    }, serverURL)
-    await page.goto('/')
-    await openRoom(page, roomName)
-    await channelRow(page, roomName, 'native').click()
-    await expect(
-      main(page).getByText("Calls don't work in the desktop app yet.", { exact: false }),
-    ).toBeVisible()
-    await expect(join(page)).toHaveCount(0)
+    expect(await ada.page.evaluate(() => window.probe.microphones.length)).toBe(0)
+    await channelRow(ada.page, roomName, 'native').click()
+    await join(ada.page).click()
+    await expectInCall(ada.page)
+    await channelRow(bo.page, roomName, 'native').click()
+    await join(bo.page).click()
+    await expectInCall(bo.page)
+    await expectHearing(ada.page)
+    await expectHearing(bo.page)
+    const mute = panel(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', 'true')
+    await expectSilence(bo.page)
+    const deafen = panel(ada.page).getByRole('button', { name: 'Deafen', exact: true })
+    await deafen.click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Deafened')
+    await expect
+      .poll(() =>
+        ada.page.evaluate(() =>
+          [...document.querySelectorAll('audio')].every((sound) => sound.volume === 0),
+        ),
+      )
+      .toBe(true)
+    await deafen.click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Microphone muted')
+    await expectHearing(ada.page)
+    await mute.click()
+    await expectHearing(bo.page)
+    await channelRow(ada.page, roomName, 'chat').click()
+    await expectInCall(ada.page)
+    await panel(ada.page).getByRole('button', { name: 'Leave call', exact: true }).click()
+    await expect(panel(ada.page)).toHaveCount(0)
+    await expect.poll(() => openMicrophones(ada.page)).toBe(0)
+    await expect.poll(() => openPeers(ada.page)).toBe(0)
+    await expect(ada.page.locator('audio')).toHaveCount(0)
   } finally {
-    await context.close()
+    await ada.context.close()
+    await bo.context.close()
+  }
+})
+
+test('native-marked frontend explains microphone denial and can retry', async ({ browser }) => {
+  const roomName = await voiceRoom('denied-native')
+  const ada = await nativeCaller(browser, roomName)
+  try {
+    await ada.page.evaluate(() => {
+      const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
+      let denied = false
+      navigator.mediaDevices.getUserMedia = (constraints) => {
+        if (denied) return capture(constraints)
+        denied = true
+        return Promise.reject(new DOMException('denied', 'NotAllowedError'))
+      }
+    })
+    await channelRow(ada.page, roomName, 'denied-native').click()
+    await join(ada.page).click()
+    await expect(main(ada.page).getByRole('alert')).toContainText(
+      "Allow Huddle in your system's microphone privacy settings, then quit and reopen Huddle.",
+    )
+    await expect.poll(() => openMicrophones(ada.page)).toBe(0)
+    await expect.poll(() => openPeers(ada.page)).toBe(0)
+    await main(ada.page).getByRole('button', { name: 'Try again', exact: true }).click()
+    await expectInCall(ada.page)
+    await panel(ada.page).getByRole('button', { name: 'Leave call', exact: true }).click()
+    await expect.poll(() => openMicrophones(ada.page)).toBe(0)
+  } finally {
+    await ada.context.close()
+  }
+})
+
+test('native-marked frontend without WebRTC offers a browser and requests no microphone', async ({
+  browser,
+}) => {
+  const roomName = await voiceRoom('unsupported-native')
+  const ada = await nativeCaller(browser, roomName)
+  try {
+    await ada.page.evaluate(() =>
+      Object.defineProperty(window, 'RTCPeerConnection', { value: undefined }),
+    )
+    await channelRow(ada.page, roomName, 'unsupported-native').click()
+    await join(ada.page).click()
+    await expect(main(ada.page).getByRole('alert')).toHaveText(
+      "Huddle can't make calls on this system. Open this server in Chrome, Edge, or Safari.",
+    )
+    expect(await ada.page.evaluate(() => window.probe.microphones.length)).toBe(0)
+    await expect.poll(() => openPeers(ada.page)).toBe(0)
+  } finally {
+    await ada.context.close()
   }
 })
