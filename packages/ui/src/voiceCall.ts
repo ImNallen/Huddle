@@ -32,7 +32,9 @@ type LiveKit = typeof import('livekit-client')
 function microphoneProblem(lk: LiveKit, error: unknown) {
   switch (lk.MediaDeviceFailure.getFailure(error)) {
     case lk.MediaDeviceFailure.PermissionDenied:
-      return "Huddle can't use your microphone. Allow it in your browser's settings for this site, then try again."
+      return document.documentElement.dataset.native
+        ? "Huddle can't use your microphone. Allow Huddle in your system's microphone privacy settings, then quit and reopen Huddle."
+        : "Huddle can't use your microphone. Allow it in your browser's settings for this site, then try again."
     case lk.MediaDeviceFailure.NotFound:
       return "Huddle can't find a microphone. Connect one, then try again."
     case lk.MediaDeviceFailure.DeviceInUse:
@@ -112,7 +114,11 @@ function startCall(
   async function begin() {
     onChange({ phase: 'requesting-mic', channelId })
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection)
-      return joinFailed("This browser can't make calls. Open Huddle in Chrome, Edge, or Safari.")
+      return joinFailed(
+        document.documentElement.dataset.native
+          ? "Huddle can't make calls on this system. Open this server in Chrome, Edge, or Safari."
+          : "This browser can't make calls. Open Huddle in Chrome, Edge, or Safari.",
+      )
     let lk: LiveKit
     try {
       lk = await import('livekit-client')

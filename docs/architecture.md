@@ -92,7 +92,9 @@ A person joins a voice channel from its page. The call belongs to `ServerView`, 
 
 The microphone comes first and the token second, because a permission prompt can outlast the token's 60 seconds. A failure names its cause and what to do. The client tells a port problem from a refused token by whether signalling connected first: if it did and the call still failed, the media port is the likely problem.
 
-The desktop app shows a notice instead of a Join button. macOS needs a microphone permission the app does not yet ask for.
+The desktop uses the same call engine and controls as the browser. Its local frontend requests the microphone through the system WebView only when someone joins. `apps/desktop/src-tauri/Info.plist` declares `NSMicrophoneUsageDescription`, which Tauri merges into the macOS bundle. `Entitlements.plist` allows audio input when the app is signed with hardened runtime. The native shell grants microphone requests only from the bundled app origin, or the configured development origin in debug builds. Other permissions keep the WebView's default behavior. This handler is required on Linux, where WebKitGTK denies unhandled microphone requests. Wry handles capture, so no native media bridge is needed. System permission denial points to Huddle's microphone privacy settings. A WebView without WebRTC offers a browser fallback. Linux support depends on the installed WebKitGTK media support and permissions.
+
+See [Tauri's macOS bundle configuration](https://v2.tauri.app/distribute/macos-application-bundle/) and [Apple's media authorization requirements](https://developer.apple.com/documentation/bundleresources/requesting-authorization-for-media-capture-on-macos).
 
 One LiveKit server relays audio. Friends on a shared Tailscale node have no route to each other, so a mesh between them cannot work. It runs beside the Huddle server and shares no code or tables with it.
 
@@ -187,7 +189,7 @@ We accept no sign-out and no per-device view in exchange for no session state an
 
 `000_better_auth_baseline.sql` looks like dead code, because 013 drops most of what it creates. It lets 001 to 012 replay on a fresh database and lets `test:rooms-migration` keep proving the legacy paths.
 
-Video, file uploads, and mobile clients are follow-up slices, and so are calls in the desktop app. The interface must not pretend those features work, so a server without LiveKit and the desktop app show a notice in a voice channel, with no call controls.
+Video, file uploads, and mobile clients are follow-up slices. A server without LiveKit shows a notice in a voice channel, with no call controls.
 
 ## Verification
 

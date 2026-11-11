@@ -159,11 +159,7 @@ export function ServerView({
       </Frame>
     )
   const server = snapshot.server
-  const availability: VoiceAvailability = !voiceAvailable
-    ? 'off'
-    : document.documentElement.dataset.native
-      ? 'desktop'
-      : 'on'
+  const availability: VoiceAvailability = voiceAvailable ? 'on' : 'off'
   const roster = members.kind === 'ready' ? members.value : null
   const directs: DirectRow[] = sync.directs.map((direct) => ({
     ...direct,

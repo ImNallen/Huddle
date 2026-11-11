@@ -13,8 +13,7 @@ import { Avatar } from './Avatar'
 import { MemberToggle } from './Members'
 import { Spinner } from './primitives'
 
-/** The desktop app cannot make calls yet: macOS needs a microphone permission it does not ask for. */
-export type VoiceAvailability = 'on' | 'off' | 'desktop'
+export type VoiceAvailability = 'on' | 'off'
 
 function CallPersonTile({
   client,
@@ -100,10 +99,12 @@ export function VoiceChannel({
         <h1>{channel.name}</h1>
         {availability === 'off' ? (
           <p>Voice is turned off on this server. Text channels work as usual.</p>
-        ) : availability === 'desktop' ? (
-          <p>Calls don't work in the desktop app yet. Open this server in a browser to join.</p>
         ) : here?.phase === 'requesting-mic' ? (
-          <p>Waiting for your microphone. Allow it if your browser asks.</p>
+          <p>
+            {document.documentElement.dataset.native
+              ? 'Waiting for your microphone. Allow Huddle to use it if asked.'
+              : 'Waiting for your microphone. Allow it if your browser asks.'}
+          </p>
         ) : here?.phase === 'connecting' ? (
           <p>Joining the call.</p>
         ) : inCall ? (
