@@ -12,9 +12,7 @@ export async function accountRequest(request: Request, actor: Member) {
     const id = z.uuid().parse(path.slice('/api/account/photo/'.length))
     const result = await db.query(
       `SELECT p.bytes FROM account_photo p WHERE p.id=$1 AND (p.user_id=$2 OR (EXISTS(
-      SELECT 1 FROM member mine WHERE mine.user_id=$2) AND (EXISTS(
-      SELECT 1 FROM member theirs WHERE theirs.user_id=p.user_id) OR EXISTS(
-      SELECT 1 FROM blocked_account b WHERE b.user_id=p.user_id))
+      SELECT 1 FROM member mine WHERE mine.user_id=$2)
       AND (EXISTS(SELECT 1 FROM account_security a WHERE a.avatar->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM message m WHERE m.author_avatar->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM group_message g JOIN group_member gm ON gm.group_id=g.group_id

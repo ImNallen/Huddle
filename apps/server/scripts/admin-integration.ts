@@ -858,6 +858,15 @@ try {
     (await call(a, '/api/blocked', Blocked)).blocked.map(({ id }) => id),
     [rae.id],
   )
+  assert.equal(
+    (
+      await fetch(`${server.origin}/api/account/photo/${photo.uploadId}`, {
+        headers: { Origin: server.origin, ...tailscale('admin-bo@huddle.test') },
+      })
+    ).status,
+    200,
+    "an unblocked person's photo still loads before they rejoin",
+  )
   assert.deepEqual(await s.stage(), {
     kind: 'join',
     login: 'admin-sam@huddle.test',
