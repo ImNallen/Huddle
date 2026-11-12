@@ -372,6 +372,12 @@ export function useServer(
       merge([inDirect(update.conversation.latest)])
     if (snapshotRef.current) commit(apply(snapshotRef.current, update), snapshotRef.current)
   }
+  const created = (
+    update: { kind: 'room.created'; room: Room } | { kind: 'channel.created'; channel: Channel },
+    at: string,
+  ) => {
+    if (BigInt(cursor.current) < BigInt(at)) change(update)
+  }
   function read(thread: Thread, cursor: string) {
     if (thread.kind === 'group') {
       if (!allowed(thread)) return
@@ -915,6 +921,7 @@ export function useServer(
     changes,
     presence,
     include: change,
+    created,
     connection,
     historyState,
     historyError,

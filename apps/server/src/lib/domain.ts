@@ -211,8 +211,12 @@ export async function createRoom(userId: UserId, input: z.infer<typeof CreateRoo
     await requireMember(sql, userId, 'admin')
     const room = Room.parse({ id: randomUUID(), ...input })
     await sql.query('INSERT INTO room(id, name) VALUES ($1, $2)', [room.id, room.name])
-    await appendEvent(sql, (cursor) => ({ kind: 'room.created', room, cursor }), 'everyone')
-    return room
+    const { cursor } = await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'room.created', room, cursor }),
+      'everyone',
+    )
+    return { ...room, cursor }
   })
 }
 export async function createChannel(userId: UserId, input: z.infer<typeof CreateChannel>) {
@@ -227,16 +231,12 @@ export async function createChannel(userId: UserId, input: z.infer<typeof Create
       channel.name,
       channel.kind,
     ])
-    await appendEvent(
+    const { cursor } = await appendEvent(
       sql,
-      (cursor) => ({
-        kind: 'channel.created',
-        channel,
-        cursor,
-      }),
+      (cursor) => ({ kind: 'channel.created', channel, cursor }),
       'everyone',
     )
-    return channel
+    return { ...channel, cursor }
   })
 }
 export async function renameServer(userId: UserId, input: z.infer<typeof RenameServer>) {

@@ -431,8 +431,8 @@ export function ServerView({
         <RoomDialog
           client={client}
           onClose={() => setDialog({ kind: 'none' })}
-          onDone={(room) => {
-            sync.include({ kind: 'room.created', room })
+          onDone={(room, cursor) => {
+            sync.created({ kind: 'room.created', room }, cursor)
             setDialog({ kind: 'none' })
             open({ kind: 'room', roomId: room.id, channelId: null })
           }}
@@ -444,8 +444,8 @@ export function ServerView({
           room={rooms.find((room) => room.id === dialog.roomId) ?? { id: dialog.roomId, name: '' }}
           initialKind={dialog.channelKind}
           onClose={() => setDialog({ kind: 'none' })}
-          onDone={(channel) => {
-            sync.include({ kind: 'channel.created', channel })
+          onDone={(channel, cursor) => {
+            sync.created({ kind: 'channel.created', channel }, cursor)
             setDialog({ kind: 'none' })
             open({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
           }}

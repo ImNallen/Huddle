@@ -3,6 +3,7 @@ import { Check, X } from 'lucide-react'
 import { z } from 'zod'
 import {
   Channel,
+  Cursor,
   Room,
   ServerInvite,
   TEXT_CHANNEL_NAME_PATTERN,
@@ -106,6 +107,8 @@ function FormDialog({
     </Modal>
   )
 }
+const CreatedRoom = Room.extend({ cursor: Cursor })
+const CreatedChannel = Channel.extend({ cursor: Cursor })
 export function RoomDialog({
   client,
   onClose,
@@ -113,7 +116,7 @@ export function RoomDialog({
 }: {
   client: Transport
   onClose: () => void
-  onDone: (room: Room) => void
+  onDone: (room: Room, cursor: string) => void
 }) {
   return (
     <FormDialog
@@ -122,9 +125,12 @@ export function RoomDialog({
       action="Create room"
       busyLabel="Creating your room…"
       onClose={onClose}
-      submit={async (form) =>
-        onDone(await client.request('/api/rooms', Room, { name: form.get('name') }))
-      }
+      submit={async (form) => {
+        const { cursor, ...room } = await client.request('/api/rooms', CreatedRoom, {
+          name: form.get('name'),
+        })
+        onDone(room, cursor)
+      }}
     >
       <label className="field">
         Room name
@@ -346,7 +352,7 @@ export function ChannelDialog({
   room: { id: RoomId; name: string }
   initialKind: ChannelKind
   onClose: () => void
-  onDone: (channel: Channel) => void
+  onDone: (channel: Channel, cursor: string) => void
 }) {
   const [kind, setKind] = useState(initialKind)
   const [name, setName] = useState('')
@@ -357,15 +363,14 @@ export function ChannelDialog({
       action="Create channel"
       busyLabel="Creating your channel…"
       onClose={onClose}
-      submit={async (form) =>
-        onDone(
-          await client.request('/api/channels', Channel, {
-            roomId: room.id,
-            name: form.get('name'),
-            kind,
-          }),
-        )
-      }
+      submit={async (form) => {
+        const { cursor, ...channel } = await client.request('/api/channels', CreatedChannel, {
+          roomId: room.id,
+          name: form.get('name'),
+          kind,
+        })
+        onDone(channel, cursor)
+      }}
     >
       <fieldset className="kind-options">
         <legend className="sr-only">Channel type</legend>

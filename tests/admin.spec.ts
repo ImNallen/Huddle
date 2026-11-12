@@ -162,6 +162,83 @@ test('renames reach a friend live, and deletions move them on and leave no trace
   }
 })
 
+test('a slow create response loses to a rename or delete that the socket delivered first', async ({
+  page,
+}) => {
+  const room = Room.parse((await server.admin.call('/api/rooms', { name: 'Garage' })).value)
+  const general = Channel.parse(
+    (await server.admin.call('/api/channels', { roomId: room.id, name: 'general', kind: 'text' }))
+      .value,
+  )
+  await openAdmin(page)
+  await railTile(page, 'Garage').click()
+  const nav = channels(page, 'Garage')
+  const named = nav.getByRole('button').filter({ hasText: /\S/ })
+  await expect(named).toHaveText(['general'])
+
+  const later = async (
+    name: string,
+    change: (channel: Channel) => Promise<unknown>,
+    settled: string[],
+  ) => {
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let created = (_: Channel) => {}
+    const createdChannel = new Promise<Channel>((resolve) => {
+      created = resolve
+    })
+    await page.route(
+      '**/api/channels',
+      async (route) => {
+        const response = await route.fetch()
+        created(Channel.parse(await response.json()))
+        await held
+        await route.fulfill({ response })
+      },
+      { times: 1 },
+    )
+    await page.getByRole('button', { name: 'Create text channel', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add a channel', exact: true })
+    await dialog.getByLabel('Channel name').fill(name)
+    await dialog.getByRole('button', { name: 'Create channel', exact: true }).click()
+    await change(await createdChannel)
+    await expect(named).toHaveText(settled)
+    release()
+    await expect(dialog).toHaveCount(0)
+    await expect(named).toHaveText(settled)
+  }
+
+  await later(
+    'bench',
+    (channel) =>
+      server.admin.call('/api/channels/rename', {
+        channelId: channel.id,
+        kind: 'text',
+        name: 'tools',
+      }),
+    ['general', 'tools'],
+  )
+  await expect(page.getByRole('heading', { name: 'Welcome to #tools' })).toBeVisible()
+
+  await later(
+    'scrap',
+    async (channel) => {
+      await server.admin.call('/api/channels/delete', { channelId: channel.id, confirm: 'scrap' })
+      await server.admin.call('/api/channels/rename', {
+        channelId: general.id,
+        kind: 'text',
+        name: 'main',
+      })
+    },
+    ['main', 'tools'],
+  )
+  await page.reload()
+  await railTile(page, 'Garage').click()
+  await expect(named).toHaveText(['main', 'tools'])
+})
+
 test('a removed friend sees why, stays out, and comes back with their history once unblocked', async ({
   page,
   browser,
