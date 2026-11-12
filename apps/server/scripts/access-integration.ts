@@ -2,6 +2,7 @@ import './identity-check'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import pg from 'pg'
 import sharp from 'sharp'
 import { WebSocket } from 'ws'
 import { z } from 'zod'
@@ -9,6 +10,7 @@ import {
   AccessError,
   AccessStage,
   Account,
+  Blocked,
   EventPage,
   Members,
   Room,
@@ -218,7 +220,6 @@ try {
   pass("members never see each other's logins, and no web route can bind one")
 
   const legacyId = 'legacy-account-id'
-  const { default: pg } = await import('pg')
   const fixture = new pg.Client({ connectionString: database.url })
   await fixture.connect()
   try {
@@ -347,6 +348,113 @@ try {
   pass(
     'photo decode and re-encode, persisted profile, visibility to fellow members but not anonymous callers, and active SVG rejection',
   )
+
+  const leaving = new Client(base, 'access-leaving@huddle.test')
+  const left = await joinFriend(leaving, code, 'Leaving member')
+  const watching = new WebSocket(server.websocket, {
+    origin: base,
+    headers: tailscale('access-friend@huddle.test'),
+  })
+  sockets.add(watching)
+  const removalFrames: string[] = []
+  watching.on('error', () => {})
+  watching.on('open', () => watching.send(JSON.stringify({ kind: 'watch', after: '0' })))
+  watching.on('message', (data) => removalFrames.push(data.toString()))
+  await eventually(() => removalFrames.length > 0, 'the friend watches')
+  const remove = (userId: string) => adminClient.call('/api/members/remove', { userId })
+  const unblock = (userId: string) => adminClient.call('/api/members/unblock', { userId })
+  assert.equal((await remove(left.id)).response.status, 200)
+  const removedStage = { kind: 'removed', login: 'access-leaving@huddle.test' }
+  assert.deepEqual(await leaving.stage(), removedStage)
+  for (const path of ['/api/snapshot', '/api/members', '/api/account'])
+    failed(await leaving.call(path), 401, 'no_access', `a removed member reads ${path}`)
+  for (let count = 0; count < 12; count++)
+    assert.deepEqual(
+      await leaving.act({ kind: 'account.join', code, name: 'Leaving member' }),
+      removedStage,
+      `join ${count + 1} keeps a removed person out`,
+    )
+  failed(
+    await leaving.call('/api/access', {
+      kind: 'profile.save',
+      profile: { name: 'Still here', avatar: admin.avatar },
+    }),
+    401,
+    'no_access',
+    'a removed person saves no profile',
+  )
+  await eventually(
+    () =>
+      removalFrames.some((frame) =>
+        EventPage.parse(JSON.parse(frame)).events.some(
+          (event) => event.kind === 'member.removed' && event.userId === left.id,
+        ),
+      ),
+    'the friend hears member.removed',
+  )
+  assert.equal(exposed(removalFrames), false, 'member.removed carries no login')
+  const blockedList = await adminClient.call('/api/blocked')
+  assert.deepEqual(
+    Blocked.parse(blockedList.value).blocked.map(({ id, name }) => ({ id, name })),
+    [{ id: left.id, name: 'Leaving member' }],
+  )
+  assert.equal(exposed(blockedList.value), false, 'the Blocked list carries no login')
+  assert.equal((await unblock(left.id)).response.status, 200)
+  assert.equal((await leaving.stage()).kind, 'join')
+  assert.equal(
+    (await joinFriend(leaving, code, 'Leaving member')).id,
+    left.id,
+    'joining after the block lifts is not rate limited by the refused joins',
+  )
+  pass(
+    'a removed member sees the removed stage, reads nothing, cannot rejoin or spend join attempts, and no admin view or frame carries their login',
+  )
+
+  const encodedLogin = { 'tailscale-user-login': '=?utf-8?q?j=C3=B6rg@huddle.test?=' }
+  const asJorg = async (body?: unknown) => {
+    const response = await fetch(`${base}/api/access`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { Origin: base, 'Content-Type': 'application/json', ...encodedLogin },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    assert.equal(response.status, 200)
+    return AccessStage.parse(await response.json())
+  }
+  const jorg = await asJorg({ kind: 'account.join', code, name: 'Jörg' })
+  assert.equal(jorg.kind, 'ready')
+  assert.equal((await remove(jorg.user.id)).response.status, 200)
+  assert.deepEqual(await asJorg(), { kind: 'removed', login: 'jörg@huddle.test' })
+  assert.deepEqual(await asJorg({ kind: 'account.join', code, name: 'Jörg' }), {
+    kind: 'removed',
+    login: 'jörg@huddle.test',
+  })
+  assert.equal((await unblock(jorg.user.id)).response.status, 200)
+  assert.equal((await asJorg({ kind: 'account.join', code, name: 'Jörg' })).kind, 'ready')
+  pass('removal and the block apply the same way to a Q-encoded non-ASCII login')
+
+  const unlinkedId = 'unlinked-removal-id'
+  const seed = new pg.Client({ connectionString: database.url })
+  await seed.connect()
+  try {
+    await seed.query(
+      `INSERT INTO "user"(id, name, legacy_username) VALUES ($1, 'Unlinked', 'unlinkedfriend')`,
+      [unlinkedId],
+    )
+    await seed.query('INSERT INTO account_security(user_id) VALUES ($1)', [unlinkedId])
+    await seed.query(`INSERT INTO member(user_id, role) VALUES ($1, 'member')`, [unlinkedId])
+    assert.equal((await remove(unlinkedId)).response.status, 200)
+    assert.equal(
+      (await seed.query('SELECT 1 FROM blocked_account WHERE user_id = $1', [unlinkedId])).rowCount,
+      1,
+      'removing an account with no login still blocks it',
+    )
+  } finally {
+    await seed.end()
+  }
+  const relinked = await accountLink(database.url, 'unlinkedfriend', 'unlinked@huddle.test')
+  assert.equal(relinked.code, 1, 'account:link cannot point a login at a removed account')
+  assert.equal((await new Client(base, 'unlinked@huddle.test').stage()).kind, 'join')
+  pass('an unlinked account can be removed, and account:link refuses to revive it')
 } catch (error) {
   process.stderr.write(server.logs())
   throw error

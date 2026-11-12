@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import pg from 'pg'
-import { JoinCode, ServerEvent, UserId } from '@huddle/contracts'
+import { Cursor, JoinCode, ServerEvent, UserId } from '@huddle/contracts'
 import { migrate, migratedDatabase, scratchDatabase } from './harness'
 
 const database = await scratchDatabase()
@@ -35,7 +35,8 @@ try {
     }
     await scratch.query('COMMIT')
   }
-  const rows = async (query: string) => (await scratch.query(query)).rows
+  const rows = async (query: string, values: unknown[] = []) =>
+    (await scratch.query(query, values)).rows
   try {
     await applyThrough('005_recovery_acknowledgement.sql')
     const owner = UserId.parse(randomUUID())
@@ -397,9 +398,7 @@ try {
       "INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,retry_id,body,cursor) VALUES($1,$2,$3,1,'Legacy owner',$4,'Old group body',1)",
       [randomUUID(), legacyGroup, owner, randomUUID()],
     )
-    const accepted = await migrate(database.url)
-    assert.equal(accepted.code, 0, accepted.output)
-    assert.match(accepted.output, /Huddle migrations applied/)
+    await applyThrough('015_message_editing.sql')
     for (const [key, query] of Object.entries(survivors)) {
       assert.ok(before013[key].length > 0, `the 013 fixture holds ${key}`)
       assert.deepEqual(await rows(query), before013[key], `013 keeps every ${key} row and ID`)
@@ -627,6 +626,308 @@ try {
       'unreferenced old group photo can be pruned',
     )
 
+    const at = async () =>
+      Cursor.parse(
+        (await scratch.query('UPDATE server SET cursor = cursor + 1 RETURNING cursor::text'))
+          .rows[0]?.cursor,
+      )
+    const scoped = {
+      room: randomUUID(),
+      text: randomUUID(),
+      voice: randomUUID(),
+      message: randomUUID(),
+      conversation: randomUUID(),
+      direct: randomUUID(),
+      group: randomUUID(),
+      groupMessage: randomUUID(),
+    }
+    const pair = [owner, colleague]
+    const seededEvents: { event: Record<string, unknown>; audience?: string[]; group?: string }[] =
+      []
+    const seed = async (
+      make: (cursor: string) => Record<string, unknown>,
+      audience?: string[],
+      group?: string,
+    ) => {
+      const cursor = await at()
+      const event = make(cursor)
+      seededEvents.push({ event, audience, group })
+      await scratch.query(
+        'INSERT INTO event(cursor, event, audience, group_id) VALUES ($1, $2, $3, $4)',
+        [cursor, event, audience ?? null, group ?? null],
+      )
+      return cursor
+    }
+    const authored = (id: string, cursor: string, body: string) => ({
+      id,
+      authorId: colleague,
+      authorName: 'Legacy colleague',
+      authorAvatar: null,
+      retryId: randomUUID(),
+      body,
+      cursor,
+      createdAt: '2026-11-01T00:00:00.000Z',
+      revision: '0',
+      editedAt: null,
+    })
+    await scratch.query("INSERT INTO room(id, name) VALUES ($1, 'Archive')", [scoped.room])
+    await seed((cursor) => ({
+      kind: 'room.created',
+      cursor,
+      room: { id: scoped.room, name: 'Archive' },
+    }))
+    for (const [id, name, kind] of [
+      [scoped.text, 'notes', 'text'],
+      [scoped.voice, 'Call', 'voice'],
+    ]) {
+      await scratch.query('INSERT INTO channel(id, room_id, name, kind) VALUES ($1, $2, $3, $4)', [
+        id,
+        scoped.room,
+        name,
+        kind,
+      ])
+      await seed((cursor) => ({
+        kind: 'channel.created',
+        cursor,
+        channel: { id, roomId: scoped.room, name, kind },
+      }))
+    }
+    const sentAt = await seed((cursor) => ({
+      kind: 'message.created',
+      cursor,
+      mentions: [owner],
+      message: {
+        ...authored(scoped.message, cursor, '@Legacy owner, scoped'),
+        channelId: scoped.text,
+      },
+    }))
+    await scratch.query(
+      "INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, original_body, cursor) VALUES ($1, $2, $3, 'Legacy colleague', $4, 'Scoped, edited', '@Legacy owner, scoped', $5)",
+      [scoped.message, scoped.text, colleague, randomUUID(), sentAt],
+    )
+    await scratch.query('INSERT INTO message_mention(message_id, user_id) VALUES ($1, $2)', [
+      scoped.message,
+      owner,
+    ])
+    await scratch.query(
+      'INSERT INTO channel_read(user_id, channel_id, cursor) VALUES ($1, $2, $3)',
+      [owner, scoped.text, sentAt],
+    )
+    await seed((cursor) => ({
+      kind: 'message.edited',
+      cursor,
+      message: {
+        ...authored(scoped.message, sentAt, 'Scoped, edited'),
+        channelId: scoped.text,
+        revision: cursor,
+      },
+    }))
+    await scratch.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $3)', [
+      scoped.conversation,
+      low,
+      high,
+    ])
+    const directAt = await seed(
+      (cursor) => ({
+        kind: 'direct.message.created',
+        cursor,
+        participants: pair,
+        message: {
+          ...authored(scoped.direct, cursor, 'Private'),
+          conversationId: scoped.conversation,
+        },
+      }),
+      pair,
+    )
+    await seed(
+      (cursor) => ({
+        kind: 'direct.message.edited',
+        cursor,
+        participants: pair,
+        message: {
+          ...authored(scoped.direct, directAt, 'Private, edited'),
+          conversationId: scoped.conversation,
+          revision: cursor,
+        },
+      }),
+      pair,
+    )
+    await scratch.query(
+      'INSERT INTO group_conversation(id,name,creator_id,create_retry_id,create_others) VALUES($1,$2,$3,$4,$5)',
+      [scoped.group, 'Scoped group', colleague, randomUUID(), [owner]],
+    )
+    const admitted = await seed(
+      (cursor) => ({
+        kind: 'group.changed',
+        cursor,
+        group: {
+          id: scoped.group,
+          name: 'Scoped group',
+          members: [
+            { userId: colleague, admission: cursor },
+            { userId: owner, admission: cursor },
+          ],
+          revision: cursor,
+          latest: null,
+        },
+      }),
+      pair,
+      scoped.group,
+    )
+    const groupAt = await seed(
+      (cursor) => ({
+        kind: 'group.message.created',
+        cursor,
+        message: { ...authored(scoped.groupMessage, cursor, 'Grouped'), groupId: scoped.group },
+      }),
+      pair,
+      scoped.group,
+    )
+    await seed(
+      (cursor) => ({
+        kind: 'group.message.edited',
+        cursor,
+        message: {
+          ...authored(scoped.groupMessage, groupAt, 'Grouped, edited'),
+          groupId: scoped.group,
+          revision: cursor,
+        },
+      }),
+      pair,
+      scoped.group,
+    )
+    await seed(
+      (cursor) => ({ kind: 'group.removed', cursor, groupId: scoped.group, admission: admitted }),
+      [owner],
+      scoped.group,
+    )
+    const edit = { messageId: scoped.message, expectedRevision: '0', body: 'edited' }
+    for (const request of [
+      { kind: 'channel', channelId: scoped.text, ...edit },
+      { kind: 'direct', conversationId: scoped.conversation, ...edit },
+      { kind: 'group', groupId: scoped.group, admission: admitted, ...edit },
+    ])
+      await scratch.query(
+        'INSERT INTO message_edit_receipt(author_id, retry_id, request, response) VALUES ($1, $2, $3, $4)',
+        [colleague, randomUUID(), { ...request, retryId: randomUUID() }, { body: 'edited' }],
+      )
+    for (const { event } of seededEvents)
+      assert.equal(ServerEvent.safeParse(event).success, true, `the ${event.kind} fixture parses`)
+
+    const orphan = await at()
+    await scratch.query('INSERT INTO event(cursor, event) VALUES ($1, $2)', [
+      orphan,
+      { kind: 'channel.created', cursor: orphan, channel: { id: randomUUID(), roomId: studio } },
+    ])
+    const refusedOrphan = await migrate(database.url)
+    assert.notEqual(refusedOrphan.code, 0, '016 refuses an event naming a missing channel')
+    assert.match(refusedOrphan.output, /event_channel_id_fkey/)
+    assert.deepEqual(
+      await rows("SELECT name FROM huddle_migration WHERE name = '016_admin_controls.sql'"),
+      [],
+    )
+    await scratch.query('DELETE FROM event WHERE cursor = $1', [orphan])
+    const upgraded = await migrate(database.url)
+    assert.equal(upgraded.code, 0, upgraded.output)
+    assert.match(upgraded.output, /Huddle migrations applied/)
+    const scopes = await rows(
+      "SELECT event->>'kind' AS kind, room_id, channel_id FROM event ORDER BY cursor",
+    )
+    assert.deepEqual(
+      scopes,
+      [
+        { kind: 'channel.created', room_id: roomId, channel_id: general },
+        { kind: 'channel.created', room_id: roomId, channel_id: random },
+        { kind: 'message.created', room_id: null, channel_id: general },
+        { kind: 'room.created', room_id: studio, channel_id: null },
+        { kind: 'channel.created', room_id: studio, channel_id: studioGeneral },
+        { kind: 'direct.message.created', room_id: null, channel_id: null },
+        { kind: 'room.created', room_id: scoped.room, channel_id: null },
+        { kind: 'channel.created', room_id: scoped.room, channel_id: scoped.text },
+        { kind: 'channel.created', room_id: scoped.room, channel_id: scoped.voice },
+        { kind: 'message.created', room_id: null, channel_id: scoped.text },
+        { kind: 'message.edited', room_id: null, channel_id: scoped.text },
+        { kind: 'direct.message.created', room_id: null, channel_id: null },
+        { kind: 'direct.message.edited', room_id: null, channel_id: null },
+        { kind: 'group.changed', room_id: null, channel_id: null },
+        { kind: 'group.message.created', room_id: null, channel_id: null },
+        { kind: 'group.message.edited', room_id: null, channel_id: null },
+        { kind: 'group.removed', room_id: null, channel_id: null },
+      ],
+      '016 scopes room and channel events to their room and channel, and nothing else',
+    )
+    assert.deepEqual(
+      await rows(
+        "SELECT request->>'kind' AS kind, channel_id FROM message_edit_receipt ORDER BY request->>'kind'",
+      ),
+      [
+        { kind: 'channel', channel_id: scoped.text },
+        { kind: 'direct', channel_id: null },
+        { kind: 'group', channel_id: null },
+      ],
+      '016 scopes channel edit receipts only',
+    )
+    for (const [event, room, channel, constraint] of [
+      [{ kind: 'channel.renamed' }, null, scoped.text, /event_room_scope/],
+      [{ kind: 'room.deleted' }, scoped.room, null, /event_room_scope/],
+      [{ kind: 'message.created' }, null, null, /event_channel_scope/],
+      [{ kind: 'channel.deleted' }, scoped.room, scoped.text, /event_channel_scope/],
+    ] as const)
+      await assert.rejects(
+        scratch.query(
+          'INSERT INTO event(cursor, event, room_id, channel_id) VALUES ((SELECT max(cursor) + 1 FROM event), $1, $2, $3)',
+          [event, room, channel],
+        ),
+        constraint,
+        `a ${event.kind} event with the wrong scope is refused`,
+      )
+    await assert.rejects(
+      scratch.query(
+        "INSERT INTO message_edit_receipt(author_id, retry_id, request, response) VALUES ($1, $2, $3, '{}')",
+        [colleague, randomUUID(), { kind: 'channel' }],
+      ),
+      /receipt_channel_scope/,
+      'a channel edit receipt must name its channel',
+    )
+    const remaining = 'SELECT cursor::text, event FROM event ORDER BY cursor'
+    const eventsBeforeDelete = await rows(remaining)
+    await scratch.query('DELETE FROM channel WHERE id = $1', [scoped.text])
+    assert.deepEqual(
+      await rows(remaining),
+      eventsBeforeDelete.filter(
+        ({ event }) =>
+          event.channel?.id !== scoped.text && event.message?.channelId !== scoped.text,
+      ),
+      'deleting a channel deletes its created, message and edit events and keeps the rest',
+    )
+    assert.equal(eventsBeforeDelete.length - (await rows(remaining)).length, 3)
+    for (const [table, column, id] of [
+      ['message', 'channel_id', scoped.text],
+      ['channel_read', 'channel_id', scoped.text],
+      ['message_mention', 'message_id', scoped.message],
+    ])
+      assert.deepEqual(
+        await rows(`SELECT 1 FROM ${table} WHERE ${column} = $1`, [id]),
+        [],
+        `deleting a channel deletes its ${table} rows`,
+      )
+    assert.deepEqual(
+      await rows("SELECT request->>'kind' AS kind FROM message_edit_receipt ORDER BY 1"),
+      [{ kind: 'direct' }, { kind: 'group' }],
+      'deleting a channel deletes its edit receipts',
+    )
+    await scratch.query('DELETE FROM room WHERE id = $1', [scoped.room])
+    assert.deepEqual(
+      await rows('SELECT 1 FROM event WHERE strpos(event::text, $1) > 0', [scoped.room]),
+      [],
+      'deleting a room deletes its created event and every event of its channels',
+    )
+    assert.equal(
+      (await rows('SELECT 1 FROM event WHERE group_id = $1', [scoped.group])).length,
+      4,
+      'group events survive channel and room deletes',
+    )
+
     const shape = `SELECT table_name, column_name, data_type, is_nullable, column_default
       FROM information_schema.columns WHERE table_schema = 'public'
       ORDER BY table_name, column_name`
@@ -652,7 +953,7 @@ try {
     await scratch.end()
   }
   process.stdout.write(
-    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. 015 backfills original bodies, revision zero and null edit timestamps in channel, direct and group messages. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
+    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. 015 backfills original bodies, revision zero and null edit timestamps in channel, direct and group messages. 016 refuses an event naming a missing channel without deleting it, scopes every room and channel event and channel edit receipt, refuses wrong scopes, and deleting a channel or room by SQL removes its events, receipts, messages, mentions and reads by cascade. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
   )
 } finally {
   await closeDomain()

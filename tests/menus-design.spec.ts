@@ -30,6 +30,10 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
     (await server.admin.call('/api/channels', { roomId: room.id, name: 'general', kind: 'text' }))
       .value,
   )
+  Channel.parse(
+    (await server.admin.call('/api/channels', { roomId: room.id, name: 'Lounge', kind: 'voice' }))
+      .value,
+  )
   const invite = ServerInvite.parse((await server.admin.call('/api/invite')).value)
   const friend = new Client(serverURL, 'maya@huddle.test')
   await friend.act({
@@ -60,6 +64,12 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   await page.keyboard.press('Enter')
   const menu = page.locator('#server-menu')
   await expect(menu.getByRole('button', { name: 'Members', exact: true })).toBeFocused()
+  await expect(menu.getByRole('button')).toHaveText([
+    'Members',
+    'Create a room',
+    'Rename server…',
+    'Settings',
+  ])
   await page.keyboard.press('End')
   await expect(menu.getByRole('button', { name: 'Settings', exact: true })).toBeFocused()
   await both(page, 'server-menu')
@@ -81,6 +91,8 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   await expect(menu.getByRole('button')).toHaveText([
     'Create a channel',
     'Create a room',
+    'Rename room…',
+    'Delete room…',
     'Settings',
   ])
   await both(page, 'room-menu')
@@ -96,6 +108,44 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   await composer.click()
   await expect(menu).not.toBeVisible()
   await expect(composer).toBeFocused()
+
+  const channelOptions = page.getByRole('button', { name: 'Channel options', exact: true })
+  const channelMenu = page.locator('#channel-menu')
+  await channelOptions.focus()
+  await page.keyboard.press('Enter')
+  await expect(channelMenu.getByRole('button')).toHaveText([
+    'Rename channel…',
+    'Delete channel…',
+    'Settings',
+  ])
+  await expect(channelMenu.getByRole('button', { name: 'Rename channel…' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(channelMenu.getByRole('button', { name: 'Delete channel…' })).toBeFocused()
+  await both(page, 'channel-menu')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('dialog', { name: 'Delete #general?', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(channelOptions).toBeFocused()
+  await expect(composer).toHaveValue('A little celebration today')
+  await page
+    .getByRole('navigation', { name: 'The studio channels', exact: true })
+    .getByRole('button', { name: 'Lounge' })
+    .click()
+  await channelOptions.click()
+  await expect(channelMenu.getByRole('button')).toHaveText([
+    'Rename channel…',
+    'Delete channel…',
+    'Settings',
+  ])
+  await both(page, 'voice-channel-menu')
+  await page.keyboard.press('End')
+  await expect(channelMenu.getByRole('button', { name: 'Settings', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(channelOptions).toBeFocused()
+  await page
+    .getByRole('navigation', { name: 'The studio channels', exact: true })
+    .getByRole('button', { name: 'general' })
+    .click()
 
   await composer.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(9, 20))
   const emojiButton = page.getByRole('button', { name: 'Add emoji', exact: true })
@@ -142,6 +192,11 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   await page.getByRole('button', { name: 'View Maya Lind', exact: true }).click({ button: 'right' })
   const memberMenu = page.getByRole('group', { name: 'Maya Lind actions', exact: true })
   await expect(memberMenu).toHaveCSS('width', '224px')
+  await expect(memberMenu.getByRole('button')).toHaveText([
+    'Message Maya',
+    'View profile',
+    'Remove from server…',
+  ])
   const memberMenuBox = await memberMenu.boundingBox()
   const rosterBox = await page.locator('.member-list').boundingBox()
   if (!memberMenuBox || !rosterBox) throw new Error('The member menu or roster is missing.')
@@ -229,9 +284,26 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
     const guest = await guestContext.newPage()
     await actAs(guest, 'maya')
     await guest.goto(browserApp)
+    await guest.getByRole('button', { name: 'Huddle UI menu', exact: true }).click()
+    await expect(guest.locator('#server-menu').getByRole('button')).toHaveText(['Settings'])
+    await guest.keyboard.press('Escape')
     await railTile(guest, 'The studio').click()
     await guest.getByRole('button', { name: 'The studio menu', exact: true }).click()
     await expect(guest.locator('#server-menu').getByRole('button')).toHaveText(['Settings'])
+    await guest.keyboard.press('Escape')
+    await guest.getByRole('button', { name: 'Channel options', exact: true }).click()
+    await expect(guest.locator('#channel-menu').getByRole('button')).toHaveText(['Settings'])
+    await guest.keyboard.press('Escape')
+    await guest.getByRole('button', { name: 'Member list', exact: true }).click()
+    await guest.getByRole('button', { name: 'Actions for Adam Nilsson', exact: true }).click()
+    await expect(
+      guest.getByRole('group', { name: 'Adam Nilsson actions', exact: true }).getByRole('button'),
+    ).toHaveText(['Message Adam', 'View profile'])
+    await guest.keyboard.press('Escape')
+    await guest.getByRole('button', { name: 'View Adam Nilsson', exact: true }).click()
+    await expect(
+      guest.getByRole('dialog', { name: 'Adam Nilsson', exact: true }).getByRole('button'),
+    ).toHaveText(['', 'Message'])
   } finally {
     await guestContext.close()
   }

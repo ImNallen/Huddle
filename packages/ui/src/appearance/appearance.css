@@ -308,14 +308,6 @@
   color: var(--green);
 }
 
-.button.danger {
-  background: var(--danger-fill);
-  color: var(--on-accent);
-}
-.button.danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger-fill) 88%, black);
-}
-
 .theme-panel {
   position: fixed;
   inset: 0;

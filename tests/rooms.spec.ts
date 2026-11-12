@@ -80,8 +80,9 @@ test('rooms hold their own channels, remember one, and voice channels say when a
     await expect(main.getByRole('heading', { name: 'hangout', exact: true })).toBeVisible()
     await expect(main.getByText(voiceNotice, { exact: true })).toBeVisible()
     await expect(page.getByRole('textbox')).toHaveCount(0)
-    await expect(main.getByRole('button')).toHaveCount(1)
+    await expect(main.getByRole('button')).toHaveCount(2)
     await expect(main.getByRole('button', { name: 'Member list', exact: true })).toBeVisible()
+    await expect(main.getByRole('button', { name: 'Channel options', exact: true })).toBeVisible()
     expect(requests.filter((url) => url.includes('/api/messages'))).toEqual([])
 
     await railTile(page, 'Home').click()

@@ -202,4 +202,26 @@ test('direct conversations and the searchable person picker match both themes an
   await expect(main.getByRole('article').last()).toContainText('Still room for a direct message')
   await railTile(page, 'Home').click()
   await expectHome(page)
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const removal = await admin.call('/api/members/remove', { userId: jonas.userId })
+  expect(removal.response.status).toBe(200)
+  await sidebar.getByRole('button', { name: /^Jonas Berg/ }).click()
+  await expect(main.getByRole('status').filter({ hasText: 'no longer' })).toHaveText(
+    'Jonas Berg is no longer on this server. You can still read your conversation.',
+  )
+  await expect(main.getByRole('textbox')).toHaveCount(0)
+  await expect(main.locator('.direct-person')).toHaveText('Jonas BergDirect message')
+  await expect(
+    main.getByText('Found the perfect spot for Saturday.', { exact: true }),
+  ).toBeVisible()
+  await main.getByRole('heading', { name: 'Conversation with Jonas Berg', exact: true }).click()
+  await page.mouse.move(1400, 880)
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await page.evaluate(() => document.fonts.ready)
+    const path = test.info().outputPath(`direct-former-${colorScheme}.png`)
+    await page.screenshot({ path, animations: 'disabled' })
+    await test.info().attach(`direct-former-${colorScheme}`, { path, contentType: 'image/png' })
+  }
 })

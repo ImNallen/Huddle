@@ -1,4 +1,5 @@
 import { expect, test, type Browser } from '@playwright/test'
+import { Snapshot } from '../packages/contracts/src/index'
 import { runningLivekit, tailscale } from '../apps/server/scripts/harness'
 import { browserApp, loginOf, member, serverURL } from './accounts'
 import { useScratchServer } from './server'
@@ -524,6 +525,46 @@ test('losing identity ends the call and closes the microphone', async ({ browser
     await expect(panel(ada.page)).toHaveCount(0)
   } finally {
     await ada.context.close()
+  }
+})
+
+test('deleting a voice channel ends every call in it and closes the microphones', async ({
+  browser,
+}) => {
+  const roomName = await voiceRoom('Game 1')
+  const ada = await person(browser, 'ada', roomName)
+  const bo = await person(browser, 'bo', roomName)
+  try {
+    for (const { page } of [ada, bo]) {
+      await channelRow(page, roomName, 'Game 1').click()
+      await join(page).click()
+      await expectInCall(page)
+    }
+    await expectHearing(ada.page)
+    await channelRow(bo.page, roomName, 'chat').click()
+    const channel = Snapshot.parse((await server.admin.call('/api/snapshot')).value).channels.find(
+      ({ name }) => name === 'Game 1',
+    )
+    if (!channel) throw new Error('The voice channel is missing.')
+    const { response } = await server.admin.call('/api/channels/delete', {
+      channelId: channel.id,
+      confirm: 'Game 1',
+    })
+    expect(response.status).toBe(200)
+    for (const { page } of [ada, bo]) {
+      await expect(page.locator('.app-notice')).toHaveText(
+        'Game 1 was deleted, so your call ended.',
+      )
+      await expect(panel(page)).toHaveCount(0)
+      await expect(channelRow(page, roomName, 'Game 1')).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: 'Welcome to #chat' })).toBeVisible()
+      await expect.poll(() => openMicrophones(page)).toBe(0)
+      await expect.poll(() => openPeers(page)).toBe(0)
+      await expect.poll(() => playingSounds(page)).toBe(0)
+    }
+  } finally {
+    await ada.context.close()
+    await bo.context.close()
   }
 })
 

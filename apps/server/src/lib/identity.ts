@@ -14,9 +14,11 @@ export type Attestation =
 export type Visitor =
   | NoIdentity
   | { kind: 'stranger'; login: TailscaleLogin; suggestedName: string }
+  | { kind: 'removed'; login: TailscaleLogin }
   | { kind: 'member'; login: TailscaleLogin; user: PublicUser }
 export type Member = Extract<Visitor, { kind: 'member' }>
 
+const Standing = z.enum(['member', 'removed']).nullable()
 const encodedWord = /^=\?utf-8\?q\?([^?\s]*)\?=$/i
 const utf8 = new TextDecoder('utf-8', { fatal: true })
 
@@ -77,15 +79,24 @@ export async function identify(headers: Headers): Promise<Visitor> {
   const attestation = readAttestation(headers)
   if (attestation.kind === 'no-identity') return attestation
   const { rows } = await db.query(
-    `SELECT u.id, u.name, a.avatar FROM "user" u
+    `SELECT u.id, u.name, a.avatar,
+      CASE WHEN b.user_id IS NOT NULL THEN 'removed' WHEN m.user_id IS NOT NULL THEN 'member' END AS standing
+    FROM "user" u
     JOIN account_security a ON a.user_id = u.id
-    JOIN member m ON m.user_id = u.id
+    LEFT JOIN member m ON m.user_id = u.id
+    LEFT JOIN blocked_account b ON b.user_id = u.id
     WHERE u.tailscale_login = $1`,
     [attestation.login],
   )
-  return rows[0]
-    ? { kind: 'member', login: attestation.login, user: PublicUser.parse(rows[0]) }
-    : { ...attestation, kind: 'stranger' }
+  const standing = Standing.parse(rows[0]?.standing ?? null)
+  switch (standing) {
+    case 'member':
+      return { kind: 'member', login: attestation.login, user: PublicUser.parse(rows[0]) }
+    case 'removed':
+      return { kind: 'removed', login: attestation.login }
+    case null:
+      return { ...attestation, kind: 'stranger' }
+  }
 }
 
 export async function requireAccess(headers: Headers): Promise<Member> {

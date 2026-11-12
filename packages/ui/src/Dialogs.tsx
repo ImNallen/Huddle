@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Check, X } from 'lucide-react'
+import { z } from 'zod'
 import {
   Channel,
   Room,
@@ -16,6 +17,7 @@ import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
 import { ChannelIcon } from './Badges'
 import type { Resource } from './Members'
+import { channelLabel } from './useServer'
 import { CopyButton, Overlay, hostOf } from './primitives'
 
 export function Modal({
@@ -54,6 +56,8 @@ function FormDialog({
   description,
   action,
   busyLabel,
+  ready = true,
+  danger = false,
   onClose,
   submit,
   children,
@@ -62,9 +66,11 @@ function FormDialog({
   description: string
   action: string
   busyLabel: string
+  ready?: boolean
+  danger?: boolean
   onClose: () => void
   submit: (form: FormData) => Promise<void>
-  children: ReactNode
+  children?: ReactNode
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -92,7 +98,7 @@ function FormDialog({
           <button type="button" className="button text" onClick={onClose}>
             Cancel
           </button>
-          <button className="button primary" disabled={busy}>
+          <button className={`button ${danger ? 'danger' : 'primary'}`} disabled={busy || !ready}>
             {busy ? busyLabel : action}
           </button>
         </div>
@@ -125,6 +131,204 @@ export function RoomDialog({
         <input name="name" placeholder="e.g. Gaming" maxLength={40} required autoFocus />
       </label>
     </FormDialog>
+  )
+}
+export type Renamable =
+  | { kind: 'server'; name: string }
+  | { kind: 'room'; room: Room; channels: Channel[] }
+  | { kind: 'channel'; channel: Channel }
+export type Deletable = Exclude<Renamable, { kind: 'server' }>
+const Done = z.object({})
+function renaming(target: Renamable) {
+  switch (target.kind) {
+    case 'server':
+      return {
+        noun: 'server',
+        name: target.name,
+        field: 'Server name',
+        maxLength: 60,
+        text: false,
+        path: '/api/server/rename',
+        body: (name: string) => ({ name }),
+      }
+    case 'room':
+      return {
+        noun: 'room',
+        name: target.room.name,
+        field: 'Room name',
+        maxLength: 40,
+        text: false,
+        path: '/api/rooms/rename',
+        body: (name: string) => ({ roomId: target.room.id, name }),
+      }
+    case 'channel': {
+      const { id, kind } = target.channel
+      return {
+        noun: 'channel',
+        name: target.channel.name,
+        field: 'Channel name',
+        maxLength: 40,
+        text: kind === 'text',
+        path: '/api/channels/rename',
+        body: (name: string) => ({ channelId: id, kind, name }),
+      }
+    }
+  }
+}
+export function RenameDialog({
+  client,
+  target,
+  onClose,
+}: {
+  client: Transport
+  target: Renamable
+  onClose: () => void
+}) {
+  const subject = renaming(target)
+  const [name, setName] = useState(subject.name)
+  return (
+    <FormDialog
+      title={`Rename ${subject.noun}`}
+      description="Everyone sees the new name right away."
+      action="Save"
+      busyLabel="Saving…"
+      ready={name.trim().length > 0}
+      onClose={onClose}
+      submit={async () => {
+        await client.request(subject.path, Done, subject.body(name))
+        onClose()
+      }}
+    >
+      <label className="field">
+        {subject.field}
+        <input
+          name="name"
+          pattern={subject.text ? TEXT_CHANNEL_NAME_PATTERN : undefined}
+          value={name}
+          onChange={(event) =>
+            setName(subject.text ? event.target.value.toLowerCase() : event.target.value)
+          }
+          maxLength={subject.maxLength}
+          required
+          autoFocus
+        />
+      </label>
+      {subject.text && (
+        <p className="field-hint">
+          Use lowercase letters (including å, ä, ö), numbers, and hyphens.
+        </p>
+      )}
+    </FormDialog>
+  )
+}
+function deleting(target: Deletable) {
+  switch (target.kind) {
+    case 'room': {
+      const { room, channels } = target
+      const count = channels.length
+      return {
+        label: room.name,
+        name: room.name,
+        action: 'Delete room',
+        lost: [
+          count
+            ? `This permanently deletes ${room.name} and its ${count === 1 ? 'channel' : `${count} channels`}, with every message, unread count, and mention in ${count === 1 ? 'it' : 'them'}, for everyone.`
+            : `This permanently deletes ${room.name} for everyone.`,
+          channels.some((channel) => channel.kind === 'voice')
+            ? 'Anyone in a call there is disconnected.'
+            : '',
+        ],
+        path: '/api/rooms/delete',
+        body: (confirm: string) => ({ roomId: room.id, confirm }),
+      }
+    }
+    case 'channel': {
+      const { channel } = target
+      const label = channelLabel(channel)
+      return {
+        label,
+        name: channel.name,
+        action: 'Delete channel',
+        lost:
+          channel.kind === 'text'
+            ? [
+                `This permanently deletes ${label} and every message, unread count, and mention in it, for everyone.`,
+              ]
+            : [
+                `This permanently deletes ${label} for everyone.`,
+                'Anyone in the call is disconnected.',
+              ],
+        path: '/api/channels/delete',
+        body: (confirm: string) => ({ channelId: channel.id, confirm }),
+      }
+    }
+  }
+}
+export function DeleteDialog({
+  client,
+  target,
+  onClose,
+}: {
+  client: Transport
+  target: Deletable
+  onClose: () => void
+}) {
+  const subject = deleting(target)
+  const [typed, setTyped] = useState('')
+  return (
+    <FormDialog
+      title={`Delete ${subject.label}?`}
+      description={[...subject.lost, 'It can’t be undone.'].filter(Boolean).join(' ')}
+      action={subject.action}
+      busyLabel="Deleting…"
+      ready={typed === subject.name}
+      danger
+      onClose={onClose}
+      submit={async () => {
+        await client.request(subject.path, Done, subject.body(typed))
+        onClose()
+      }}
+    >
+      <label className="field">
+        <span>
+          Type <strong className="confirm-name">{subject.name}</strong> to confirm
+        </span>
+        <input
+          name="confirm"
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={80}
+          required
+          autoFocus
+        />
+      </label>
+    </FormDialog>
+  )
+}
+export function RemoveMemberDialog({
+  client,
+  member,
+  onClose,
+}: {
+  client: Transport
+  member: Member
+  onClose: () => void
+}) {
+  return (
+    <FormDialog
+      title={`Remove ${member.name}?`}
+      description="They leave every room, call, and group, and their Tailscale login can’t rejoin until you unblock them. Their messages stay, under their name."
+      action="Remove"
+      busyLabel="Removing…"
+      danger
+      onClose={onClose}
+      submit={async () => {
+        await client.request('/api/members/remove', Done, { userId: member.id })
+        onClose()
+      }}
+    />
   )
 }
 const channelKinds: { kind: ChannelKind; label: string; placeholder: string }[] = [

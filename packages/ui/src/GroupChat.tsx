@@ -31,8 +31,6 @@ export function GroupConversation({
   client: Transport
   me: Me
   sync: ReturnType<typeof useServer>
-  draft: string
-  onDraft: (value: string) => void
 }) {
   const others = group.members
     .filter((m) => m.userId !== shared.me.user.id)

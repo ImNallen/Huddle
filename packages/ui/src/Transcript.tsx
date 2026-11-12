@@ -104,8 +104,7 @@ export function Transcript({
   welcome,
   emptyWelcome,
   sync,
-  draft,
-  onDraft,
+  closed,
 }: {
   client: Transport
   me: Me
@@ -116,8 +115,7 @@ export function Transcript({
   welcome: ReactNode
   emptyWelcome?: ReactNode
   sync: ReturnType<typeof useServer>
-  draft: string
-  onDraft: (value: string) => void
+  closed?: string
 }) {
   const [editor, setEditor] = useState<Editor>({ kind: 'closed' })
   const invoker = useRef<HTMLElement | null>(null)
@@ -129,6 +127,8 @@ export function Transcript({
   const atEnd = useRef(true)
   const measured = useRef('')
   const key = threadKey(thread)
+  const draft = sync.draft(thread)
+  const onDraft = (value: string) => sync.setDraft(thread, value)
   useEffect(() => setEditor({ kind: 'closed' }), [key, me.user.id, client])
   function openEditor(message: ThreadMessage, returnFocus: HTMLElement | null) {
     invoker.current = returnFocus
@@ -440,55 +440,61 @@ export function Transcript({
           )}
         </div>
       </div>
-      <form ref={composer} className="composer" onSubmit={submit}>
-        <label className="sr-only" htmlFor="message">
-          {label}
-        </label>
-        <textarea
-          ref={input}
-          id="message"
-          rows={1}
-          maxLength={8000}
-          value={draft}
-          onChange={(event) => onDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              event.currentTarget.form?.requestSubmit()
-            }
-          }}
-          placeholder={placeholder}
-        />
-        <div className="composer-actions">
-          <button
-            type="button"
-            className="composer-tool"
-            aria-label="Add mention"
-            data-tooltip="Add mention"
-            onClick={() => insert('@')}
-          >
-            <Plus size={18} />
-          </button>
-          <button
-            type="button"
-            className="composer-tool"
-            aria-label="Add emoji"
-            data-tooltip="Add emoji"
-            popoverTarget="composer-emoji"
-          >
-            <Smile size={18} />
-          </button>
-          <EmojiPicker onInsert={insert} anchorRef={composer} />
-          <button
-            className="composer-send"
-            aria-label="Send message"
-            data-tooltip="Send message"
-            disabled={!draft.trim()}
-          >
-            <ArrowUp size={18} />
-          </button>
-        </div>
-      </form>
+      {closed ? (
+        <p className="composer composer-closed" role="status">
+          {closed}
+        </p>
+      ) : (
+        <form ref={composer} className="composer" onSubmit={submit}>
+          <label className="sr-only" htmlFor="message">
+            {label}
+          </label>
+          <textarea
+            ref={input}
+            id="message"
+            rows={1}
+            maxLength={8000}
+            value={draft}
+            onChange={(event) => onDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                event.currentTarget.form?.requestSubmit()
+              }
+            }}
+            placeholder={placeholder}
+          />
+          <div className="composer-actions">
+            <button
+              type="button"
+              className="composer-tool"
+              aria-label="Add mention"
+              data-tooltip="Add mention"
+              onClick={() => insert('@')}
+            >
+              <Plus size={18} />
+            </button>
+            <button
+              type="button"
+              className="composer-tool"
+              aria-label="Add emoji"
+              data-tooltip="Add emoji"
+              popoverTarget="composer-emoji"
+            >
+              <Smile size={18} />
+            </button>
+            <EmojiPicker onInsert={insert} anchorRef={composer} />
+            <button
+              className="composer-send"
+              aria-label="Send message"
+              data-tooltip="Send message"
+              disabled={!draft.trim()}
+            >
+              <ArrowUp size={18} />
+            </button>
+          </div>
+        </form>
+      )}
     </main>
   )
 }

@@ -11,6 +11,7 @@ import type { Transport } from './transport'
 import { microphoneMuted, type Call, type VoiceCall } from './voiceCall'
 import { Avatar } from './Avatar'
 import { MemberToggle } from './Members'
+import { ChannelMenu, type ChannelActions } from './Conversation'
 import { Spinner } from './primitives'
 
 export type VoiceAvailability = 'on' | 'off'
@@ -57,6 +58,8 @@ export function VoiceChannel({
   roster,
   memberList,
   onMemberList,
+  onSettings,
+  admin,
 }: {
   client: Transport
   me: Me
@@ -68,6 +71,8 @@ export function VoiceChannel({
   roster: Member[] | null
   memberList: boolean
   onMemberList: () => void
+  onSettings: () => void
+  admin?: ChannelActions
 }) {
   const { call } = voice
   const here = call.phase !== 'idle' && call.channelId === channel.id ? call : null
@@ -88,7 +93,10 @@ export function VoiceChannel({
       <header className="topbar">
         <Volume2 size={20} />
         <strong>{channel.name}</strong>
-        <MemberToggle pressed={memberList} onToggle={onMemberList} />
+        <div className="channel-actions">
+          <MemberToggle pressed={memberList} onToggle={onMemberList} />
+          <ChannelMenu channel={channel} admin={admin} onSettings={onSettings} />
+        </div>
       </header>
       <div className="center-state">
         {!inCall && (joining || !watching.length) && (
