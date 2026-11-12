@@ -7,18 +7,23 @@ export function App() {
   const [client, setClient] = useState(
     () => new Client(localStorage.getItem('huddle.server') ?? 'http://localhost:3000'),
   )
-  const saved = readSavedServers().find((server) => server.origin === client.origin)
+  const [servers, setServers] = useState(readSavedServers)
+  const saved = servers.find((server) => server.origin === client.origin)
   const [editingServer, setEditingServer] = useState(() => !localStorage.getItem('huddle.server'))
+  function remember(server: { origin: string; name: string }) {
+    saveServer(server)
+    setServers(readSavedServers())
+  }
   useEffect(() => {
     const entry = readSavedServers().find((server) => server.origin === client.origin)
-    if (entry) saveServer(entry)
+    if (entry) remember(entry)
   }, [client])
   async function changeServer(origin: string) {
     const next = new Client(origin)
     try {
       const info = await next.info()
       client.disconnect()
-      saveServer({ origin: next.origin, name: info.name })
+      remember({ origin: next.origin, name: info.name })
       setClient(next)
       setEditingServer(false)
     } catch (failure) {
@@ -41,6 +46,9 @@ export function App() {
           client={client}
           serverName={saved?.name}
           onServer={() => setEditingServer(true)}
+          onServerName={(name) => {
+            if (name !== saved?.name) remember({ origin: client.origin, name })
+          }}
         />
       )}
     </>

@@ -205,4 +205,29 @@ test('onboarding matches both themes and completes setup, optional profile, retr
   } finally {
     await identityContext.close()
   }
+
+  const removed = new Client(serverURL, 'removed@huddle.test')
+  await removed.act({ kind: 'account.join', code, name: 'Sam Rivera' })
+  const removal = await admin.call('/api/members/remove', { userId: removed.userId })
+  expect(removal.response.status).toBe(200)
+  const removedContext = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: 'reduce',
+  })
+  try {
+    const removedPage = await removedContext.newPage()
+    await actAs(removedPage, 'removed')
+    await removedPage.goto(browserApp)
+    await expect(
+      removedPage.getByRole('heading', { name: 'You were removed from Our place', exact: true }),
+    ).toBeVisible()
+    await expect(removedPage.getByText('removed@huddle.test', { exact: true })).toBeVisible()
+    await expect(removedPage.getByLabel('Your name')).toHaveCount(0)
+    await both(removedPage, 'onboarding-removed')
+    await removedPage.getByRole('button', { name: 'Check again', exact: true }).click()
+    await expect(removedPage.getByRole('status')).toHaveText('Nothing has changed yet.')
+    await both(removedPage, 'onboarding-removed-checked')
+  } finally {
+    await removedContext.close()
+  }
 })

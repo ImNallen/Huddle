@@ -24,10 +24,12 @@ export function Application({
   client,
   serverName,
   onServer,
+  onServerName,
 }: {
   client: Connection
   serverName?: string
   onServer?: () => void
+  onServerName?: (name: string) => void
 }) {
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [reload, setReload] = useState(0)
@@ -144,6 +146,7 @@ export function Application({
       accept={accept}
       onAccessChanged={onAccessChanged}
       onServer={onServer}
+      onServerName={onServerName}
     />
   )
 }
@@ -155,6 +158,7 @@ function ReadyView({
   accept,
   onAccessChanged,
   onServer,
+  onServerName,
 }: {
   client: Connection
   stage: Extract<AccessStage, { kind: 'ready' }>
@@ -163,6 +167,7 @@ function ReadyView({
   accept: (stage: AccessStage) => void
   onAccessChanged: () => void
   onServer?: () => void
+  onServerName?: (name: string) => void
 }) {
   const [settings, setSettings] = useState<string | null>(null)
   return (
@@ -174,6 +179,7 @@ function ReadyView({
         voiceAvailable={voiceAvailable}
         onAccessChanged={onAccessChanged}
         onServer={onServer}
+        onServerName={onServerName}
         onSettings={(name) => setSettings(name ?? serverName)}
       />
       {settings !== null && (

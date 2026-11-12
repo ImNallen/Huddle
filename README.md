@@ -2,7 +2,7 @@
 
 Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. Everyone reaches it over [Tailscale](https://tailscale.com), and Tailscale says who they are, so there is nothing to sign in with. You run the server and share an invite link. A friend opens the link on a device signed in to Tailscale, confirms their name, and chats with you in rooms and channels. Friends can also message each other directly or in private groups from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
 
-Huddle has text channels, direct messages, private group chats, and voice channels. You can edit your own sent messages with **Edit**, then **Save**. Allow microphone access when you join a voice call. If your system cannot make calls in the desktop app, open the server in a browser. Video, file uploads, blocking, and mobile apps are not built yet.
+Huddle has text channels, direct messages, private group chats, and voice channels. You can edit your own sent messages with **Edit**, then **Save**. Admins can rename the server, rename or delete rooms and channels, and remove members, who stay blocked until an admin unblocks them. Allow microphone access when you join a voice call. If your system cannot make calls in the desktop app, open the server in a browser. Video, file uploads, and mobile apps are not built yet, and members cannot block each other.
 
 ## Host a server
 
@@ -47,8 +47,8 @@ Friends do the same through you. Each friend sends you the login their Huddle pa
 ## Known limits
 
 - There is no sign-out. Anyone using a device signed in to Tailscale as you is you in Huddle. To leave, disconnect Tailscale on that device.
-- Huddle cannot remove a member yet. To cut someone off, remove their access in Tailscale.
-- Every invite uses the same join code, and you cannot change that code yet.
+- Removing a member blocks their Tailscale login, but every invite uses the same join code, and you cannot change that code yet. Someone with a second login and the invite can join again as a new person, so also remove their access in Tailscale.
+- Deleting a room or channel removes its messages from the database. Backups, and disk space PostgreSQL has not reused yet, can still hold them.
 - Any process on the server machine can claim to be any member, so run nothing else on that machine.
 
 ## Develop

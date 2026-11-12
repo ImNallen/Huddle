@@ -41,13 +41,29 @@ pnpm --filter @huddle/server account:link alice alice@example.com
 
 The command prints what moved and from where. If another account holds that login, the command takes it, and that account has no login until you link it again. Open sockets of the old login close within a second, and its requests fail at once. In Docker, run `docker compose exec server node --import tsx scripts/account-link.ts` with the same arguments.
 
-For a friend, ask for the login their Huddle page shows and bind it. They select **Check again** and return to their rooms, messages, direct messages, and photos. A friend who creates a new account with an invite by mistake gets an empty account, and Huddle has no way to delete it. Use `account:link` to move their login back to the old account.
+For a friend, ask for the login their Huddle page shows and bind it. They select **Check again** and return to their rooms, messages, direct messages, and photos. A friend who creates a new account with an invite by mistake gets an empty account. Use `account:link` to move their login back to the old account, then remove the empty one from **Members** so it leaves the roster.
+
+## Remove and block someone
+
+An admin removes a member from **Members**, with **More actions** beside their row, or with **Remove from server…** in the member list's menu or on their profile card. Admins cannot be removed, and you cannot remove yourself.
+
+Removing someone does these things at once:
+
+- Their open pages close within about a second and say they were removed. Reloading, or opening the invite again, shows the same screen.
+- They leave every call within about two seconds, and every group.
+- Their account is blocked, so their Tailscale login cannot rejoin with the invite.
+
+Their account stays. Their channel messages stay under their name and photo. Their direct conversations stay readable for the other person, who can no longer send to them.
+
+**Blocked**, under the table on **Members**, lists everyone removed, newest first. **Unblock** lets that login join again. Nothing tells them, so send them the invite yourself, because a removed browser no longer holds the join code. Joining restores the same account, messages, and direct conversations, but not group seats.
+
+The block belongs to the account, not to the login text. `account:link` lists and links only member accounts, so it cannot bring a removed account back. If you link a removed person's login to another member account, that login reaches the other account and is no longer blocked, and the removed account is left with no login.
 
 ## Understand the limits
 
 Huddle has no sign-out. Anyone using a device signed in to Tailscale as you is you in Huddle, including every other process and OS user on that device. To leave, disconnect Tailscale on the device.
 
-Huddle cannot remove a member yet, and the join code cannot be rotated. To cut someone off, remove their access in the Tailscale share or ACL. New connections fail as soon as Tailscale stops letting the person reach the machine. An open socket closes when it reaches its age limit, within about five and a half minutes. The person keeps their account, and it works again if you give them access back.
+The join code cannot be rotated. Removing someone blocks their account, but a second Tailscale login of theirs is a new person to Huddle and can join with the same invite. To cut someone off completely, also remove their access in the Tailscale share or ACL. New connections fail as soon as Tailscale stops letting the person reach the machine. An open socket closes when it reaches its age limit, within about five and a half minutes. The person keeps their account, and it works again if you give them access back.
 
 Whoever runs the host can read every message in the database and can bind any account to any login with `account:link`. Admins without a shell cannot do either.
 

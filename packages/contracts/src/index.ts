@@ -148,6 +148,17 @@ export const ServerEvent = z.discriminatedUnion('kind', [
     message: DirectMessage,
     participants: z.tuple([UserId, UserId]),
   }),
+  z.object({ kind: z.literal('server.renamed'), cursor: Cursor, name: z.string() }),
+  z.object({ kind: z.literal('room.renamed'), cursor: Cursor, room: Room }),
+  z.object({ kind: z.literal('room.deleted'), cursor: Cursor, roomId: RoomId }),
+  z.object({ kind: z.literal('channel.renamed'), cursor: Cursor, channel: Channel }),
+  z.object({
+    kind: z.literal('channel.deleted'),
+    cursor: Cursor,
+    channelId: ChannelId,
+    roomId: RoomId,
+  }),
+  z.object({ kind: z.literal('member.removed'), cursor: Cursor, userId: UserId }),
 ])
 export const WatchFrame = z.object({ kind: z.literal('watch'), after: Cursor }).strict()
 export const VoicePresence = z.array(
@@ -186,7 +197,9 @@ export const SendDirectMessage = z
   .object({ conversationId: ConversationId, retryId: z.uuid(), body: MessageBody })
   .strict()
 export const MarkDirectRead = z.object({ conversationId: ConversationId, cursor: Cursor }).strict()
-export const CreateRoom = z.object({ name: z.string().trim().min(1).max(40) }).strict()
+export const RoomName = z.string().trim().min(1).max(40)
+export const CreateRoom = z.object({ name: RoomName }).strict()
+export const RenameRoom = z.object({ roomId: RoomId, name: RoomName }).strict()
 export const TEXT_CHANNEL_NAME_PATTERN = String.raw`[\p{L}\p{N}][\p{L}\p{M}\p{N}\-]*`
 const TextChannelName = z
   .string()
@@ -204,10 +217,21 @@ const VoiceChannelName = z
   .min(1)
   .max(40)
   .regex(/^[^\x00-\x1f\x7f]+$/)
+const ChannelNames = {
+  text: { kind: z.literal('text'), name: TextChannelName },
+  voice: { kind: z.literal('voice'), name: VoiceChannelName },
+}
 export const CreateChannel = z.discriminatedUnion('kind', [
-  z.object({ roomId: RoomId, name: TextChannelName, kind: z.literal('text') }).strict(),
-  z.object({ roomId: RoomId, name: VoiceChannelName, kind: z.literal('voice') }).strict(),
+  z.object({ roomId: RoomId, ...ChannelNames.text }).strict(),
+  z.object({ roomId: RoomId, ...ChannelNames.voice }).strict(),
 ])
+export const RenameChannel = z.discriminatedUnion('kind', [
+  z.object({ channelId: ChannelId, ...ChannelNames.text }).strict(),
+  z.object({ channelId: ChannelId, ...ChannelNames.voice }).strict(),
+])
+const Confirm = z.string().trim().min(1).max(80)
+export const DeleteRoom = z.object({ roomId: RoomId, confirm: Confirm }).strict()
+export const DeleteChannel = z.object({ channelId: ChannelId, confirm: Confirm }).strict()
 export const Member = z.object({
   id: UserId,
   name: z.string(),
@@ -215,15 +239,23 @@ export const Member = z.object({
   role: MemberRole,
   joinedAt: z.iso.datetime(),
 })
-export const Members = z.object({ members: z.array(Member) })
 export const ServerName = z
   .string()
   .trim()
   .min(1)
   .max(60)
   .regex(/^[^\x00-\x1f\x7f]+$/)
+export const RenameServer = z.object({ name: ServerName }).strict()
 export const SetupCode = z.string().trim().min(1).max(64)
 export const PublicUser = z.object({ id: UserId, name: z.string(), avatar: Avatar })
+export const Members = z.object({
+  members: z.array(Member),
+  former: z.array(PublicUser).default([]),
+})
+export const RemoveMember = z.object({ userId: UserId }).strict()
+export const UnblockMember = z.object({ userId: UserId }).strict()
+export const BlockedPerson = PublicUser.extend({ removedAt: z.iso.datetime() })
+export const Blocked = z.object({ blocked: z.array(BlockedPerson) })
 export const Me = z.object({ user: PublicUser })
 export const ServerInfo = z.object({
   name: z.string(),
@@ -236,6 +268,7 @@ export const JoinVoice = z.object({ channelId: ChannelId }).strict()
 export const VoiceGrant = z.object({ url: z.url(), token: z.string().min(1) })
 export type Server = z.infer<typeof Server>
 export type Member = z.infer<typeof Member>
+export type BlockedPerson = z.infer<typeof BlockedPerson>
 export type MemberRole = z.infer<typeof MemberRole>
 export type Room = z.infer<typeof Room>
 export type ChannelKind = z.infer<typeof ChannelKind>
@@ -288,6 +321,7 @@ export const AccessStage = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('no-identity'), reason: NoIdentityReason }),
   z.object({ kind: z.literal('setup'), login: TailscaleLogin, suggestedName: z.string() }),
   z.object({ kind: z.literal('join'), login: TailscaleLogin, suggestedName: z.string() }),
+  z.object({ kind: z.literal('removed'), login: TailscaleLogin }),
   z.object({ kind: z.literal('ready'), login: TailscaleLogin, user: PublicUser }),
 ])
 export const AccessCommand = z.discriminatedUnion('kind', [

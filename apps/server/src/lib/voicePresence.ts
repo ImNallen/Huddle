@@ -26,22 +26,33 @@ export function startVoicePresence(voice: NonNullable<typeof config.voice>) {
     const rooms = await service.listRooms()
     // One LiveKit can serve several Huddle servers, as `livekit-dev` does for `pnpm dev` and the
     // suites. Each lists and removes only people in its own channels.
-    const { rows: ours } = await db.query<{ id: string }>(
-      `SELECT id FROM channel WHERE kind = 'voice' AND id::text = ANY($1) ORDER BY id`,
+    const { rows: ours } = await db.query<{ id: string; deleted: boolean }>(
+      `SELECT id, false AS deleted FROM channel WHERE kind = 'voice' AND id::text = ANY($1)
+      UNION ALL SELECT id, true FROM deleted_voice_channel WHERE id::text = ANY($1) ORDER BY id`,
       [rooms.map(({ name }) => name)],
     )
+    for (const { id } of ours.filter(({ deleted }) => deleted))
+      await service.deleteRoom(id).catch(() => console.error({ event: 'voice.close.failed', id }))
+    const live = ours.filter(({ deleted }) => !deleted)
     const found = await Promise.all(
-      ours.map(async ({ id }) => ({
+      live.map(async ({ id }) => ({
         channelId: id,
         participants: (await service.listParticipants(id)).toSorted((first, second) =>
           first.joinedAtMs < second.joinedAtMs ? -1 : first.joinedAtMs > second.joinedAtMs ? 1 : 0,
         ),
       })),
     )
+    const { rows: members } = await db.query<{ user_id: string }>(
+      'SELECT user_id FROM member WHERE user_id = ANY($1)',
+      [found.flatMap(({ participants }) => participants.map(({ identity }) => identity))],
+    )
+    const onServer = new Set(members.map(({ user_id }) => user_id))
     people = found.flatMap(({ channelId, participants }) => {
       const entry = VoicePresence.element.safeParse({
         channelId,
-        people: participants.map(({ identity, name }) => ({ id: identity, name })),
+        people: participants
+          .filter(({ identity }) => onServer.has(identity))
+          .map(({ identity, name }) => ({ id: identity, name })),
       })
       return entry.success && entry.data.people.length ? [entry.data] : []
     })
@@ -49,13 +60,15 @@ export function startVoicePresence(voice: NonNullable<typeof config.voice>) {
     for (const id of absentSince.keys()) if (watchers.has(id)) absentSince.delete(id)
     for (const { channelId, participants } of found)
       for (const { identity } of participants) {
-        if (watchers.has(identity)) continue
-        const since = absentSince.get(identity)
-        if (since === undefined) absentSince.set(identity, now)
-        else if (now - since >= graceMs)
-          await service.removeParticipant(channelId, identity).catch(() => {
-            console.error({ event: 'voice.removal.failed', channelId, identity })
-          })
+        if (onServer.has(identity)) {
+          if (watchers.has(identity)) continue
+          const since = absentSince.get(identity)
+          if (since === undefined) absentSince.set(identity, now)
+          if (since === undefined || now - since < graceMs) continue
+        }
+        await service.removeParticipant(channelId, identity).catch(() => {
+          console.error({ event: 'voice.removal.failed', channelId, identity })
+        })
       }
   }
   async function loop() {

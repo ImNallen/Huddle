@@ -302,6 +302,32 @@ export function Sidebar({
               Create a room
             </button>
           )}
+          {admin && !room && (
+            <button
+              type="button"
+              onClick={() => onDialog({ kind: 'rename', target: { kind: 'server' } })}
+            >
+              Rename server…
+            </button>
+          )}
+          {admin && room && (
+            <>
+              <hr />
+              <button
+                type="button"
+                onClick={() => onDialog({ kind: 'rename', target: { kind: 'room', id: room.id } })}
+              >
+                Rename room…
+              </button>
+              <button
+                type="button"
+                className="menu-danger"
+                onClick={() => onDialog({ kind: 'delete', target: { kind: 'room', id: room.id } })}
+              >
+                Delete room…
+              </button>
+            </>
+          )}
           {admin && <hr />}
           <button type="button" onClick={onSettings}>
             Settings

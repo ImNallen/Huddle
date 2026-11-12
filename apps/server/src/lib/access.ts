@@ -10,6 +10,8 @@ async function stageFor(visitor: Visitor): Promise<AccessStage> {
       return visitor
     case 'member':
       return { kind: 'ready', login: visitor.login, user: visitor.user }
+    case 'removed':
+      return { kind: 'removed', login: visitor.login }
     case 'stranger':
       return {
         kind: (await setupRequired()) ? 'setup' : 'join',
@@ -24,7 +26,7 @@ async function advance(visitor: Visitor, command: AccessCommand, headers: Header
   switch (command.kind) {
     case 'account.setup':
     case 'account.join':
-      if (visitor.kind === 'member') return stageFor(visitor)
+      if (visitor.kind === 'member' || visitor.kind === 'removed') return stageFor(visitor)
       await limit(`account:${visitor.login}`, 10, 900)
       if (command.kind === 'account.setup') await setupAccount(visitor.login, command)
       else await joinAccount(visitor.login, command)

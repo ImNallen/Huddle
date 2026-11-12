@@ -13,6 +13,13 @@ import {
   CreateChannel,
   CreateRoom,
   Cursor,
+  DeleteChannel,
+  DeleteRoom,
+  RenameChannel,
+  RenameRoom,
+  RenameServer,
+  RemoveMember,
+  UnblockMember,
   JoinVoice,
   MarkDirectRead,
   MarkRead,
@@ -88,6 +95,7 @@ export async function applicationRequest(request: Request): Promise<Response> {
       if (path === '/api/snapshot') result = await domain.snapshot(userId)
       else if (path === '/api/members') result = await domain.members(userId)
       else if (path === '/api/invite') result = await serverInvite(userId)
+      else if (path === '/api/blocked') result = await domain.blocked(userId)
       else if (path === '/api/messages')
         result = await domain.history(
           userId,
@@ -117,7 +125,28 @@ export async function applicationRequest(request: Request): Promise<Response> {
       if (path === '/api/rooms') result = await domain.createRoom(userId, CreateRoom.parse(body))
       else if (path === '/api/channels')
         result = await domain.createChannel(userId, CreateChannel.parse(body))
-      else if (path === '/api/read') {
+      else if (path === '/api/server/rename') {
+        await domain.renameServer(userId, RenameServer.parse(body))
+        result = {}
+      } else if (path === '/api/rooms/rename') {
+        await domain.renameRoom(userId, RenameRoom.parse(body))
+        result = {}
+      } else if (path === '/api/rooms/delete') {
+        await domain.deleteRoom(userId, DeleteRoom.parse(body))
+        result = {}
+      } else if (path === '/api/channels/rename') {
+        await domain.renameChannel(userId, RenameChannel.parse(body))
+        result = {}
+      } else if (path === '/api/channels/delete') {
+        await domain.deleteChannel(userId, DeleteChannel.parse(body))
+        result = {}
+      } else if (path === '/api/members/remove') {
+        await domain.removeMember(userId, RemoveMember.parse(body))
+        result = {}
+      } else if (path === '/api/members/unblock') {
+        await domain.unblockMember(userId, UnblockMember.parse(body))
+        result = {}
+      } else if (path === '/api/read') {
         await domain.markRead(userId, MarkRead.parse(body))
         result = {}
       } else if (path === '/api/messages')

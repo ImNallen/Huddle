@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { Channel, Room, ServerInvite, parseInvite } from '../packages/contracts/src/index'
 import { Client } from '../apps/server/scripts/harness'
 import { browserApp, expectHome, onboard, railTile, serverURL } from './accounts'
@@ -7,11 +7,12 @@ import { useScratchServer } from './server'
 
 useScratchServer('ui')
 
-async function both(page: Page, name: string) {
+async function both(page: Page, name: string, target?: Locator | null) {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     const details = page.locator('.member-details:popover-open')
-    if (await details.isVisible()) await details.getByRole('heading').click()
+    if (target !== undefined) await target?.click()
+    else if (await details.isVisible()) await details.getByRole('heading').click()
     else await page.getByRole('main').getByRole('heading', { level: 1 }).click()
     await page.mouse.move(0, 0)
     await page.evaluate(() => document.fonts.ready)
@@ -224,6 +225,7 @@ test('Members matches both themes and supports roster recovery, profile cards an
   await panel.getByRole('button', { name: 'View Jonas Berg', exact: true }).click()
   const jonasDetails = page.getByRole('dialog', { name: 'Jonas Berg', exact: true })
   await expect(jonasDetails).toBeVisible()
+  await expect(jonasDetails.getByRole('button')).toHaveText(['', 'Message', 'Remove from server…'])
   await expect(jonasDetails.getByRole('alert')).toHaveCount(0)
   await expect(
     jonasDetails.getByRole('button', { name: 'Message Jonas Berg', exact: true }),
@@ -287,4 +289,64 @@ test('Members matches both themes and supports roster recovery, profile cards an
     'false',
   )
   await expect(composer).toHaveValue('Keep this draft while I look at a profile')
+
+  await page.getByRole('button', { name: 'Member list', exact: true }).click()
+  await panel.getByRole('button', { name: 'View Maya Lindén', exact: true }).click()
+  await details.getByRole('button', { name: 'Remove from server…', exact: true }).click()
+  const removeMaya = page.getByRole('dialog', { name: 'Remove Maya Lindén?', exact: true })
+  await expect(removeMaya).toBeVisible()
+  await removeMaya.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(details).toHaveCount(0)
+
+  await railTile(page, 'Home').click()
+  await page.getByRole('button', { name: 'Members', exact: true }).click()
+  const blocked = page.getByRole('region', { name: /^Blocked/ })
+  const blockedHeading = blocked.getByRole('heading', { level: 2 })
+  await expect(blocked).toContainText('Nobody is blocked')
+  await both(page, 'members-blocked-empty', blockedHeading)
+  await roster.getByRole('button', { name: 'More actions for Ben Miller', exact: true }).click()
+  const benMenu = page.getByRole('group', { name: 'Ben Miller actions', exact: true })
+  await expect(benMenu.getByRole('button')).toHaveText(['Remove from server…'])
+  await expect(
+    roster.getByRole('button', { name: 'More actions for Adam Nilsson', exact: true }),
+  ).toHaveCount(0)
+  await both(page, 'members-remove-menu', null)
+  await benMenu.getByRole('button', { name: 'Remove from server…', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: 'Remove Ben Miller?', exact: true })
+    .getByRole('button', { name: 'Remove', exact: true })
+    .click()
+  await expect(roster.getByRole('row')).toHaveCount(8)
+  await expect(page.getByRole('region', { name: 'Blocked · 1', exact: true })).toContainText(
+    'Ben Miller',
+  )
+  await both(page, 'members-blocked', blockedHeading)
+
+  let releaseBlocked = () => {}
+  const blockedGate = new Promise<void>((resolve) => {
+    releaseBlocked = resolve
+  })
+  await page.route('**/api/blocked', async (route) => {
+    await blockedGate
+    await route.continue()
+  })
+  await page.reload()
+  await page.getByRole('button', { name: 'Members', exact: true }).click()
+  await expect(blocked.getByRole('status')).toContainText('Loading blocked people…')
+  await both(page, 'members-blocked-loading', blockedHeading)
+  releaseBlocked()
+  await expect(page.getByRole('region', { name: 'Blocked · 1', exact: true })).toBeVisible()
+  await page.unroute('**/api/blocked')
+  await page.route('**/api/blocked', (route) => route.abort())
+  await railTile(page, 'Home').click()
+  await page.getByRole('button', { name: 'Members', exact: true }).click()
+  await expect(blocked.getByRole('alert')).toContainText('Couldn’t load blocked people')
+  await both(page, 'members-blocked-failed', blockedHeading)
+  await page.unroute('**/api/blocked')
+  await blocked.getByRole('button', { name: 'Try again', exact: true }).click()
+  const blockedBen = page.getByRole('region', { name: 'Blocked · 1', exact: true })
+  await blockedBen.getByRole('button', { name: 'Unblock Ben Miller', exact: true }).click()
+  const unblocked = page.getByRole('region', { name: 'Blocked · 0', exact: true })
+  await expect(unblocked.getByRole('status')).toHaveText('Ben Miller can rejoin with your invite.')
+  await both(page, 'members-unblocked', blockedHeading)
 })

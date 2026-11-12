@@ -17,10 +17,12 @@ import {
   type SendGroupMessage,
   type MarkGroupRead,
   Avatar,
+  Blocked,
   Channel,
   DirectConversation,
   DirectMessage,
   Members,
+  MemberRole,
   Message,
   Room,
   Unread,
@@ -29,11 +31,19 @@ import {
   UserId,
   VoiceGrant,
   type ChannelId,
+  type RoomId,
   type ConversationId,
   type SendMessage,
   type SendDirectMessage,
   type CreateChannel,
   type CreateRoom,
+  type DeleteChannel,
+  type DeleteRoom,
+  type RenameChannel,
+  type RenameRoom,
+  type RenameServer,
+  type RemoveMember,
+  type UnblockMember,
   type JoinVoice,
   type MarkRead,
   type MarkDirectRead,
@@ -103,26 +113,61 @@ export async function requireMember(
     throw new DomainError(403, 'Only an admin can do that.')
   return server
 }
-async function lockServer(sql: PoolClient) {
+export async function lockServer(sql: PoolClient) {
   await sql.query('SELECT singleton FROM server FOR UPDATE')
 }
-async function appendEvent<T extends z.infer<typeof ServerEvent>>(
+type EventScope = { groupId: GroupId | null; roomId: RoomId | null; channelId: ChannelId | null }
+export function eventScope(event: ServerEvent): EventScope {
+  const none = { groupId: null, roomId: null, channelId: null }
+  switch (event.kind) {
+    case 'room.created':
+    case 'room.renamed':
+      return { ...none, roomId: event.room.id }
+    case 'channel.created':
+    case 'channel.renamed':
+      return { ...none, roomId: event.channel.roomId, channelId: event.channel.id }
+    case 'channel.deleted':
+      return { ...none, roomId: event.roomId }
+    case 'message.created':
+    case 'message.edited':
+      return { ...none, channelId: event.message.channelId }
+    case 'group.changed':
+      return { ...none, groupId: event.group.id }
+    case 'group.removed':
+      return { ...none, groupId: event.groupId }
+    case 'group.message.created':
+    case 'group.message.edited':
+      return { ...none, groupId: event.message.groupId }
+    case 'room.deleted':
+    case 'server.renamed':
+    case 'member.removed':
+    case 'direct.message.created':
+    case 'direct.message.edited':
+      return none
+  }
+}
+async function appendEvent<T extends ServerEvent>(
   sql: PoolClient,
   makeEvent: (cursor: string) => T,
   audience: UserId[] | 'everyone',
-  groupId: GroupId | null = null,
 ) {
   const result = await sql.query<Record<string, unknown>>(
     'UPDATE server SET cursor = cursor + 1 RETURNING cursor::text',
   )
   const { cursor } = z.object({ cursor: z.string() }).parse(result.rows[0])
   const event = makeEvent(cursor)
-  await sql.query('INSERT INTO event(cursor, event, audience, group_id) VALUES ($1, $2, $3, $4)', [
-    cursor,
-    event,
-    audience === 'everyone' ? null : audience,
-    groupId,
-  ])
+  const scope = eventScope(event)
+  await sql.query(
+    'INSERT INTO event(cursor, event, audience, group_id, room_id, channel_id) VALUES ($1, $2, $3, $4, $5, $6)',
+    [
+      cursor,
+      event,
+      audience === 'everyone' ? null : audience,
+      scope.groupId,
+      scope.roomId,
+      scope.channelId,
+    ],
+  )
   await sql.query("SELECT pg_notify('huddle_commit', '')")
   return event
 }
@@ -166,33 +211,115 @@ export async function createRoom(userId: UserId, input: z.infer<typeof CreateRoo
     await requireMember(sql, userId, 'admin')
     const room = Room.parse({ id: randomUUID(), ...input })
     await sql.query('INSERT INTO room(id, name) VALUES ($1, $2)', [room.id, room.name])
-    await appendEvent(sql, (cursor) => ({ kind: 'room.created', room, cursor }), 'everyone')
-    return room
+    const { cursor } = await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'room.created', room, cursor }),
+      'everyone',
+    )
+    return { ...room, cursor }
   })
 }
 export async function createChannel(userId: UserId, input: z.infer<typeof CreateChannel>) {
   return transaction(async (sql) => {
-    const room = await sql.query('SELECT 1 FROM room WHERE id = $1', [input.roomId])
-    if (!room.rowCount) throw new DomainError(404, 'Room not found.')
-    const channel = Channel.parse({ id: randomUUID(), ...input })
     await lockServer(sql)
+    await findRoom(sql, input.roomId)
     await requireMember(sql, userId, 'admin')
+    const channel = Channel.parse({ id: randomUUID(), ...input })
     await sql.query('INSERT INTO channel(id, room_id, name, kind) VALUES ($1, $2, $3, $4)', [
       channel.id,
       channel.roomId,
       channel.name,
       channel.kind,
     ])
+    const { cursor } = await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'channel.created', channel, cursor }),
+      'everyone',
+    )
+    return { ...channel, cursor }
+  })
+}
+export async function renameServer(userId: UserId, input: z.infer<typeof RenameServer>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    const renamed = await sql.query('UPDATE server SET name = $1 WHERE name <> $1', [input.name])
+    if (renamed.rowCount)
+      await appendEvent(
+        sql,
+        (cursor) => ({ kind: 'server.renamed', cursor, name: input.name }),
+        'everyone',
+      )
+  })
+}
+export async function renameRoom(userId: UserId, input: z.infer<typeof RenameRoom>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    const room = await findRoom(sql, input.roomId)
+    if (room.name === input.name) return
+    await sql.query('UPDATE room SET name = $2 WHERE id = $1', [room.id, input.name])
+    await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'room.renamed', cursor, room: { ...room, name: input.name } }),
+      'everyone',
+    )
+  })
+}
+export async function deleteRoom(userId: UserId, input: z.infer<typeof DeleteRoom>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    const room = await findRoom(sql, input.roomId)
+    if (input.confirm !== room.name)
+      throw new DomainError(409, 'Type the room name exactly as it appears to delete it.')
+    await sql.query(
+      "INSERT INTO deleted_voice_channel(id) SELECT id FROM channel WHERE room_id = $1 AND kind = 'voice'",
+      [room.id],
+    )
+    await sql.query('DELETE FROM room WHERE id = $1', [room.id])
+    await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'room.deleted', cursor, roomId: room.id }),
+      'everyone',
+    )
+  })
+}
+export async function renameChannel(userId: UserId, input: z.infer<typeof RenameChannel>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    const channel = await findChannel(sql, input.channelId)
+    if (channel.kind !== input.kind) throw new DomainError(400, 'Check the submitted values.')
+    if (channel.name === input.name) return
+    await sql.query('UPDATE channel SET name = $2 WHERE id = $1', [channel.id, input.name])
+    await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'channel.renamed', cursor, channel: { ...channel, name: input.name } }),
+      'everyone',
+    )
+  })
+}
+export async function deleteChannel(userId: UserId, input: z.infer<typeof DeleteChannel>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    const channel = await findChannel(sql, input.channelId)
+    if (input.confirm !== channel.name)
+      throw new DomainError(409, 'Type the channel name exactly as it appears to delete it.')
+    if (channel.kind === 'voice')
+      await sql.query('INSERT INTO deleted_voice_channel(id) VALUES ($1)', [channel.id])
+    await sql.query('DELETE FROM channel WHERE id = $1', [channel.id])
     await appendEvent(
       sql,
       (cursor) => ({
-        kind: 'channel.created',
-        channel,
+        kind: 'channel.deleted',
         cursor,
+        channelId: channel.id,
+        roomId: channel.roomId,
       }),
       'everyone',
     )
-    return channel
   })
 }
 export async function history(userId: UserId, channelId: ChannelId, before?: string) {
@@ -212,8 +339,8 @@ export async function sendMessage(
 ) {
   return transaction(async (sql) => {
     await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [user.id])
-    const channel = await findChannel(sql, input.channelId)
     await lockServer(sql)
+    const channel = await findChannel(sql, input.channelId)
     await requireMember(sql, user.id)
     if (channel.kind === 'voice') throw new DomainError(409, 'Voice channels do not hold messages.')
     const duplicate = await sql.query<Record<string, unknown>>(
@@ -301,7 +428,7 @@ export function mentionedUsers(
 }
 export async function markRead(userId: UserId, input: z.infer<typeof MarkRead>) {
   await transaction(async (sql) => {
-    await findChannel(sql, input.channelId)
+    await findChannel(sql, input.channelId, 'FOR KEY SHARE')
     await requireMember(sql, userId)
     await sql.query(
       'INSERT INTO channel_read(user_id, channel_id, cursor) SELECT $1, $2::uuid, LEAST($3::numeric, s.cursor) FROM server s ON CONFLICT (user_id, channel_id) DO UPDATE SET cursor = GREATEST(channel_read.cursor, excluded.cursor)',
@@ -378,6 +505,8 @@ export async function sendDirectMessage(
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return message
     }
+    const peer = await sql.query('SELECT 1 FROM member WHERE user_id = $1', [peerId])
+    if (!peer.rowCount) throw new DomainError(409, 'This person is no longer on this server.')
     const participants: [UserId, UserId] = [user.id, peerId]
     const { message } = await appendEvent(
       sql,
@@ -436,7 +565,72 @@ export async function members(userId: UserId) {
       JOIN account_security a ON a.user_id = u.id
       ORDER BY m.role = 'admin' DESC, m.created_at, u.id`,
     )
-    return Members.parse({ members: rows.rows })
+    const former = await sql.query<Record<string, unknown>>(
+      `SELECT u.id, u.name, a.avatar FROM direct_conversation c
+      JOIN "user" u ON u.id = CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END
+      JOIN account_security a ON a.user_id = u.id
+      WHERE $1 IN (c.user_a, c.user_b)
+        AND EXISTS (SELECT 1 FROM direct_message d WHERE d.conversation_id = c.id)
+        AND NOT EXISTS (SELECT 1 FROM member m WHERE m.user_id = u.id)
+      ORDER BY u.name, u.id`,
+      [userId],
+    )
+    return Members.parse({ members: rows.rows, former: former.rows })
+  }, true)
+}
+export async function removeMember(userId: UserId, input: z.infer<typeof RemoveMember>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    if (input.userId === userId) throw new DomainError(400, 'You cannot remove yourself.')
+    const target = await sql.query<Record<string, unknown>>(
+      `SELECT coalesce(m.role, CASE WHEN b.user_id IS NOT NULL THEN 'removed' END) AS standing
+      FROM "user" u LEFT JOIN member m ON m.user_id = u.id
+      LEFT JOIN blocked_account b ON b.user_id = u.id WHERE u.id = $1`,
+      [input.userId],
+    )
+    const standing = z
+      .enum([...MemberRole.options, 'removed'])
+      .nullable()
+      .parse(target.rows[0]?.standing ?? null)
+    if (standing === 'removed') return
+    if (standing === null) throw new DomainError(404, 'That person is not a member of this server.')
+    if (standing === 'admin') throw new DomainError(403, 'Admins cannot be removed.')
+    const groups = await sql.query<Record<string, unknown>>(
+      'SELECT group_id AS "groupId", admission::text FROM group_member WHERE user_id = $1 ORDER BY group_id',
+      [input.userId],
+    )
+    for (const access of GroupAccess.array().parse(groups.rows))
+      await removeFromGroup(sql, input.userId, access)
+    await sql.query('DELETE FROM member WHERE user_id = $1', [input.userId])
+    await sql.query('INSERT INTO blocked_account(user_id) VALUES ($1) ON CONFLICT DO NOTHING', [
+      input.userId,
+    ])
+    await appendEvent(
+      sql,
+      (cursor) => ({ kind: 'member.removed', cursor, userId: input.userId }),
+      'everyone',
+    )
+  })
+}
+export async function unblockMember(userId: UserId, input: z.infer<typeof UnblockMember>) {
+  await transaction(async (sql) => {
+    await lockServer(sql)
+    await requireMember(sql, userId, 'admin')
+    await sql.query('DELETE FROM blocked_account WHERE user_id = $1', [input.userId])
+  })
+}
+export async function blocked(userId: UserId) {
+  return transaction(async (sql) => {
+    await requireMember(sql, userId, 'admin')
+    const rows = await sql.query<Record<string, unknown>>(
+      `SELECT u.id, u.name, a.avatar,
+        to_char(b.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "removedAt"
+      FROM blocked_account b JOIN "user" u ON u.id = b.user_id
+      JOIN account_security a ON a.user_id = u.id
+      ORDER BY b.created_at DESC, u.id`,
+    )
+    return Blocked.parse({ blocked: rows.rows })
   }, true)
 }
 export async function voiceGrant(
@@ -462,13 +656,20 @@ export async function voiceGrant(
   })
   return VoiceGrant.parse({ url, token: await token.toJwt() })
 }
-async function findChannel(sql: PoolClient, channelId: ChannelId) {
+async function findChannel(sql: PoolClient, channelId: ChannelId, lock: '' | 'FOR KEY SHARE' = '') {
   const rows = await sql.query<Record<string, unknown>>(
-    `SELECT ${channelColumns} FROM channel WHERE id = $1`,
+    `SELECT ${channelColumns} FROM channel WHERE id = $1 ${lock}`,
     [channelId],
   )
   if (!rows.rowCount) throw new DomainError(404, 'Channel not found.')
   return Channel.parse(rows.rows[0])
+}
+async function findRoom(sql: PoolClient, roomId: RoomId) {
+  const rows = await sql.query<Record<string, unknown>>('SELECT id, name FROM room WHERE id = $1', [
+    roomId,
+  ])
+  if (!rows.rowCount) throw new DomainError(404, 'Room not found.')
+  return Room.parse(rows.rows[0])
 }
 const replayPage = 100
 export async function replay(userId: UserId, after: string) {
@@ -533,7 +734,6 @@ async function publishGroup(sql: PoolClient, userId: UserId, id: GroupId) {
       group: { ...GroupMetadata.parse(group), revision: cursor },
     }),
     group.members.map((m) => m.userId),
-    id,
   )
   await sql.query('UPDATE group_conversation SET revision=$2 WHERE id=$1', [id, event.cursor])
 }
@@ -601,24 +801,24 @@ export async function leaveGroup(userId: UserId, access: GroupAccess) {
     await lockServer(sql)
     await requireMember(sql, userId)
     await requireGroup(sql, userId, access)
-    await sql.query('DELETE FROM group_member WHERE group_id=$1 AND user_id=$2', [
-      access.groupId,
-      userId,
-    ])
-    const remaining = await sql.query<Record<string, unknown>>(
-      'SELECT user_id FROM group_member WHERE group_id=$1 ORDER BY user_id',
-      [access.groupId],
-    )
-    const first = z.object({ user_id: UserId }).array().parse(remaining.rows)[0]
-    if (first) await publishGroup(sql, first.user_id, access.groupId)
-    const event = await appendEvent(
-      sql,
-      (cursor) => ({ kind: 'group.removed', cursor, ...access }),
-      [userId],
-      access.groupId,
-    )
-    return { ...access, cursor: event.cursor }
+    return removeFromGroup(sql, userId, access)
   })
+}
+async function removeFromGroup(sql: PoolClient, userId: UserId, access: GroupAccess) {
+  await sql.query('DELETE FROM group_member WHERE group_id=$1 AND user_id=$2', [
+    access.groupId,
+    userId,
+  ])
+  const remaining = await sql.query<Record<string, unknown>>(
+    'SELECT user_id FROM group_member WHERE group_id=$1 ORDER BY user_id',
+    [access.groupId],
+  )
+  const first = z.object({ user_id: UserId }).array().parse(remaining.rows)[0]
+  if (first) await publishGroup(sql, first.user_id, access.groupId)
+  const event = await appendEvent(sql, (cursor) => ({ kind: 'group.removed', cursor, ...access }), [
+    userId,
+  ])
+  return { ...access, cursor: event.cursor }
 }
 export async function groupHistory(userId: UserId, access: GroupAccess, before?: string) {
   return transaction(async (sql) => {
@@ -684,7 +884,6 @@ export async function sendGroupMessage(
         },
       }),
       audience,
-      input.groupId,
     )
     await sql.query(
       'INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,created_at,original_body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$8)',
@@ -814,7 +1013,6 @@ export async function editMessage(userId: UserId, input: EditCommand) {
         } satisfies ServerEvent
       },
       audience,
-      input.kind === 'group' ? input.groupId : null,
     )
     await sql.query(`UPDATE ${scope.table} SET body=$2, revision=$3, edited_at=$4 WHERE id=$1`, [
       current.id,
@@ -823,8 +1021,14 @@ export async function editMessage(userId: UserId, input: EditCommand) {
       editedAt,
     ])
     await sql.query(
-      'INSERT INTO message_edit_receipt(author_id,retry_id,request,response) VALUES($1,$2,$3,$4)',
-      [userId, input.retryId, input, event.message],
+      'INSERT INTO message_edit_receipt(author_id,retry_id,request,response,channel_id) VALUES($1,$2,$3,$4,$5)',
+      [
+        userId,
+        input.retryId,
+        input,
+        event.message,
+        input.kind === 'channel' ? input.channelId : null,
+      ],
     )
     return event.message
   })

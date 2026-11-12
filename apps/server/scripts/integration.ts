@@ -378,7 +378,10 @@ try {
   )
   assert.equal(roster[0]?.id, owner.user.id)
   assert.ok(roster.every((person) => Date.parse(person.joinedAt) <= Date.now()))
-  assert.deepEqual(await call('/api/members', Members, owner.login), { members: roster })
+  assert.deepEqual(await call('/api/members', Members, owner.login), {
+    members: roster,
+    former: [],
+  })
   pass('every member sees the roster: admins first, with avatar and role')
 
   const linkClient = new Client(origin, 'linkfriend@huddle.test')
@@ -564,9 +567,10 @@ try {
         silentMessage.createdAt,
       ],
     )
-    await fixture.query('INSERT INTO event(cursor, event) VALUES ($1,$2)', [
+    await fixture.query('INSERT INTO event(cursor, event, channel_id) VALUES ($1,$2,$3)', [
       cursor,
       { kind: 'message.created', message: silentMessage, cursor },
+      silentMessage.channelId,
     ])
     await fixture.query('COMMIT')
   } catch (error) {

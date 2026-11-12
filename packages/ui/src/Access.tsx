@@ -237,6 +237,26 @@ export function Access({
         </Frame>
       )
     }
+    case 'removed':
+      return (
+        <Frame>
+          <ServerCard server={server} onServer={onServer} />
+          <Heading
+            title={`You were removed from ${server.name ?? 'this server'}`}
+            description="If that was a mistake, ask an admin to unblock you. Then open your invite link again."
+          />
+          <Identity login={stage.login} />
+          <Primary type="button" busy={busy} onClick={checkAgain}>
+            Check again
+          </Primary>
+          <ProblemAlert problem={problemOn('join')} />
+          {checked && !busy && (
+            <p className="access-footer" role="status">
+              Nothing has changed yet.
+            </p>
+          )}
+        </Frame>
+      )
     case 'setup': {
       const problem = problemOn('setup')
       const codeProblem =

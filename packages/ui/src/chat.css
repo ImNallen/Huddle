@@ -179,6 +179,13 @@ textarea::placeholder {
 .button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
+.button.danger {
+  background: var(--danger-fill);
+  color: var(--on-accent);
+}
+.button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-fill) 88%, black);
+}
 .button.small {
   height: 32px;
   padding: 0 12px;
@@ -1686,6 +1693,72 @@ button.member-row:hover {
   border-radius: 18px;
   font-size: 13px;
 }
+.member-details > .button + .button {
+  margin-top: -6px;
+}
+.member-details > .member-remove,
+.member-details > .member-remove:hover:not(:disabled) {
+  color: var(--danger);
+}
+.members-table .member-more {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.members-blocked {
+  margin-top: 48px;
+}
+.members-blocked > header {
+  margin-bottom: 16px;
+}
+.members-blocked h2 {
+  color: var(--strong);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.members-blocked > header p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.members-blocked .member-state {
+  min-height: 0;
+}
+.members-note {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.app-notice {
+  position: absolute;
+  z-index: 5;
+  top: 60px;
+  right: 0;
+  left: calc(var(--rail-width) + var(--sidebar-width));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - var(--rail-width) - var(--sidebar-width) - 32px);
+  margin: 0 auto;
+  padding: 6px 6px 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.app:has(.member-list) .app-notice {
+  right: 256px;
+}
+.app-notice .icon-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
 @media (max-width: 1100px) {
   .members-table .role {
     width: 84px;
@@ -1694,7 +1767,7 @@ button.member-row:hover {
     width: 84px;
   }
   .members-table .member-action {
-    width: 104px;
+    width: 136px;
   }
 }
 
@@ -2089,6 +2162,12 @@ button.member-row:hover {
 .composer:focus-within {
   box-shadow: 0 0 0 1px var(--line-strong);
 }
+.composer-closed {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+}
 .composer textarea {
   display: block;
   width: 100%;
@@ -2363,6 +2442,11 @@ button.member-row:hover {
   justify-content: space-between;
   margin-top: 20px;
 }
+.confirm-name {
+  color: var(--strong);
+  font-weight: 600;
+  user-select: all;
+}
 .field-hint {
   margin-top: 20px;
   color: var(--muted);
@@ -2610,6 +2694,9 @@ button.member-row:hover {
   .member-list,
   .member-toggle {
     display: none;
+  }
+  .app:has(.member-list) .app-notice {
+    right: 0;
   }
 }
 @media (max-width: 760px) {

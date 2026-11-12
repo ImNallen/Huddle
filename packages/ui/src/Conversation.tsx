@@ -2,7 +2,7 @@ import { Popover } from './Popover'
 import { Hash, MoreHorizontal } from 'lucide-react'
 import type { Channel, Me } from '@huddle/contracts'
 import type { Transport } from './transport'
-import type { useServer } from './useServer'
+import { channelLabel, type useServer } from './useServer'
 import type { DirectRow } from './ServerView'
 import { Avatar } from './Avatar'
 import { MemberToggle } from './Members'
@@ -12,8 +12,46 @@ type Shared = {
   client: Transport
   me: Me
   sync: ReturnType<typeof useServer>
-  draft: string
-  onDraft: (value: string) => void
+}
+export type ChannelActions = { onRename: () => void; onDelete: () => void }
+export function ChannelMenu({
+  channel,
+  admin,
+  onSettings,
+}: {
+  channel: Channel
+  admin?: ChannelActions
+  onSettings: () => void
+}) {
+  return (
+    <>
+      <button
+        className="icon-button"
+        aria-label="Channel options"
+        data-tooltip="Channel options"
+        popoverTarget="channel-menu"
+      >
+        <MoreHorizontal size={18} />
+      </button>
+      <Popover id="channel-menu" label="Channel actions" menu>
+        <p className="menu-context">{channelLabel(channel)}</p>
+        {admin && (
+          <>
+            <button type="button" onClick={admin.onRename}>
+              Rename channel…
+            </button>
+            <button type="button" className="menu-danger" onClick={admin.onDelete}>
+              Delete channel…
+            </button>
+            <hr />
+          </>
+        )}
+        <button type="button" onClick={onSettings}>
+          Settings
+        </button>
+      </Popover>
+    </>
+  )
 }
 export function ChannelConversation({
   channel,
@@ -22,12 +60,14 @@ export function ChannelConversation({
   memberCount,
   onInvite,
   onSettings,
+  admin,
   ...shared
 }: Shared & {
   channel: Channel
   memberCount: number
   onInvite?: () => void
   onSettings: () => void
+  admin?: ChannelActions
   memberList: boolean
   onMemberList: () => void
 }) {
@@ -47,21 +87,8 @@ export function ChannelConversation({
               </button>
             )}
             <MemberToggle pressed={memberList} onToggle={onMemberList} count={memberCount} />
-            <button
-              className="icon-button"
-              aria-label="Channel options"
-              data-tooltip="Channel options"
-              popoverTarget="channel-menu"
-            >
-              <MoreHorizontal size={18} />
-            </button>
+            <ChannelMenu channel={channel} admin={admin} onSettings={onSettings} />
           </div>
-          <Popover id="channel-menu" label="Channel actions" menu>
-            <p className="menu-context">#{channel.name}</p>
-            <button type="button" onClick={onSettings}>
-              Settings
-            </button>
-          </Popover>
         </header>
       }
       welcome={
@@ -91,6 +118,11 @@ export function DirectConversation({
     <Transcript
       {...shared}
       thread={{ kind: 'direct', id: direct.id }}
+      closed={
+        direct.peer.former
+          ? `${name} is no longer on this server. You can still read your conversation.`
+          : undefined
+      }
       label={`Message @${name}`}
       placeholder={`Message ${firstName}`}
       topbar={

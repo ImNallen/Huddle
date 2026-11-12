@@ -24,7 +24,9 @@ test('admins share an invite and see who joined; a friend moved to a new login k
       `nallen · YouAdmin${shortDate(new Date())}`,
     ])
     await expect(page.getByText('You’re the first one here', { exact: false })).toBeVisible()
-    await expect(page.getByText('Huddle can’t remove a member yet', { exact: false })).toBeVisible()
+    await expect(
+      page.getByText('Removing someone blocks their Tailscale login here.', { exact: false }),
+    ).toBeVisible()
 
     await page.getByRole('button', { name: 'Share invite', exact: true }).click()
     const dialog = page.getByRole('dialog')

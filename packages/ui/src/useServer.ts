@@ -11,14 +11,17 @@ import {
   AccessStage,
   ChannelId,
   ConversationId,
+  Cursor,
   DirectMessage,
   EventPage,
   Message,
+  ServerEvent,
   Snapshot,
   UserId,
   type Channel,
   type DirectConversation,
   type Room,
+  type RoomId,
   type VoicePresence,
 } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
@@ -132,20 +135,38 @@ export type DirectThread = {
   unread: number
 }
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+const known: ReadonlySet<string> = new Set(
+  ServerEvent.options.map((option) => option.shape.kind.value),
+)
+const UnknownEvent = z
+  .object({ kind: z.string().refine((kind) => !known.has(kind)), cursor: Cursor })
+  .transform(({ cursor }) => ({ kind: 'unknown' as const, cursor }))
+const WatchedPage = EventPage.extend({ events: z.array(z.union([ServerEvent, UnknownEvent])) })
 type Change =
-  | { kind: 'room.created'; room: Room }
-  | { kind: 'channel.created'; channel: Channel }
+  | { kind: 'room.created' | 'room.renamed'; room: Room }
+  | { kind: 'room.deleted'; roomId: RoomId }
+  | { kind: 'channel.created' | 'channel.renamed'; channel: Channel }
+  | { kind: 'channel.deleted'; channelId: ChannelId }
+  | { kind: 'server.renamed'; name: string }
   | { kind: 'direct.opened'; conversation: DirectConversation }
 function apply(snapshot: Snapshot, change: Change): Snapshot {
   switch (change.kind) {
     case 'room.created':
+    case 'room.renamed':
       return {
         ...snapshot,
         rooms: [...snapshot.rooms.filter((room) => room.id !== change.room.id), change.room].sort(
           byName,
         ),
       }
+    case 'room.deleted':
+      return {
+        ...snapshot,
+        rooms: snapshot.rooms.filter((room) => room.id !== change.roomId),
+        channels: snapshot.channels.filter((channel) => channel.roomId !== change.roomId),
+      }
     case 'channel.created':
+    case 'channel.renamed':
       return {
         ...snapshot,
         channels: [
@@ -153,11 +174,35 @@ function apply(snapshot: Snapshot, change: Change): Snapshot {
           change.channel,
         ].sort(byName),
       }
+    case 'channel.deleted':
+      return {
+        ...snapshot,
+        channels: snapshot.channels.filter((channel) => channel.id !== change.channelId),
+      }
+    case 'server.renamed':
+      return { ...snapshot, server: { ...snapshot.server, name: change.name } }
     case 'direct.opened':
       return snapshot.directs.some((direct) => direct.id === change.conversation.id)
         ? snapshot
         : { ...snapshot, directs: [...snapshot.directs, change.conversation] }
   }
+}
+export type Departure = { rooms: Room[]; channels: Channel[] }
+export function departed(before: Snapshot, after: Snapshot): Departure {
+  const rooms = new Set(after.rooms.map((room) => room.id))
+  const channels = new Set(after.channels.map((channel) => channel.id))
+  return {
+    rooms: before.rooms.filter((room) => !rooms.has(room.id)),
+    channels: before.channels.filter((channel) => !channels.has(channel.id)),
+  }
+}
+export const channelLabel = (channel: Channel) =>
+  channel.kind === 'text' ? `#${channel.name}` : channel.name
+function without<T>(map: ReadonlyMap<string, T>, keys: string[]): ReadonlyMap<string, T> {
+  if (!keys.some((key) => map.has(key))) return map
+  const next = new Map(map)
+  for (const key of keys) next.delete(key)
+  return next
 }
 function newestFirst(a: DirectThread, b: DirectThread) {
   if (!a.latest || !b.latest) return a.latest ? 1 : b.latest ? -1 : 0
@@ -175,6 +220,9 @@ export function useServer(
 ) {
   const storageKey = `huddle.outbox:${client.origin}:${userId}`
   const [state, setState] = useState<SyncState>({ kind: 'loading' })
+  const snapshotRef = useRef<Snapshot | null>(null)
+  const [deleted, setDeleted] = useState<ReadonlyMap<string, string>>(new Map())
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(new Map())
   const channels = state.kind === 'ready' ? state.snapshot.channels : []
   const open =
     selected?.kind === 'direct' ||
@@ -275,21 +323,60 @@ export function useServer(
       document.removeEventListener('visibilitychange', update)
     }
   }, [])
-  const merge = (incoming: ThreadMessage[]) =>
+  const threadStillExists = ({ thread }: ThreadMessage) =>
+    thread.kind !== 'channel' ||
+    !!snapshotRef.current?.channels.some((channel) => channel.id === thread.id)
+  const merge = (incoming: ThreadMessage[]) => {
+    const kept = incoming.filter(threadStillExists)
     setMessages((current) => {
       const indexed = new Map(current.map((message) => [message.id, message]))
-      for (const message of incoming)
+      for (const message of kept)
         indexed.set(message.id, newerMessage(indexed.get(message.id), message))
       return [...indexed.values()].sort((a, b) => (BigInt(a.cursor) < BigInt(b.cursor) ? -1 : 1))
     })
+  }
+  function forgetChannels(ids: ReadonlySet<ChannelId>) {
+    if (!ids.size) return
+    const gone = (thread: Thread) => thread.kind === 'channel' && ids.has(thread.id)
+    const keys = [...ids].map((id) => threadKey({ kind: 'channel', id }))
+    setMessages((current) => current.filter((message) => !gone(message.thread)))
+    if (pendingRef.current.some((item) => gone(item.thread)))
+      updatePending((current) => current.filter((item) => !gone(item.thread)))
+    setUnread((current) => without(current, keys))
+    setDrafts((current) => without(current, keys))
+    for (const key of keys) {
+      marked.current.delete(key)
+      historyBefore.current.delete(key)
+    }
+  }
+  function commit(after: Snapshot, before: Snapshot | null, deletedWhileClosed: ChannelId[] = []) {
+    snapshotRef.current = after
+    setState({ kind: 'ready', snapshot: after })
+    const gone = before ? departed(before, after) : { rooms: [], channels: [] }
+    if (gone.rooms.length || gone.channels.length)
+      setDeleted(
+        (current) =>
+          new Map([
+            ...current,
+            ...gone.rooms.map((room): [string, string] => [room.id, room.name]),
+            ...gone.channels.map((channel): [string, string] => [
+              channel.id,
+              channelLabel(channel),
+            ]),
+          ]),
+      )
+    forgetChannels(new Set([...gone.channels.map((channel) => channel.id), ...deletedWhileClosed]))
+  }
   const change = (update: Change) => {
     if (update.kind === 'direct.opened' && update.conversation.latest)
       merge([inDirect(update.conversation.latest)])
-    setState((current) =>
-      current.kind === 'ready'
-        ? { kind: 'ready', snapshot: apply(current.snapshot, update) }
-        : current,
-    )
+    if (snapshotRef.current) commit(apply(snapshotRef.current, update), snapshotRef.current)
+  }
+  const created = (
+    update: { kind: 'room.created'; room: Room } | { kind: 'channel.created'; channel: Channel },
+    at: string,
+  ) => {
+    if (BigInt(cursor.current) < BigInt(at)) change(update)
   }
   function read(thread: Thread, cursor: string) {
     if (thread.kind === 'group') {
@@ -314,6 +401,8 @@ export function useServer(
     let reconnect: ReturnType<typeof setTimeout> | undefined
     let stopped = false
     cursor.current = '0'
+    const previous = snapshotRef.current
+    snapshotRef.current = null
     setState({ kind: 'loading' })
     setMessages([])
     historyBefore.current.clear()
@@ -321,19 +410,17 @@ export function useServer(
     setConnection('Connecting')
     async function start() {
       try {
-        const [snapshot, info] = await Promise.all([
+        const [fresh, info] = await Promise.all([
           client.request('/api/snapshot', Snapshot, undefined, abort.signal),
           client.info(),
         ])
         if (stopped) return
-        cursor.current = snapshot.cursor
-        updateGroups((current) => snapshotGroups(current, snapshot.groups, snapshot.cursor, userId))
-        merge(
-          snapshot.directs.flatMap((direct) => (direct.latest ? [inDirect(direct.latest)] : [])),
-        )
-        setState({
-          kind: 'ready',
-          snapshot: pendingRef.current.reduce<Snapshot>(
+        cursor.current = fresh.cursor
+        updateGroups((current) => snapshotGroups(current, fresh.groups, fresh.cursor, userId))
+        merge(fresh.directs.flatMap((direct) => (direct.latest ? [inDirect(direct.latest)] : [])))
+        const channelIds = new Set(fresh.channels.map((channel) => channel.id))
+        commit(
+          pendingRef.current.reduce<Snapshot>(
             (current, { thread, peerId }) =>
               thread.kind === 'direct' && peerId
                 ? apply(current, {
@@ -341,16 +428,20 @@ export function useServer(
                     conversation: { id: thread.id, peerId, latest: null, unread: 0 },
                   })
                 : current,
-            { ...snapshot, groups: [] },
+            { ...fresh, groups: [] },
           ),
-        })
+          previous,
+          pendingRef.current.flatMap(({ thread }) =>
+            thread.kind === 'channel' && !channelIds.has(thread.id) ? [thread.id] : [],
+          ),
+        )
         setUnread(
           new Map([
-            ...snapshot.unread.map(({ channelId, count, mentions }): [string, Activity] => [
+            ...fresh.unread.map(({ channelId, count, mentions }): [string, Activity] => [
               threadKey({ kind: 'channel', id: channelId }),
               { count, mentions },
             ]),
-            ...snapshot.directs
+            ...fresh.directs
               .filter((direct) => direct.unread)
               .map(({ id, unread: count }): [string, Activity] => [
                 threadKey({ kind: 'direct', id }),
@@ -381,93 +472,109 @@ export function useServer(
             socket?.send(JSON.stringify({ kind: 'watch', after: cursor.current }))
           socket.onmessage = (event) => {
             try {
-              const page = EventPage.parse(JSON.parse(String(event.data)))
+              const page = WatchedPage.parse(JSON.parse(String(event.data)))
               let heard = false
               for (const event of page.events) {
                 if (BigInt(event.cursor) <= BigInt(cursor.current)) continue
-                if (event.kind === 'group.changed') {
-                  updateGroups((state) => observeGroup(state, event.group, event.cursor, userId))
-                  heard = true
-                  continue
-                }
-                if (event.kind === 'group.removed') {
-                  updateGroups((state) =>
-                    revokeGroup(
-                      state,
-                      { kind: 'group', id: event.groupId, admission: event.admission },
-                      event.cursor,
-                    ),
-                  )
-                  continue
-                }
-                if (
-                  event.kind === 'group.message.created' ||
-                  event.kind === 'group.message.edited'
-                ) {
-                  const thread = groupsRef.current.authority.get(event.message.groupId)?.current
-                    ?.thread
-                  if (thread)
+                switch (event.kind) {
+                  case 'group.changed':
+                    updateGroups((state) => observeGroup(state, event.group, event.cursor, userId))
+                    heard = true
+                    break
+                  case 'group.removed':
                     updateGroups((state) =>
-                      groupMessage(
+                      revokeGroup(
                         state,
-                        thread,
-                        event.message,
-                        true,
-                        event.kind === 'group.message.created' &&
-                          event.message.authorId !== userId &&
-                          (threadKey(thread) !== openRef.current ||
-                            coveredRef.current ||
-                            !isVisible()),
+                        { kind: 'group', id: event.groupId, admission: event.admission },
                         event.cursor,
                       ),
                     )
-                  if (event.kind === 'group.message.created') heard = true
-                  continue
+                    break
+                  case 'group.message.created':
+                  case 'group.message.edited': {
+                    const thread = groupsRef.current.authority.get(event.message.groupId)?.current
+                      ?.thread
+                    if (thread)
+                      updateGroups((state) =>
+                        groupMessage(
+                          state,
+                          thread,
+                          event.message,
+                          true,
+                          event.kind === 'group.message.created' &&
+                            event.message.authorId !== userId &&
+                            (threadKey(thread) !== openRef.current ||
+                              coveredRef.current ||
+                              !isVisible()),
+                          event.cursor,
+                        ),
+                      )
+                    if (event.kind === 'group.message.created') heard = true
+                    break
+                  }
+                  case 'room.created':
+                  case 'room.renamed':
+                  case 'room.deleted':
+                  case 'channel.created':
+                  case 'channel.renamed':
+                  case 'channel.deleted':
+                  case 'server.renamed':
+                    change(event)
+                    break
+                  case 'member.removed':
+                    heard = true
+                    break
+                  case 'message.created':
+                  case 'message.edited':
+                  case 'direct.message.created':
+                  case 'direct.message.edited': {
+                    if (
+                      event.kind === 'direct.message.created' ||
+                      event.kind === 'direct.message.edited'
+                    ) {
+                      const [first, second] = event.participants
+                      change({
+                        kind: 'direct.opened',
+                        conversation: {
+                          id: event.message.conversationId,
+                          peerId: first === userId ? second : first,
+                          latest: event.message,
+                          unread: 0,
+                        },
+                      })
+                    }
+                    const message =
+                      event.kind === 'message.created' || event.kind === 'message.edited'
+                        ? inChannel(event.message)
+                        : inDirect(event.message)
+                    const mentioned =
+                      event.kind === 'message.created' && event.mentions.includes(userId)
+                    merge([message])
+                    if (event.kind === 'message.edited' || event.kind === 'direct.message.edited')
+                      break
+                    if (message.authorId === userId) {
+                      updatePending((current) =>
+                        current.filter((item) => item.retryId !== message.retryId),
+                      )
+                      break
+                    }
+                    heard = true
+                    const key = threadKey(message.thread)
+                    if (key !== openRef.current || coveredRef.current || !isVisible())
+                      setUnread((current) => {
+                        const { count, mentions } = current.get(key) ?? { count: 0, mentions: 0 }
+                        return new Map(current).set(key, {
+                          count: count + 1,
+                          mentions: mentions + (mentioned ? 1 : 0),
+                        })
+                      })
+                    break
+                  }
+                  case 'unknown':
+                    break
+                  default:
+                    event satisfies never
                 }
-                if (event.kind === 'room.created' || event.kind === 'channel.created') {
-                  change(event)
-                  continue
-                }
-                if (
-                  event.kind === 'direct.message.created' ||
-                  event.kind === 'direct.message.edited'
-                ) {
-                  const [first, second] = event.participants
-                  change({
-                    kind: 'direct.opened',
-                    conversation: {
-                      id: event.message.conversationId,
-                      peerId: first === userId ? second : first,
-                      latest: event.message,
-                      unread: 0,
-                    },
-                  })
-                }
-                const message =
-                  event.kind === 'message.created' || event.kind === 'message.edited'
-                    ? inChannel(event.message)
-                    : inDirect(event.message)
-                const mentioned =
-                  event.kind === 'message.created' && event.mentions.includes(userId)
-                merge([message])
-                if (event.kind === 'message.edited' || event.kind === 'direct.message.edited')
-                  continue
-                if (message.authorId === userId) {
-                  updatePending((current) =>
-                    current.filter((item) => item.retryId !== message.retryId),
-                  )
-                  continue
-                }
-                heard = true
-                const key = threadKey(message.thread)
-                if (key !== openRef.current || coveredRef.current || !isVisible())
-                  setUnread((current) => {
-                    const { count, mentions } = current.get(key) ?? { count: 0, mentions: 0 }
-                    return new Map(current).set(key, {
-                      count: count + 1,
-                      mentions: mentions + (mentioned ? 1 : 0),
-                    })
-                  })
               }
               if (page.voice) showPresence(page.voice)
               const last = page.events.at(-1)
@@ -759,13 +866,18 @@ export function useServer(
       .sort((a, b) =>
         BigInt(a.latest?.cursor ?? a.revision) > BigInt(b.latest?.cursor ?? b.revision) ? -1 : 1,
       ),
-    groupDraft: (thread: GroupThread) => groups.drafts.get(threadKey(thread)) ?? '',
-    setGroupDraft: (thread: GroupThread, body: string) =>
+    draft: (thread: Thread) =>
+      (thread.kind === 'group' ? groups.drafts : drafts).get(threadKey(thread)) ?? '',
+    setDraft: (thread: Thread, body: string) => {
+      if (thread.kind !== 'group')
+        return setDrafts((current) => new Map(current).set(threadKey(thread), body))
       updateGroups((state) =>
         !hasGroup(state, thread)
           ? state
           : { ...state, drafts: new Map(state.drafts).set(threadKey(thread), body) },
-      ),
+      )
+    },
+    deleted,
     createGroup: async (input: z.infer<typeof CreateGroup>) => {
       const observation = await client.request('/api/groups', GroupObservation, input)
       if (!isActive()) return null
@@ -809,6 +921,7 @@ export function useServer(
     changes,
     presence,
     include: change,
+    created,
     connection,
     historyState,
     historyError,

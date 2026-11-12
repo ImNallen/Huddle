@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, useId } from 'react'
 import { z } from 'zod'
 import { MoreHorizontal, Users, X } from 'lucide-react'
 import {
+  Blocked,
   Members,
+  type BlockedPerson,
   type Member,
   type MemberRole,
   type Server,
@@ -36,9 +38,9 @@ function useResource<T>(client: Transport, path: string, schema: z.ZodType<T>, r
   }, [client, path, revision])
   return state
 }
-export function useMembers(client: Transport, revision: unknown): Resource<Member[]> {
-  const state = useResource(client, '/api/members', Members, revision)
-  return state.kind === 'ready' ? { kind: 'ready', value: state.value.members } : state
+export type Roster = z.infer<typeof Members>
+export function useMembers(client: Transport, revision: unknown): Resource<Roster> {
+  return useResource(client, '/api/members', Members, revision)
 }
 export function shortDate(iso: string) {
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' })
@@ -106,6 +108,7 @@ export function MemberList({
   serverName,
   onSelect,
   onMessage,
+  onRemove,
   onClose,
   onRetry,
 }: {
@@ -115,6 +118,7 @@ export function MemberList({
   serverName: string
   onSelect: (member: Member, anchor: HTMLButtonElement) => void
   onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+  onRemove?: (member: Member) => void
   onClose: () => void
   onRetry: () => void
 }) {
@@ -168,6 +172,7 @@ export function MemberList({
                             member={member}
                             onSelect={onSelect}
                             onMessage={onMessage}
+                            onRemove={member.role === 'admin' ? undefined : onRemove}
                           >
                             {row}
                           </MemberActions>
@@ -191,11 +196,13 @@ function MemberActions({
   children,
   onSelect,
   onMessage,
+  onRemove,
 }: {
   member: Member
   children: React.ReactNode
   onSelect: (member: Member, anchor: HTMLButtonElement) => void
   onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+  onRemove?: (member: Member) => void
 }) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement>(null)
@@ -289,6 +296,21 @@ function MemberActions({
         >
           View profile
         </button>
+        {onRemove && (
+          <>
+            <hr />
+            <button
+              type="button"
+              className="menu-danger"
+              onClick={() => {
+                popover.current?.hidePopover()
+                onRemove(member)
+              }}
+            >
+              Remove from server…
+            </button>
+          </>
+        )}
         {error && (
           <p className="menu-error" role="alert">
             {error}
@@ -306,6 +328,7 @@ export function MemberDetails({
   anchor,
   onClose,
   onMessage,
+  onRemove,
 }: {
   client: Transport
   member: Member
@@ -313,6 +336,7 @@ export function MemberDetails({
   anchor: HTMLButtonElement
   onClose: () => void
   onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+  onRemove?: () => void
 }) {
   const popover = useRef<HTMLDivElement>(null)
   const lifetime = useRef(new AbortController())
@@ -406,25 +430,150 @@ export function MemberDetails({
       >
         {busy ? 'Opening…' : 'Message'}
       </button>
+      {onRemove && (
+        <button className="button text member-remove" onClick={onRemove}>
+          Remove from server…
+        </button>
+      )}
     </div>
   )
 }
 
+const moreId = (member: Member) => `member-more-${member.id}`
+function BlockedSection({
+  client,
+  revision,
+  serverName,
+}: {
+  client: Transport
+  revision: unknown
+  serverName: string
+}) {
+  const [attempt, setAttempt] = useState(0)
+  const blocked = useResource(client, '/api/blocked', Blocked, `${revision}:${attempt}`)
+  const people = blocked.kind === 'ready' ? blocked.value.blocked : []
+  const [unblocking, setUnblocking] = useState<BlockedPerson | null>(null)
+  const [outcome, setOutcome] = useState<{ kind: 'done' | 'failed'; text: string } | null>(null)
+  async function unblock(person: BlockedPerson) {
+    setUnblocking(person)
+    setOutcome(null)
+    try {
+      await client.request('/api/members/unblock', z.object({}), { userId: person.id })
+      setOutcome({ kind: 'done', text: `${person.name} can rejoin with your invite.` })
+      setAttempt((value) => value + 1)
+    } catch (failure) {
+      setOutcome({ kind: 'failed', text: errorText(failure) })
+    } finally {
+      setUnblocking(null)
+    }
+  }
+  return (
+    <section
+      className="members-blocked"
+      aria-label={`Blocked${blocked.kind === 'ready' ? ` · ${people.length}` : ''}`}
+    >
+      <header>
+        <h2>Blocked{blocked.kind === 'ready' && ` · ${people.length}`}</h2>
+        <p>
+          People you removed. Their Tailscale login can’t rejoin {serverName} until you unblock
+          them.
+        </p>
+      </header>
+      {blocked.kind === 'loading' ? (
+        <div className="member-state" role="status">
+          <h3>Loading blocked people…</h3>
+          <div className="member-skeleton" aria-hidden="true">
+            <i />
+          </div>
+        </div>
+      ) : blocked.kind === 'failed' ? (
+        <div className="member-state" role="alert">
+          <h3>Couldn’t load blocked people</h3>
+          <p>{blocked.message}</p>
+          <button className="button small" onClick={() => setAttempt((value) => value + 1)}>
+            Try again
+          </button>
+        </div>
+      ) : people.length ? (
+        <table className="members-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th className="joined">Removed</th>
+              <th className="member-action">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {people.map((person) => (
+              <tr key={person.id}>
+                <td>
+                  <span className="member-name">
+                    <Avatar
+                      avatar={person.avatar}
+                      name={person.name}
+                      photo={client.photo?.bind(client)}
+                      size={32}
+                    />
+                    <strong>
+                      <span className="member-label">{person.name}</span>
+                    </strong>
+                  </span>
+                </td>
+                <td className="joined">
+                  <time dateTime={person.removedAt}>{shortDate(person.removedAt)}</time>
+                </td>
+                <td className="member-action">
+                  <button
+                    className="button small"
+                    aria-label={`Unblock ${person.name}`}
+                    disabled={unblocking !== null}
+                    onClick={() => void unblock(person)}
+                  >
+                    {unblocking?.id === person.id ? 'Unblocking…' : 'Unblock'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="member-state">
+          <h3>Nobody is blocked</h3>
+          <p>When you remove someone, they appear here so you can let them back in.</p>
+        </div>
+      )}
+      {outcome && (
+        <p
+          className={outcome.kind === 'failed' ? 'form-error' : 'members-note'}
+          role={outcome.kind === 'failed' ? 'alert' : 'status'}
+        >
+          {outcome.text}
+        </p>
+      )}
+    </section>
+  )
+}
 export function MembersPage({
   client,
   me,
   server,
   members,
+  revision,
   onInvite,
   onMessage,
+  onRemove,
   onRetry,
 }: {
   client: Transport
   me: Me
   server: Server
   members: Resource<Member[]>
+  revision: unknown
   onInvite: () => void
   onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
+  onRemove: (member: Member) => void
   onRetry: () => void
 }) {
   const people = members.kind === 'ready' ? members.value : []
@@ -513,12 +662,39 @@ export function MembersPage({
                             {sending === member.id ? 'Opening…' : 'Message'}
                           </button>
                         )}
+                        {member.role !== 'admin' && (
+                          <button
+                            type="button"
+                            className="icon-button member-more"
+                            aria-label={`More actions for ${member.name}`}
+                            data-tooltip="More actions"
+                            popoverTarget={moreId(member)}
+                          >
+                            <MoreHorizontal size={16} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
+            {people
+              .filter((member) => member.role !== 'admin')
+              .map((member) => (
+                <Popover
+                  key={member.id}
+                  id={moreId(member)}
+                  label={`${member.name} actions`}
+                  className="member-actions-menu"
+                  menu
+                >
+                  <p className="menu-context">{member.name}</p>
+                  <button type="button" className="menu-danger" onClick={() => onRemove(member)}>
+                    Remove from server…
+                  </button>
+                </Popover>
+              ))}
             {error && (
               <p className="form-error" role="alert">
                 {error}
@@ -531,9 +707,13 @@ export function MembersPage({
               </div>
             )}
           </section>
+          <BlockedSection client={client} revision={revision} serverName={server.name} />
           <footer className="members-information">
             <p>Invited people, with access through Tailscale.</p>
-            <p>Access is managed in Tailscale. Huddle can’t remove a member yet.</p>
+            <p>
+              Removing someone blocks their Tailscale login here. Access to this machine is still
+              managed in Tailscale.
+            </p>
           </footer>
         </div>
       </div>

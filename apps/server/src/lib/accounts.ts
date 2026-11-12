@@ -13,7 +13,7 @@ import { checkSetupCode, onboard, setupHash } from './admission'
 import { AccessFailure, digest, transaction } from './access-store'
 import { config } from './config'
 import { db } from './db'
-import { requireMember } from './domain'
+import { lockServer, requireMember } from './domain'
 
 async function insertAccountUnlessLoginTaken(sql: PoolClient, login: TailscaleLogin, name: string) {
   const id = randomUUID()
@@ -52,9 +52,11 @@ export async function joinAccount(login: TailscaleLogin, input: { code: string; 
     timingSafeEqual(Buffer.from(digest(stored)), Buffer.from(digest(input.code)))
   if (!same) throw new AccessFailure('invalid')
   await transaction(async (sql) => {
+    await lockServer(sql)
     await insertAccountUnlessLoginTaken(sql, login, input.name)
     await sql.query(
-      `INSERT INTO member(user_id, role) SELECT id, 'member' FROM "user" WHERE tailscale_login = $1
+      `INSERT INTO member(user_id, role) SELECT u.id, 'member' FROM "user" u
+      WHERE u.tailscale_login = $1 AND NOT EXISTS (SELECT 1 FROM blocked_account b WHERE b.user_id = u.id)
       ON CONFLICT (user_id) DO NOTHING`,
       [login],
     )

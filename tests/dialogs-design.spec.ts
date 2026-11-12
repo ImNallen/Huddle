@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { parseInvite } from '../packages/contracts/src/index'
+import { Channel, Snapshot, parseInvite } from '../packages/contracts/src/index'
 import { actAs, browserApp, member, railTile, serverURL } from './accounts'
 import { useScratchServer } from './server'
 
@@ -184,6 +184,120 @@ test('quiet dialogs and states retain drafts, recover and work in both themes', 
   } finally {
     await friendContext.close()
   }
+
+  await railTile(page, 'Home').click()
+  await page.getByRole('button', { name: 'Huddle UI menu', exact: true }).click()
+  await page.getByRole('button', { name: 'Rename server…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Rename server', exact: true })
+  await expect(dialog.getByLabel('Server name')).toHaveValue('Huddle UI')
+  await both(page, 'dialog-rename-server')
+  await dialog.getByLabel('Server name').fill(' ')
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await railTile(page, 'Book club').click()
+  const roomMenu = page.getByRole('button', { name: 'Book club menu', exact: true })
+  await roomMenu.click()
+  await page.getByRole('button', { name: 'Rename room…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Rename room', exact: true })
+  await expect(dialog.getByLabel('Room name')).toHaveValue('Book club')
+  await both(page, 'dialog-rename-room')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Channel options', exact: true }).click()
+  await page.getByRole('button', { name: 'Rename channel…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Rename channel', exact: true })
+  await dialog.getByLabel('Channel name').fill('Reading-List')
+  await expect(dialog.getByLabel('Channel name')).toHaveValue('reading-list')
+  await both(page, 'dialog-rename-channel')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+  const snapshot = Snapshot.parse((await server.admin.call('/api/snapshot')).value)
+  const readingList = snapshot.channels.find(({ name }) => name === 'reading-list')
+  if (!readingList) throw new Error('The reading list channel is missing.')
+  await page.getByRole('button', { name: 'Channel options', exact: true }).click()
+  await page.getByRole('button', { name: 'Delete channel…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: /^Delete #reading-/ })
+  const confirmName = dialog.getByLabel('Type reading-list to confirm')
+  const deleteChannel = dialog.getByRole('button', { name: 'Delete channel', exact: true })
+  await expect(deleteChannel).toBeDisabled()
+  await both(page, 'dialog-delete-channel')
+  await confirmName.fill('reading-list')
+  await expect(deleteChannel).toBeEnabled()
+  let releaseDelete = () => {}
+  const deleteGate = new Promise<void>((resolve) => {
+    releaseDelete = resolve
+  })
+  await page.route(
+    '**/api/channels/delete',
+    async (route) => {
+      await deleteGate
+      await route.continue()
+    },
+    { times: 1 },
+  )
+  await deleteChannel.click()
+  await expect(dialog.getByRole('button', { name: 'Deleting…', exact: true })).toBeDisabled()
+  await both(page, 'state-deleting-channel')
+  await server.admin.call('/api/channels/rename', {
+    channelId: readingList.id,
+    kind: 'text',
+    name: 'reading-room',
+  })
+  await expect(dialog.getByRole('heading', { name: 'Delete #reading-room?' })).toBeVisible()
+  releaseDelete()
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Type the channel name exactly as it appears to delete it.',
+  )
+  await expect(dialog.getByRole('button', { name: 'Delete channel', exact: true })).toBeDisabled()
+  await both(page, 'state-delete-name-changed')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(
+    page.getByRole('textbox', { name: 'Message #reading-room', exact: true }),
+  ).toHaveValue('Keep this draft through reconnecting')
+
+  const gameNight = Channel.parse(
+    (
+      await server.admin.call('/api/channels', {
+        roomId: readingList.roomId,
+        name: 'Game night',
+        kind: 'voice',
+      })
+    ).value,
+  )
+  await page
+    .getByRole('navigation', { name: 'Book club channels', exact: true })
+    .getByRole('button', { name: 'Game night' })
+    .click()
+  await page.getByRole('button', { name: 'Channel options', exact: true }).click()
+  await page.getByRole('button', { name: 'Delete channel…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Delete Game night?', exact: true })
+  await expect(dialog).toContainText('Anyone in the call is disconnected.')
+  await both(page, 'dialog-delete-voice-channel')
+  await server.admin.call('/api/channels/delete', {
+    channelId: gameNight.id,
+    confirm: 'Game night',
+  })
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('.app-notice')).toHaveText('Game night was deleted.')
+  await expect(page.getByRole('heading', { name: 'Welcome to #reading-room' })).toBeVisible()
+  await both(page, 'state-channel-deleted')
+
+  await roomMenu.click()
+  await page.getByRole('button', { name: 'Delete room…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Delete Book club?', exact: true })
+  await expect(dialog).toContainText('This permanently deletes Book club and its channel')
+  await dialog.getByLabel('Type Book club to confirm').fill('book club')
+  await expect(dialog.getByRole('button', { name: 'Delete room', exact: true })).toBeDisabled()
+  await both(page, 'dialog-delete-room')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+  await page.getByRole('button', { name: 'Member list', exact: true }).click()
+  await page.getByRole('button', { name: 'Actions for Maya', exact: true }).click()
+  await page.getByRole('button', { name: 'Remove from server…', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Remove Maya?', exact: true })
+  await expect(dialog.getByRole('button', { name: 'Remove', exact: true })).toBeEnabled()
+  await both(page, 'dialog-remove-member')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Member list', exact: true }).click()
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
