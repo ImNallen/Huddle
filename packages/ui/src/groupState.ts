@@ -10,6 +10,7 @@ import {
   newerMessage,
   latestMessage,
   threadKey,
+  threadMessage,
   type Pending,
   type Thread,
   type ThreadMessage,
@@ -34,12 +35,14 @@ export function initialGroups(pending: Pending[]): GroupState {
 export function hasGroup(state: GroupState, thread: GroupThread) {
   return state.authority.get(thread.id)?.current?.thread.admission === thread.admission
 }
-function purge(state: GroupState, id: GroupId): GroupState {
+function purge(state: GroupState, id: GroupId, keep?: Admission): GroupState {
+  const kept = keep && threadKey({ kind: 'group', id, admission: keep })
+  const stale = (key: string) => key.startsWith(`group:${id}:`) && key !== kept
   return {
     ...state,
-    messages: state.messages.filter((m) => m.thread.id !== id),
-    pending: state.pending.filter((p) => p.thread.id !== id),
-    drafts: new Map([...state.drafts].filter(([key]) => !key.startsWith(`group:${id}:`))),
+    messages: state.messages.filter((m) => !stale(threadKey(m.thread))),
+    pending: state.pending.filter((p) => !stale(threadKey(p.thread))),
+    drafts: new Map([...state.drafts].filter(([key]) => !stale(key))),
   }
 }
 export function observeGroup(
@@ -60,7 +63,7 @@ export function observeGroup(
   )
     return state
   const same = old?.current?.thread.admission === member.admission
-  const next = same ? state : purge(state, group.id)
+  const next = same ? state : purge(state, group.id, member.admission)
   const previous = same ? old?.current : null
   const observed = !same || resetRead ? summary : undefined
   const value: Authority = {
@@ -84,7 +87,7 @@ export function observeGroup(
         ...observedState,
         messages: observedState.messages.map((message) =>
           message.id === latest.id
-            ? newerMessage(message, { ...latest, thread: message.thread })
+            ? newerMessage(message, threadMessage(latest, message.thread))
             : message,
         ),
       }
@@ -144,9 +147,8 @@ export function groupMessage(
   if (!entry?.current) return state
   const duplicate = state.messages.some((m) => m.id === message.id)
   const canonical = newerMessage(entry.current.group.latest, message)
-  const { groupId: _, ...content } = canonical
   const messages = new Map(state.messages.map((m) => [m.id, m]))
-  messages.set(message.id, newerMessage(messages.get(message.id), { ...content, thread }))
+  messages.set(message.id, newerMessage(messages.get(message.id), threadMessage(canonical, thread)))
   const current = entry.current
   const latest = current.group.latest
   return {

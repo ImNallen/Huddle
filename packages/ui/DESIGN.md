@@ -263,9 +263,8 @@ components:
     backgroundColor: '{colors.input-dark}'
     textColor: '{colors.text-dark}'
     typography: '{typography.body}'
-    rounded: '{rounded.md}'
-    height: '52px'
-    padding: '15px 16px'
+    rounded: '24px'
+    padding: '18px 18px 14px'
   account-panel:
     backgroundColor: '{colors.panel-dark}'
     rounded: '{rounded.md}'
@@ -335,7 +334,7 @@ A Discord user should know where everything is at first sight. Huddle deliberate
 
 Huddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat room: a shell around a slightly lifted chat ground, one blue accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.
 
-The interface shows only what exists. Controls for unbuilt features (search, emoji, attachments, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. A voice channel on a server with voice off says so and has no call controls. Desktop and browser calls share controls and lifecycle. Desktop microphone failures point to system privacy settings, and missing WebRTC offers a browser fallback. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.
+The interface shows only what exists. Controls for unbuilt features (search, file uploads, presence) are deliberately absent, so a familiar layout never promises something the server cannot do. The composer has an emoji picker, and it has a GIF button only on a server whose host turned GIFs on. A voice channel on a server with voice off says so and has no call controls. Desktop and browser calls share controls and lifecycle. Desktop microphone failures point to system privacy settings, and missing WebRTC offers a browser fallback. The scheme follows the system until someone chooses otherwise in Settings. Colors follow T3 Code's, in both schemes, and a person can pick, create, or import other themes on their own device.
 
 **Key Characteristics:**
 
@@ -467,7 +466,7 @@ A hybrid that is flat by default. The shell is built from tonal steps and hairli
 
 ## Shapes
 
-Gently rounded rectangles at a small set of radii: 4px for menu items, mentions, and tags; 6px for rows, tabs, and icon buttons; 8px for buttons, inputs, cards, the composer, and the account panel; 12px for dialogs. People and channels are round: avatars, presence dots, and channel marks use 50%. Servers are rounded squares: rail tiles at 12px, tightening to 10px on hover, with server badges at 30%.
+Gently rounded rectangles at a small set of radii: 4px for menu items, mentions, and tags; 6px for rows, tabs, and icon buttons; 8px for buttons, inputs, cards, and the account panel; 12px for dialogs and GIFs; 24px for the composer. People and channels are round: avatars, presence dots, and channel marks use 50%. Servers are rounded squares: rail tiles at 12px, tightening to 10px on hover, with server badges at 30%.
 
 Mascot avatars are the system's one playful form: a rounded square (28%), circle, hexagon, triangle, bean, or flower in a mascot color, with two white vertical pill eyes. The Huddle logo is a circle cut by vertical slots and renders in `currentColor`.
 
@@ -518,7 +517,7 @@ Compact and plain, with fill as the only emphasis.
 
 ### Home
 
-Home is about direct messages. Room activity lives on the rail, so Home has no feed, tabs, or mark-all. While setup is incomplete it holds the checklist. After that it holds the greeting, the date, and a "Direct messages" list. Rows hold a 32px avatar, the name, the time, a one-line preview, and an accent tag such as `2 new`; a read row's preview drops to `muted`. With no conversations it shows "No messages yet" and a primary `New message` button.
+Home is about direct messages. Room activity lives on the rail, so Home has no feed, tabs, or mark-all. While setup is incomplete it holds the checklist. After that it holds the greeting, the date, and a "Direct messages" list. Rows hold a 32px avatar, the name, the time, a one-line preview, and an accent tag such as `2 new`; a read row's preview drops to `muted`. A GIF previews as `GIF · {title}`, after `You: ` when you sent it. With no conversations it shows "No messages yet" and a primary `New message` button.
 
 ### Direct conversation
 
@@ -530,14 +529,34 @@ The signature surface. Messages are flat and full width, never in bubbles.
 
 - **Grouped:** Author row with a 40px avatar, 16px weight 600 name, and a 12px tabular time; continuation lines drop the header and sit flush.
 - **Hover:** A 3% wash across the full row, and continuation lines reveal an 11px time in the left gutter.
-- **Pending / Failed:** Sending text drops to 50% opacity; failed text turns `danger` with its error below.
+- **Pending / Failed:** Sending text or a GIF drops to 50% opacity. A failed message keeps its content, with a `danger` notice below it, the error in 12px `muted`, and 32px pill buttons on `panel`: Retry for text, and Try again and Discard for a GIF, whose notice reads "Couldn’t send this GIF."
+- **GIF:** A GIF is its own message, with no text, at the text indent. Its box comes from the stored size, scaled down to fit 400 by 300px and never up, with each side at least 40px, so loading never moves the thread. The box has a 12px radius on `selected`, and the image is contained in it. Under reduced motion it shows the still, with a "GIF" tag at the top left (10px weight 700, white on 60% black) and a 32px round play badge at the bottom right, until hover or focus plays it. Both overlays keep that one look in every theme, because they sit on the GIF's own pixels. An image that fails to load leaves the same box with "GIF unavailable" in 12px `muted` inside a dashed `line-strong` border. A GIF has no Edit button, and double-clicking it opens no editor. It is focusable and named `{title}, GIF`.
 - **Day dividers:** Hairline rules on either side of a 12px centered date.
 
 ### Composer
 
-- **Style:** A filled 52px bar at 8px radius, inset 16px from the chat edges with 24px below, growing with its content to half the viewport.
-- **Contents:** A 16px text area and the send icon only, in the accent when ready and `muted` when empty.
-- **Focus:** A 1px `line-strong` ring around the bar.
+- **Style:** A filled panel on `input` at 24px radius, with 18px padding and 14px at the bottom. It shares the thread's column, up to 756px wide with a 24px gutter on each side (16px at 760px wide and below), and sits 24px above the bottom.
+- **Text area:** 15px on 22px lines, growing with its content to half the viewport. The tool row sits 24px below it.
+- **Tools:** 32px round buttons 4px apart, each with a tooltip: Add mention, Add emoji, and, on a server with GIFs on, Add GIF. They are `muted`, turning `text` over the hover wash. The first pulls 7px left so its icon lines up with the text.
+- **GIF button:** The word "GIF" at 9px weight 700 in a 26 by 18px box with 5px corners and a 1.5px `currentColor` border. While the GIF picker is open it is `text`, and the box fills with `selected`.
+- **Send:** A round accent button with an `on-accent` up arrow at the row's far end, moving to `accent-hover`. It keeps its fill and does nothing while the draft is empty.
+- **Focus:** A 1px `line-strong` ring around the panel while anything in it has focus.
+- **Closed:** In a direct message with a removed member, a centered 14px `muted` note replaces the text area and tools.
+
+### GIF picker
+
+A 420 by 480px popover above the composer, 8px clear of it and aligned to its start, on the chat ground with a 1px `line` border, 14px radius, and a `0 8px 28px` shadow at 14% black. It keeps within the window. It has 12px padding and stacks its parts 8px apart. It asks KLIPY for nothing until it opens.
+
+- **Header:** "GIFs" at 15px weight 600, with a 28px round close button on `panel`.
+- **Search:** A 36px field at 10px radius on `panel`, with the placeholder "Search KLIPY", which KLIPY requires. It is focused on open. Typing searches after a 300ms pause, and Enter searches at once.
+- **Chips:** Trending, pressed by default, then Recent, then KLIPY's categories, as 28px buttons in 11px weight 500 `muted` at 8px radius. Each hugs its label with 10px side padding, and the pressed one takes `selected` and `text`. The row scrolls sideways, also with a vertical wheel, and fades out over its last 24px. It is hidden while a search shows.
+- **Section label:** "Trending", "Recent", the category's name, or "GIFs for “{query}”".
+- **Grid:** Two columns 8px apart of 8px-radius tiles. Each tile goes to the foot of the shorter column at a height clamped between 72 and 280px, and the image is cropped to fill it. Reading and Tab order follow KLIPY's order. KLIPY's blur preview fills a tile while it loads, and under reduced motion tiles show stills. A result that cannot be sent keeps its place as a dashed "GIF unavailable" tile, because KLIPY's terms forbid removing results. Scrolling near the end loads the next page.
+- **Keyboard:** Down from the search moves to the first sendable tile, and one tile at a time is in the Tab order. Up and Down stay in a column, Left and Right go to the other column's nearest tile, and Up from the top returns to the search. Enter or a click sends that GIF at once, closes the picker, and returns focus to the unchanged draft. Escape closes it and returns focus too.
+- **Focus:** A 2px `focus` ring inset in the tile, with a 2px `bg` gap inside it.
+- **States:** Loading shows six skeleton tiles on `selected`, with no shimmer. A search with no results reads "No GIFs for “{query}”" over "Try a different word, or browse a category.", with up to four chips. An empty feed or category reads "No GIFs in {name} right now". An empty Recent reads "No recent GIFs yet". When KLIPY is unreachable it reads "Couldn’t load GIFs" over "Your draft is unchanged." and a Try again button. A next page that fails reads "Couldn’t load more GIFs." with Try again.
+- **Footer:** The focused or hovered tile's title at the left in 12px weight 500 `text`, cut off with an ellipsis, and "Powered by KLIPY" at the right in 11px `muted`.
+- **Recent:** The last 24 GIFs picked on this device, newest first. It is per device, like Appearance.
 
 ### Account Panel
 
@@ -589,7 +608,7 @@ Setup, join, and the screens that explain a missing identity share one frame: th
 ### Don't:
 
 - **Don't** use Discord's logo, illustrations, or proprietary font.
-- **Don't** add controls for features that are not built, including search, emoji, attachments, and presence.
+- **Don't** add controls for features that are not built, including search, file uploads, and presence, or show the GIF button on a server with GIFs off.
 - **Don't** show a presence dot anywhere but the account panel, or use it for anything but connection state.
 - **Don't** put messages in bubbles or constrain the thread to a centered column. Home, setup, and settings may still use a readable column.
 - **Don't** add breadcrumbs to the top bar.

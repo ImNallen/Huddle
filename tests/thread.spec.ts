@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { Channel, Room } from '../packages/contracts/src/index'
 import { member, railTile } from './accounts'
+import { stubKlipy } from './gifs'
 import { useScratchServer } from './server'
 
 const server = useScratchServer('api')
@@ -88,4 +89,56 @@ test('the thread stays at its end while the layout changes and never yanks a rea
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(last).toContainText('Sending returns me to the end')
   await expect(last).toBeInViewport({ ratio: 1 })
+})
+
+test('a GIF that arrives behind slow media keeps the thread at its end', async ({ page }) => {
+  const media = await stubKlipy(page.context())
+  const room = Room.parse((await server.admin.call('/api/rooms', { name: 'Loops' })).value)
+  const channel = Channel.parse(
+    (
+      await server.admin.call('/api/channels', {
+        roomId: room.id,
+        name: 'slow-media',
+        kind: 'text',
+      })
+    ).value,
+  )
+  const post = (content: Record<string, unknown>) =>
+    server.admin.call('/api/messages', { retryId: randomUUID(), channelId: channel.id, ...content })
+  for (let index = 1; index <= 30; index++) await post({ body: `Loop line ${index}` })
+
+  await page.setViewportSize({ width: 1280, height: 640 })
+  await member(server.admin, page, 'gif-reader')
+  await railTile(page, 'Loops').click()
+  const last = page.getByRole('main').getByRole('article').last()
+  const composer = page.getByRole('textbox', { name: 'Message #slow-media' })
+  await expect(last).toContainText('Loop line 30')
+  const gapAboveComposer = async () => {
+    const [message, box] = await Promise.all([last.boundingBox(), composer.boundingBox()])
+    if (!message || !box) throw new Error('The thread end is not on screen.')
+    return Math.round(box.y - (message.y + message.height))
+  }
+  const restingGap = await gapAboveComposer()
+  const atEnd = () =>
+    expect
+      .poll(async () => Math.abs((await gapAboveComposer()) - restingGap))
+      .toBeLessThanOrEqual(1)
+
+  const gif = media.gif('slow-loop', 'Slow loop', 498, 280)
+  const held = media.hold(gif)
+  expect((await post({ gif })).response.status).toBe(200)
+  const loop = last.getByRole('img', { name: 'Slow loop, GIF', exact: true })
+  await expect(loop).toBeVisible()
+  await expect(last).toBeInViewport({ ratio: 1 })
+  await atEnd()
+  const loading = await last.boundingBox()
+  held.serve()
+  await expect
+    .poll(() =>
+      loop.locator('img').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0),
+    )
+    .toBe(true)
+  expect(await last.boundingBox()).toEqual(loading)
+  await atEnd()
+  expect(media.unexpected).toEqual([])
 })

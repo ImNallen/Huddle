@@ -49,6 +49,10 @@ import {
   type MarkRead,
   type MarkDirectRead,
   type OpenDirect,
+  type MessageContent,
+  readContent,
+  sameContent,
+  storedFields,
 } from '@huddle/contracts'
 import { config } from './config'
 import { db } from './db'
@@ -63,7 +67,7 @@ export class DomainError extends Error {
 }
 const channelColumns = 'id, room_id AS "roomId", name, kind'
 const authoredColumns =
-  'm.id, m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.revision::text, to_char(m.edited_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "editedAt", m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
+  'm.id, m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.gif, m.revision::text, to_char(m.edited_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "editedAt", m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
 const reactionColumns = (table: string) => `m.reaction_revision::text AS "reactionRevision",
  coalesce((SELECT jsonb_agg(bucket ORDER BY bucket->>'emoji') FROM (
  SELECT jsonb_build_object('emoji',r.emoji,'people',jsonb_agg(r.person ORDER BY r.user_id)) AS bucket
@@ -211,6 +215,7 @@ export async function snapshot(userId: UserId) {
       directs: DirectConversation.array().parse(directs.rows),
       groups: await groupSummaries(sql, userId),
       cursor,
+      gifs: config.gifs,
     }
   }, true)
 }
@@ -344,7 +349,7 @@ export async function history(userId: UserId, channelId: ChannelId, before?: str
 }
 export async function sendMessage(
   user: { id: UserId; name: string; avatar: z.infer<typeof Avatar> },
-  input: z.infer<typeof SendMessage>,
+  input: z.output<typeof SendMessage>,
 ) {
   return transaction(async (sql) => {
     await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [user.id])
@@ -359,21 +364,25 @@ export async function sendMessage(
     if (duplicate.rowCount) {
       const message = Message.parse(duplicate.rows[0])
       if (
-        z.object({ original_body: z.string() }).parse(duplicate.rows[0]).original_body !==
-          input.body ||
+        !sameContent(retryContent(duplicate.rows[0], message), input.content) ||
         message.channelId !== input.channelId
       )
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return message
     }
+    refuseNewGif(input.content)
     const members = await sql.query<Record<string, unknown>>(
       'SELECT u.id, u.name FROM member m JOIN "user" u ON u.id = m.user_id',
     )
-    const mentioned = mentionedUsers(
-      input.body,
-      z.object({ id: UserId, name: z.string() }).array().parse(members.rows),
-      user.id,
-    )
+    const mentioned =
+      input.content.kind === 'text'
+        ? mentionedUsers(
+            input.content.body,
+            z.object({ id: UserId, name: z.string() }).array().parse(members.rows),
+            user.id,
+          )
+        : []
+    const fields = storedFields(input.content)
     const { message } = await appendEvent(
       sql,
       (cursor) => ({
@@ -382,7 +391,9 @@ export async function sendMessage(
         mentions: mentioned,
         message: {
           id: randomUUID(),
-          ...input,
+          channelId: input.channelId,
+          retryId: input.retryId,
+          ...fields,
           authorId: user.id,
           authorName: user.name,
           authorAvatar: user.avatar,
@@ -397,7 +408,7 @@ export async function sendMessage(
       'everyone',
     )
     await sql.query(
-      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar, original_body) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$6)',
+      'INSERT INTO message(id, channel_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar, original_body, gif) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$6,$10)',
       [
         message.id,
         message.channelId,
@@ -408,6 +419,7 @@ export async function sendMessage(
         message.cursor,
         message.createdAt,
         JSON.stringify(message.authorAvatar),
+        message.gif,
       ],
     )
     if (mentioned.length)
@@ -417,6 +429,14 @@ export async function sendMessage(
       )
     return message
   })
+}
+function retryContent(row: unknown, stored: Pick<Message, 'gif'>) {
+  const { original_body } = z.object({ original_body: z.string() }).parse(row)
+  return readContent({ body: original_body, gif: stored.gif })
+}
+function refuseNewGif(content: MessageContent) {
+  if (content.kind === 'gif' && !config.gifs)
+    throw new DomainError(503, 'GIFs are not set up on this server.')
 }
 export function mentionedUsers(
   body: string,
@@ -495,7 +515,7 @@ export async function directHistory(
 }
 export async function sendDirectMessage(
   user: { id: UserId; name: string; avatar: z.infer<typeof Avatar> },
-  input: z.infer<typeof SendDirectMessage>,
+  input: z.output<typeof SendDirectMessage>,
 ) {
   return transaction(async (sql) => {
     await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [user.id])
@@ -509,16 +529,17 @@ export async function sendDirectMessage(
     if (duplicate.rowCount) {
       const message = DirectMessage.parse(duplicate.rows[0])
       if (
-        z.object({ original_body: z.string() }).parse(duplicate.rows[0]).original_body !==
-          input.body ||
+        !sameContent(retryContent(duplicate.rows[0], message), input.content) ||
         message.conversationId !== input.conversationId
       )
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return message
     }
+    refuseNewGif(input.content)
     const peer = await sql.query('SELECT 1 FROM member WHERE user_id = $1', [peerId])
     if (!peer.rowCount) throw new DomainError(409, 'This person is no longer on this server.')
     const participants: [UserId, UserId] = [user.id, peerId]
+    const fields = storedFields(input.content)
     const { message } = await appendEvent(
       sql,
       (cursor) => ({
@@ -527,7 +548,9 @@ export async function sendDirectMessage(
         participants,
         message: {
           id: randomUUID(),
-          ...input,
+          conversationId: input.conversationId,
+          retryId: input.retryId,
+          ...fields,
           authorId: user.id,
           authorName: user.name,
           authorAvatar: user.avatar,
@@ -542,7 +565,7 @@ export async function sendDirectMessage(
       participants,
     )
     await sql.query(
-      'INSERT INTO direct_message(id, conversation_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar, original_body) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$6)',
+      'INSERT INTO direct_message(id, conversation_id, author_id, author_name, retry_id, body, cursor, created_at, author_avatar, original_body, gif) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$6,$10)',
       [
         message.id,
         message.conversationId,
@@ -553,6 +576,7 @@ export async function sendDirectMessage(
         message.cursor,
         message.createdAt,
         JSON.stringify(message.authorAvatar),
+        message.gif,
       ],
     )
     return message
@@ -846,7 +870,7 @@ export async function groupHistory(userId: UserId, access: GroupAccess, before?:
 }
 export async function sendGroupMessage(
   user: { id: UserId; name: string; avatar: z.infer<typeof Avatar> },
-  input: z.infer<typeof SendGroupMessage>,
+  input: z.output<typeof SendGroupMessage>,
 ) {
   return transaction(async (sql) => {
     await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [user.id])
@@ -862,12 +886,12 @@ export async function sendGroupMessage(
       if (
         old.groupId !== input.groupId ||
         old.admission !== input.admission ||
-        z.object({ original_body: z.string() }).parse(duplicates.rows[0]).original_body !==
-          input.body
+        !sameContent(retryContent(duplicates.rows[0], old), input.content)
       )
         throw new DomainError(409, 'This retry ID was already used for a different message.')
       return GroupMessage.parse(old)
     }
+    refuseNewGif(input.content)
     const members = await sql.query<Record<string, unknown>>(
       'SELECT user_id FROM group_member WHERE group_id=$1',
       [input.groupId],
@@ -877,6 +901,7 @@ export async function sendGroupMessage(
       .array()
       .parse(members.rows)
       .map((m) => m.user_id)
+    const fields = storedFields(input.content)
     const { message } = await appendEvent(
       sql,
       (cursor) => ({
@@ -886,7 +911,7 @@ export async function sendGroupMessage(
           id: randomUUID(),
           groupId: input.groupId,
           retryId: input.retryId,
-          body: input.body,
+          ...fields,
           authorId: user.id,
           authorName: user.name,
           authorAvatar: user.avatar,
@@ -901,7 +926,7 @@ export async function sendGroupMessage(
       audience,
     )
     await sql.query(
-      'INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,created_at,original_body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$8)',
+      'INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,author_avatar,retry_id,body,cursor,created_at,original_body,gif) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$8,$11)',
       [
         message.id,
         message.groupId,
@@ -913,6 +938,7 @@ export async function sendGroupMessage(
         message.body,
         message.cursor,
         message.createdAt,
+        message.gif,
       ],
     )
     return message
@@ -987,6 +1013,8 @@ export async function editMessage(userId: UserId, input: EditCommand) {
           ? DirectMessage.parse(value)
           : GroupMessage.parse(value)
     const current = parse(rows.rows[0])
+    if (readContent(current).kind !== 'text')
+      throw new DomainError(409, 'GIF messages cannot be edited.')
     const receipt = await sql.query<Record<string, unknown>>(
       'SELECT request, response FROM message_edit_receipt WHERE author_id=$1 AND retry_id=$2',
       [userId, input.retryId],

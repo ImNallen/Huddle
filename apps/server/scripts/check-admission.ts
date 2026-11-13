@@ -22,16 +22,26 @@ function violation(path: string, source: string): string | null {
     return 'rate limits and access must not depend on the peer address, which is always loopback'
   return null
 }
-async function check(directory: string): Promise<void> {
+// KLIPY's terms put every API call on the end user's device, so no server file may name its API host.
+function klipyViolation(_path: string, source: string): string | null {
+  return /api\.klipy\.com/i.test(source) ? 'only clients may call KLIPY' : null
+}
+async function check(
+  directory: string,
+  rule: (path: string, source: string) => string | null,
+  files = /\.tsx?$/,
+): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name)
-    if (entry.isDirectory()) await check(path)
-    else if (/\.tsx?$/.test(path)) {
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules' && entry.name !== 'dist') await check(path, rule, files)
+    } else if (files.test(path)) {
       const name = relative(process.cwd(), path)
-      const problem = violation(name, await readFile(path, 'utf8'))
+      const problem = rule(name, await readFile(path, 'utf8'))
       if (problem) throw new Error(`${name}: ${problem}`)
     }
   }
 }
-await check(join(process.cwd(), 'src'))
-await check(join(process.cwd(), 'runtime'))
+await check(join(process.cwd(), 'src'), violation)
+await check(join(process.cwd(), 'runtime'), violation)
+await check(process.cwd(), klipyViolation, /./)

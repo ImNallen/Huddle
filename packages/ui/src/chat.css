@@ -2043,8 +2043,77 @@ button.member-row:hover {
 .message.continued .message-body {
   margin-top: 0;
 }
-.message.sending .message-body {
+.message.sending .message-body,
+.message.sending .gif-message {
   opacity: 0.5;
+}
+.gif-message {
+  position: relative;
+  max-width: 100%;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--selected);
+}
+.message.continued .gif-message {
+  margin-top: 4px;
+}
+.gif-message:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.gif-message picture {
+  position: absolute;
+  inset: 0;
+}
+.gif-message img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.gif-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line-strong);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+.gif-tag,
+.gif-play {
+  position: absolute;
+  display: none;
+  background: rgb(0 0 0 / 0.6);
+  color: #ffffff;
+}
+.gif-tag {
+  top: 8px;
+  left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+}
+.gif-play {
+  right: 8px;
+  bottom: 8px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2px;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gif-message:not([data-playing]) .gif-tag {
+    display: block;
+  }
+  .gif-message:not([data-playing]) .gif-play {
+    display: flex;
+  }
 }
 .message .form-error {
   margin-top: 2px;
@@ -2350,6 +2419,136 @@ button.member-row:hover {
   font-weight: 400;
   color: var(--text);
   font-size: 19px;
+}
+.gif-glyph {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 18px;
+  border: 1.5px solid currentColor;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.composer-actions:has(#composer-gif:popover-open) .composer-gif {
+  color: var(--text);
+}
+.composer-actions:has(#composer-gif:popover-open) .gif-glyph {
+  background: var(--selected);
+}
+.gif-picker {
+  width: 420px;
+  height: 480px;
+}
+.gif-chips {
+  padding-right: 24px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+.gif-chips button {
+  flex: none;
+  padding: 0 10px;
+}
+.gif-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.gif-masonry {
+  position: relative;
+}
+.gif-tile {
+  position: absolute;
+  width: calc(50% - 4px);
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--selected) center / cover no-repeat;
+}
+.gif-tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.gif-tile:focus-visible {
+  outline: 0;
+}
+.gif-tile:focus-visible::after {
+  box-shadow:
+    inset 0 0 0 2px var(--focus),
+    inset 0 0 0 4px var(--bg);
+}
+.gif-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.gif-tile-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line-strong);
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+.gif-state {
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.gif-state strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.gif-state p {
+  margin-top: 4px;
+}
+.gif-state .gif-chips {
+  height: 28px;
+  margin-top: 12px;
+}
+.gif-retry {
+  margin-left: 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+.gif-retry:hover {
+  text-decoration: underline;
+}
+.gif-more {
+  padding: 12px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.gif-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 28px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.gif-footer span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gif-footer span:last-child {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .modal {

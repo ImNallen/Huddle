@@ -8,7 +8,7 @@
     "./appearance-boot.js": "./public/appearance-boot.js"
   },
   "scripts": {
-    "typecheck": "tsc && node --import tsx src/appearance/check.ts"
+    "typecheck": "tsc && node --import tsx src/appearance/check.ts && node --import tsx src/gifs/check.ts"
   },
   "dependencies": {
     "@fontsource-variable/figtree": "5.3.0",

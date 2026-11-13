@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowUp, Plus, Smile } from 'lucide-react'
-import type { Avatar as AvatarValue, Me } from '@huddle/contracts'
+import type { Avatar as AvatarValue, Me, MessageContent } from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import { RequestError } from './connection'
 import {
@@ -14,6 +14,8 @@ import { Avatar } from './Avatar'
 import { Mentions, clock } from './Badges'
 import { MessageReactions } from './MessageReactions'
 import { EmojiPicker } from './EmojiPicker'
+import { GifMessage } from './gifs/GifMessage'
+import { GifPicker } from './gifs/GifPicker'
 
 type Author = { id: string; name: string; avatar?: AvatarValue | null }
 type MessageRow = {
@@ -22,7 +24,7 @@ type MessageRow = {
   continued: boolean
   author: Author
   at: string
-  body: string
+  content: MessageContent
   pending: Pending | null
   message: ThreadMessage | null
 }
@@ -53,7 +55,7 @@ function rows(
       key: message.id,
       author: { id: message.authorId, name: message.authorName, avatar: message.authorAvatar },
       at: message.createdAt,
-      body: message.body,
+      content: message.content,
       pending: null,
       message,
     })),
@@ -61,7 +63,7 @@ function rows(
       key: message.retryId,
       author: me,
       at: now,
-      body: message.body,
+      content: message.content,
       pending: message,
       message: null,
     })),
@@ -131,15 +133,17 @@ export function Transcript({
   const draft = sync.draft(thread)
   const onDraft = (value: string) => sync.setDraft(thread, value)
   useEffect(() => setEditor({ kind: 'closed' }), [key, me.user.id, client])
-  function openEditor(message: ThreadMessage, returnFocus: HTMLElement | null) {
+  function editable(row: MessageRow) {
+    return row.message && row.author.id === me.user.id && row.content.kind === 'text'
+      ? { message: row.message, text: row.content.body }
+      : null
+  }
+  function openEditor(
+    { message, text }: { message: ThreadMessage; text: string },
+    returnFocus: HTMLElement | null,
+  ) {
     invoker.current = returnFocus
-    setEditor({
-      kind: 'editing',
-      message,
-      threadKey: key,
-      text: message.body,
-      retryId: crypto.randomUUID(),
-    })
+    setEditor({ kind: 'editing', message, threadKey: key, text, retryId: crypto.randomUUID() })
   }
   function closeEditor() {
     setEditor({ kind: 'closed' })
@@ -211,7 +215,7 @@ export function Transcript({
     const body = draft.trim()
     if (!body) return
     atEnd.current = true
-    void sync.send({ retryId: crypto.randomUUID(), thread, body })
+    void sync.send({ retryId: crypto.randomUUID(), thread, content: { kind: 'text', body } })
     onDraft('')
   }
   async function older() {
@@ -287,10 +291,11 @@ export function Transcript({
                 key={row.key}
                 className={`message ${row.continued ? 'continued' : ''} ${row.pending?.kind ?? ''}`}
                 onDoubleClick={(event) => {
-                  if (!row.message || row.author.id !== me.user.id) return
+                  const target = editable(row)
+                  if (!target) return
                   if (editor.kind !== 'closed' && editor.message.id === row.key) return
                   if ((event.target as Element).closest('form, button')) return
-                  openEditor(row.message, input.current)
+                  openEditor(target, input.current)
                 }}
               >
                 {row.continued ? (
@@ -394,22 +399,22 @@ export function Transcript({
                       </button>
                     </div>
                   </form>
+                ) : row.content.kind === 'text' ? (
+                  <p className="message-body">
+                    <Mentions text={row.content.body} />
+                    {row.message?.editedAt && (
+                      <time
+                        className="message-edited"
+                        dateTime={row.message.editedAt}
+                        title={`Edited ${new Date(row.message.editedAt).toLocaleString()}`}
+                      >
+                        {' '}
+                        (edited)
+                      </time>
+                    )}
+                  </p>
                 ) : (
-                  <>
-                    <p className="message-body">
-                      <Mentions text={row.body} />
-                      {row.message?.editedAt && (
-                        <time
-                          className="message-edited"
-                          dateTime={row.message.editedAt}
-                          title={`Edited ${new Date(row.message.editedAt).toLocaleString()}`}
-                        >
-                          {' '}
-                          (edited)
-                        </time>
-                      )}
-                    </p>
-                  </>
+                  <GifMessage gif={row.content.gif} />
                 )}
                 {row.message && (
                   <MessageReactions
@@ -421,13 +426,16 @@ export function Transcript({
                     react={sync.react}
                   />
                 )}
-                {row.message && row.author.id === me.user.id && (
+                {editable(row) && (
                   <button
                     type="button"
                     className="message-edit button small"
                     hidden={editor.kind !== 'closed' && editor.message.id === row.key}
                     aria-label="Edit message"
-                    onClick={(event) => row.message && openEditor(row.message, event.currentTarget)}
+                    onClick={(event) => {
+                      const target = editable(row)
+                      if (target) openEditor(target, event.currentTarget)
+                    }}
                   >
                     Edit
                   </button>
@@ -435,15 +443,25 @@ export function Transcript({
                 {row.pending?.kind === 'failed' && (
                   <div className="message-retry" role="alert">
                     <span>
-                      Couldn’t send this message.
+                      {row.content.kind === 'text'
+                        ? 'Couldn’t send this message.'
+                        : 'Couldn’t send this GIF.'}
                       <span className="message-retry-detail">{row.pending.error}</span>
                     </span>
                     <button
                       className="button small"
                       onClick={() => row.pending && void sync.send(row.pending)}
                     >
-                      Retry
+                      {row.content.kind === 'text' ? 'Retry' : 'Try again'}
                     </button>
+                    {row.content.kind === 'gif' && (
+                      <button
+                        className="button small"
+                        onClick={() => row.pending && sync.discard(row.pending)}
+                      >
+                        Discard
+                      </button>
+                    )}
                   </div>
                 )}
               </article>
@@ -495,6 +513,34 @@ export function Transcript({
               <Smile size={18} />
             </button>
             <EmojiPicker onInsert={insert} anchorRef={composer} />
+            {sync.gifs && (
+              <>
+                <button
+                  type="button"
+                  className="composer-tool composer-gif"
+                  aria-label="Add GIF"
+                  data-tooltip="Add GIF"
+                  popoverTarget="composer-gif"
+                >
+                  <span className="gif-glyph" aria-hidden="true">
+                    GIF
+                  </span>
+                </button>
+                <GifPicker
+                  settings={sync.gifs}
+                  anchorRef={composer}
+                  returnFocus={input}
+                  onPick={(gif) => {
+                    atEnd.current = true
+                    void sync.send({
+                      retryId: crypto.randomUUID(),
+                      thread,
+                      content: { kind: 'gif', gif },
+                    })
+                  }}
+                />
+              </>
+            )}
             <button
               className="composer-send"
               aria-label="Send message"

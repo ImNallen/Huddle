@@ -79,6 +79,7 @@ export async function applicationRequest(request: Request): Promise<Response> {
           serverUrl: config.SERVER_URL,
           websocketUrl: config.WS_PUBLIC_URL,
           voice: config.voice !== null,
+          gifs: config.gifs !== null,
         },
         { headers },
       )

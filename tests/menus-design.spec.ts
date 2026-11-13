@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { Channel, Room, ServerInvite, parseInvite } from '../packages/contracts/src/index'
 import { Client } from '../apps/server/scripts/harness'
 import { actAs, browserApp, expectHome, railTile, serverURL } from './accounts'
+import { stubKlipy } from './gifs'
 import { useScratchServer } from './server'
 
 const server = useScratchServer('api')
@@ -21,6 +22,8 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   browser,
 }) => {
   page.setDefaultTimeout(10000)
+  const klipy = await stubKlipy(page.context())
+  klipy.feed('trending', [[klipy.gif('wave', 'Wave'), klipy.gif('cheers', 'Cheers', 300, 400)]])
   await server.admin.act({
     kind: 'profile.save',
     profile: { name: 'Adam Nilsson', avatar: { kind: 'mascot', shape: 'circle', color: 'teal' } },
@@ -278,6 +281,20 @@ test('quiet menus and emoji popovers support real actions, keyboard dismissal an
   await expect(picker).toBeInViewport({ ratio: 1 })
   await page.keyboard.press('Escape')
   await expect(composer).toHaveValue('A little ✨ today')
+
+  const gifPicker = page.getByRole('group', { name: 'GIF picker', exact: true })
+  await page.setViewportSize({ width: 640, height: 480 })
+  await page.getByRole('button', { name: 'Add GIF', exact: true }).click()
+  await expect(gifPicker.getByRole('button', { name: 'Cheers, GIF', exact: true })).toBeVisible()
+  await expect(gifPicker).toBeInViewport({ ratio: 1 })
+  await expect(gifPicker.locator('.gif-footer')).toBeInViewport({ ratio: 1 })
+  await page.setViewportSize({ width: 800, height: 600 })
+  await expect(gifPicker).toBeInViewport({ ratio: 1 })
+  await page.keyboard.press('Escape')
+  await expect(gifPicker).toBeHidden()
+  await expect(composer).toBeFocused()
+  await expect(composer).toHaveValue('A little ✨ today')
+  expect(klipy.unexpected).toEqual([])
 
   const guestContext = await browser.newContext()
   try {

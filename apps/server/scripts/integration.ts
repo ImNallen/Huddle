@@ -19,6 +19,8 @@ import {
   DirectConversation,
   DirectMessage,
   EventPage,
+  GifRef,
+  GroupObservation,
   Members,
   Message,
   Room,
@@ -40,6 +42,7 @@ import {
   startServer,
   tailscale,
 } from './harness'
+import { LegacyEventPage, legacyAnswer } from './legacy-contracts'
 
 const livekit = await runningLivekit()
 const setupCode = `integration-${randomUUID()}`
@@ -84,6 +87,7 @@ async function request(
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const data: unknown = await response.json()
+  if (response.ok) legacyAnswer(path, body !== undefined)?.parse(data)
   return { response, data }
 }
 async function call<T>(path: string, schema: z.ZodType<T>, login?: string, body?: unknown) {
@@ -97,7 +101,9 @@ async function rawText(path: string, login: string, body?: unknown) {
     headers: headersFor(login, origin, body !== undefined),
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  return { status: response.status, text: await response.text() }
+  const text = await response.text()
+  if (response.ok) legacyAnswer(path, body !== undefined)?.parse(JSON.parse(text))
+  return { status: response.status, text }
 }
 function account(client: Client, user: Awaited<ReturnType<typeof setupFriend>>) {
   const login = z.string().parse(client.login)
@@ -114,6 +120,7 @@ function watch(login: string, after: string) {
   socket.on('open', () => socket.send(JSON.stringify({ kind: 'watch', after })))
   socket.on('message', (data) => {
     frames.push(data.toString())
+    LegacyEventPage.parse(JSON.parse(data.toString()))
     events.push(...EventPage.parse(JSON.parse(data.toString())).events)
     ready = true
   })
@@ -330,6 +337,20 @@ try {
   const joined = await call('/api/snapshot', Snapshot, member.login)
   assert.equal(joined.server.role, 'member')
   assert.equal(joined.server.memberCount, 2)
+  const klipyKey = 'huddle-suite-klipy-key'
+  assert.deepEqual(joined.gifs, { appKey: klipyKey, contentFilter: 'medium' })
+  assert.equal((await call('/api/info', ServerInfo)).gifs, true)
+  for (const [label, answer] of [
+    ['/api/info', await fetch(origin + '/api/info').then((r) => r.text())],
+    ['/api/access without identity', await fetch(origin + '/api/access').then((r) => r.text())],
+    ['/api/access for a member', (await rawText('/api/access', member.login)).text],
+    ['/api/access for a stranger', (await rawText('/api/access', 'intruder@huddle.test')).text],
+    ['/api/snapshot for a stranger', (await rawText('/api/snapshot', 'stranger@huddle.test')).text],
+  ] as const)
+    assert.ok(!answer.includes(klipyKey), `${label} never carries the KLIPY key`)
+  pass(
+    '/api/info says only that GIFs are on, and the KLIPY key reaches members through the snapshot',
+  )
   assert.deepEqual(
     await memberClient.act({ kind: 'account.join', code, name: 'Second try' }),
     await memberClient.stage(),
@@ -599,6 +620,149 @@ try {
     'a stored message.created event without mentions still parses',
   )
   pass('database polling recovers an intentionally omitted notification without reconnecting')
+
+  const gifChannel = await call('/api/channels', Channel, owner.login, {
+    roomId: studio.id,
+    name: 'gifs',
+    kind: 'text',
+  })
+  const gif = {
+    slug: 'happy-dance-48213',
+    title: `@${member.user.name} dances`,
+    width: 498,
+    height: 280,
+    animated: 'https://static.klipy.com/ii/4e7bea9f/happy-dance.webp',
+    still: 'https://static1.klipy.com/ii/4e7bea9f/happy-dance.jpg',
+  }
+  const gifInput = { channelId: gifChannel.id, retryId: randomUUID(), gif }
+  const [sentGif, sentGifAgain] = await Promise.all([
+    call('/api/messages', Message, owner.login, gifInput),
+    call('/api/messages', Message, owner.login, gifInput),
+  ])
+  assert.deepEqual(sentGifAgain, sentGif, 'an exact GIF retry returns the stored message')
+  assert.deepEqual(sentGif.gif, gif, 'the GIF is stored exactly as sent')
+  assert.equal(sentGif.body, `GIF · @${member.user.name} dances`, 'older clients see the title')
+  const gifEvent = (events: ServerEvent[]) =>
+    events.find((event) => event.kind === 'message.created' && event.message.id === sentGif.id)
+  await eventually(
+    () => !!gifEvent(first.events) && !!gifEvent(second.events),
+    'both clients receive the GIF',
+  )
+  for (const events of [first.events, second.events])
+    assert.deepEqual(
+      gifEvent(events),
+      { kind: 'message.created', cursor: sentGif.cursor, mentions: [], message: sentGif },
+      'a GIF mentions nobody, even when its title names someone',
+    )
+  assert.deepEqual(
+    (await call('/api/snapshot', Snapshot, member.login)).unread.find(
+      (item) => item.channelId === gifChannel.id,
+    ),
+    { channelId: gifChannel.id, count: 1, mentions: 0 },
+    'a GIF is unread for the peer and never a mention',
+  )
+  const gifReplay = watch(member.login, '0')
+  await eventually(() => !!gifEvent(gifReplay.events), 'replay from 0 returns the GIF')
+  assert.deepEqual(gifEvent(gifReplay.events), gifEvent(first.events))
+  gifReplay.socket.terminate()
+  const gifHistory = `/api/messages?channelId=${gifChannel.id}`
+  assert.deepEqual(await call(gifHistory, Message.array(), member.login), [sentGif])
+  const conflicts = [
+    ...GifRef.keyof().options.map(
+      (key) =>
+        [
+          `a GIF with a different ${key}`,
+          {
+            ...gifInput,
+            gif: {
+              ...gif,
+              [key]:
+                typeof gif[key] === 'number'
+                  ? 320
+                  : key === 'animated' || key === 'still'
+                    ? 'https://static2.klipy.com/ii/other.webp'
+                    : 'other',
+            },
+          },
+        ] as const,
+    ),
+    [
+      'text equal to the GIF fallback',
+      { channelId: gifChannel.id, retryId: gifInput.retryId, body: sentGif.body },
+    ],
+    ['the same GIF in another channel', { ...gifInput, channelId: channel.id }],
+    ['a GIF reusing a text retry ID', { channelId: channel.id, retryId: input.retryId, gif }],
+  ] as const
+  for (const [label, body] of conflicts) {
+    const answer = await rawText('/api/messages', owner.login, body)
+    assert.equal(answer.status, 409, `${label} is a conflict`)
+    assert.ok(!answer.text.includes('klipy.com'), `${label} answers with no GIF`)
+  }
+  const { still: _still, ...withoutStill } = gif
+  const urlAttacks = [
+    'http://static.klipy.com/ii/a.webp',
+    'https://static.klipy.com:444/ii/a.webp',
+    'https://user@static.klipy.com/ii/a.webp',
+    'https://static.klipy.com.evil.test/ii/a.webp',
+    'https://evil.test/static.klipy.com/ii/a.webp',
+    'https://STATIC.klipy.com/ii/a.webp',
+    'https://static3.klipy.com/ii/a.webp',
+    'https://static.klipy.com/ii/a.webp ',
+    'https://static.klipy.com#a.webp',
+    'https://static.klipy.com/ii/é.webp',
+  ]
+  for (const [label, body] of [
+    ['both a body and a GIF', { ...gifInput, retryId: randomUUID(), body: 'Both' }],
+    ['neither a body nor a GIF', { channelId: gifChannel.id, retryId: randomUUID() }],
+    ['a null GIF', { ...gifInput, retryId: randomUUID(), gif: null }],
+    ['an extra key in the GIF', { ...gifInput, retryId: randomUUID(), gif: { ...gif, mp4: 'x' } }],
+    ['a GIF without a still', { ...gifInput, retryId: randomUUID(), gif: withoutStill }],
+    ['width 0', { ...gifInput, retryId: randomUUID(), gif: { ...gif, width: 0 } }],
+    ['width 4097', { ...gifInput, retryId: randomUUID(), gif: { ...gif, width: 4097 } }],
+    ['a fractional height', { ...gifInput, retryId: randomUUID(), gif: { ...gif, height: 1.5 } }],
+    ['a string width', { ...gifInput, retryId: randomUUID(), gif: { ...gif, width: '498' } }],
+    ['an empty slug', { ...gifInput, retryId: randomUUID(), gif: { ...gif, slug: '' } }],
+    ['a slug with a slash', { ...gifInput, retryId: randomUUID(), gif: { ...gif, slug: 'a/b' } }],
+    [
+      'a control character',
+      { ...gifInput, retryId: randomUUID(), gif: { ...gif, title: 'a\u0007' } },
+    ],
+    [
+      'a 201-character title',
+      { ...gifInput, retryId: randomUUID(), gif: { ...gif, title: 'x'.repeat(201) } },
+    ],
+    ...urlAttacks.flatMap((url) =>
+      (['animated', 'still'] as const).map(
+        (key) =>
+          [
+            `${key} at ${url}`,
+            { ...gifInput, retryId: randomUUID(), gif: { ...gif, [key]: url } },
+          ] as const,
+      ),
+    ),
+  ] as const)
+    assert.equal(
+      (await request('/api/messages', { login: owner.login, body })).response.status,
+      400,
+      `a send with ${label} is refused`,
+    )
+  assert.deepEqual(
+    await call(gifHistory, Message.array(), owner.login),
+    [sentGif],
+    'refused and conflicting sends store nothing',
+  )
+  assert.equal(
+    (
+      await request('/api/read', {
+        login: member.login,
+        body: { channelId: gifChannel.id, cursor: sentGif.cursor },
+      })
+    ).response.status,
+    200,
+  )
+  pass(
+    'a GIF message carries its exact ref and a title fallback, mentions nobody, is unread, replays, retries only as the exact same GIF, and refuses malformed GIFs',
+  )
 
   const cursor = message.cursor
   second.socket.close()
@@ -1276,11 +1440,20 @@ try {
   assert.deepEqual(dm, dmDuplicate, 'an exact retry returns the stored message')
   assert.equal(dm.conversationId, conversation.id)
   assert.equal(dm.authorId, owner.user.id)
+  const replyGif = {
+    slug: `secret-${randomUUID()}`,
+    title: `${secret} from the member`,
+    width: 320,
+    height: 240,
+    animated: `https://static2.klipy.com/ii/${randomUUID()}/reply.webp`,
+    still: `https://static2.klipy.com/ii/${randomUUID()}/reply.jpg`,
+  }
   const reply = await call('/api/direct/messages', DirectMessage, member.login, {
     conversationId: conversation.id,
     retryId: randomUUID(),
-    body: `${secret} from the member`,
+    gif: replyGif,
   })
+  assert.deepEqual(reply.gif, replyGif, 'a direct GIF is stored exactly as sent')
   const sawDirect = (events: ServerEvent[], id: string) =>
     events.some((event) => event.kind === 'direct.message.created' && event.message.id === id)
   await eventually(
@@ -1323,7 +1496,15 @@ try {
       ),
     'the bystander watch is live and past the private cursors',
   )
-  const privateToOthers = [secret, conversation.id, dm.id, reply.id]
+  const privateToOthers = [
+    secret,
+    conversation.id,
+    dm.id,
+    reply.id,
+    replyGif.slug,
+    replyGif.animated,
+    replyGif.still,
+  ]
   const leaks = (text: string) =>
     [...privateToOthers, 'direct.message.created'].filter((needle) => text.includes(needle))
   assert.deepEqual(
@@ -1361,6 +1542,11 @@ try {
       body: 'Let me in',
     }),
     rawText('/api/direct/read', third.login, { conversationId: id, cursor: '1' }),
+    rawText('/api/direct/messages', third.login, {
+      conversationId: id,
+      retryId: randomUUID(),
+      gif: replyGif,
+    }),
   ]
   for (const answer of await Promise.all([...probes(conversation.id), ...probes(randomUUID())])) {
     assert.equal(answer.status, 404)
@@ -1599,7 +1785,7 @@ try {
   const aging = await startServer({
     databaseUrl: database.url,
     port: port + 2,
-    env: { SOCKET_MAX_AGE_SECONDS: '2', LIVEKIT_API_SECRET: undefined },
+    env: { SOCKET_MAX_AGE_SECONDS: '2', LIVEKIT_API_SECRET: undefined, KLIPY_APP_KEY: '' },
   })
   try {
     const opened = Date.now()
@@ -1610,7 +1796,10 @@ try {
     socket.on('error', () => {})
     socket.on('open', () => socket.send(JSON.stringify({ kind: 'watch', after: '0' })))
     const pages: string[] = []
-    socket.on('message', (data) => pages.push(data.toString()))
+    socket.on('message', (data) => {
+      LegacyEventPage.parse(JSON.parse(data.toString()))
+      pages.push(data.toString())
+    })
     const [closeCode, closeReason] = await once(socket, 'close')
     const lived = Date.now() - opened
     assert.equal(closeCode, 4001, 'an old socket closes with the reconnect code')
@@ -1649,6 +1838,43 @@ try {
     assert.equal(unconfigured.response.status, 503)
     assert.deepEqual(unconfigured.value, { message: 'Voice is not set up on this server.' })
     pass('a server with no LiveKit secret reports no voice and answers 503')
+
+    assert.equal(ServerInfo.parse((await voiceless.call('/api/info')).value).gifs, false)
+    assert.equal(Snapshot.parse((await voiceless.call('/api/snapshot')).value).gifs, null)
+    const groupWithoutGifs = GroupObservation.parse(
+      (
+        await voiceless.call('/api/groups', {
+          retryId: randomUUID(),
+          name: 'No GIFs here',
+          others: [member.user.id, third.user.id],
+        })
+      ).value,
+    ).group
+    const ownerSeat = groupWithoutGifs.members.find((seat) => seat.userId === owner.user.id)
+    for (const [path, scope] of [
+      ['/api/messages', { channelId: gifChannel.id }],
+      ['/api/direct/messages', { conversationId: conversation.id }],
+      ['/api/group/messages', { groupId: groupWithoutGifs.id, admission: ownerSeat?.admission }],
+    ] as const) {
+      const refused = await voiceless.call(path, { ...scope, retryId: randomUUID(), gif })
+      assert.equal(refused.response.status, 503, `${path} refuses a new GIF without a KLIPY key`)
+      assert.deepEqual(refused.value, { message: 'GIFs are not set up on this server.' })
+    }
+    const retried = await voiceless.call('/api/messages', gifInput)
+    assert.equal(retried.response.status, 200)
+    assert.deepEqual(
+      Message.parse(retried.value),
+      sentGif,
+      'a retry of a GIF sent before the key was removed still finds it',
+    )
+    assert.deepEqual(
+      Message.array().parse((await voiceless.call(gifHistory)).value),
+      [sentGif],
+      'stored GIFs still read back with no key',
+    )
+    pass(
+      'a server with no KLIPY key reports no GIFs, refuses new GIFs with 503, and keeps old ones',
+    )
   } finally {
     await aging.stop()
   }

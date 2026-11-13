@@ -1,13 +1,14 @@
 import { Check, Plus, Volume2 } from 'lucide-react'
-import type {
-  Channel,
-  ConversationId,
-  Member,
-  Room,
-  RoomId,
-  Me,
-  Server,
-  VoicePresence,
+import {
+  plainText,
+  type Channel,
+  type ConversationId,
+  type Member,
+  type Room,
+  type RoomId,
+  type Me,
+  type Server,
+  type VoicePresence,
 } from '@huddle/contracts'
 import { GroupIcon } from './GroupChat'
 import type { GroupRow, GroupThread } from './chat'
@@ -189,7 +190,7 @@ export function Home({
                           <strong>{row.name}</strong>
                           <span className="feed-body">
                             {row.latest?.authorId === me.user.id && 'You: '}
-                            {row.latest?.body ?? row.empty}
+                            {row.latest ? plainText(row.latest.content) : row.empty}
                           </span>
                         </span>
                         <span className="feed-meta">
