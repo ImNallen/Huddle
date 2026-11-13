@@ -10,6 +10,7 @@ import {
   newerMessage,
   latestMessage,
   threadKey,
+  threadMessage,
   type Pending,
   type Thread,
   type ThreadMessage,
@@ -84,7 +85,7 @@ export function observeGroup(
         ...observedState,
         messages: observedState.messages.map((message) =>
           message.id === latest.id
-            ? newerMessage(message, { ...latest, thread: message.thread })
+            ? newerMessage(message, threadMessage(latest, message.thread))
             : message,
         ),
       }
@@ -144,9 +145,8 @@ export function groupMessage(
   if (!entry?.current) return state
   const duplicate = state.messages.some((m) => m.id === message.id)
   const canonical = newerMessage(entry.current.group.latest, message)
-  const { groupId: _, ...content } = canonical
   const messages = new Map(state.messages.map((m) => [m.id, m]))
-  messages.set(message.id, newerMessage(messages.get(message.id), { ...content, thread }))
+  messages.set(message.id, newerMessage(messages.get(message.id), threadMessage(canonical, thread)))
   const current = entry.current
   const latest = current.group.latest
   return {

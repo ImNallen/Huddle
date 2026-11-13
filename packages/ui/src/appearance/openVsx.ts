@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Scheme } from './palette'
 import { MAX_FILE_BYTES, parseJsonc, parseThemeFile, type NewTheme } from './themeFile'
+import { fetchAnonymous, OutboundError } from '../outbound'
 
 const ORIGIN = 'https://open-vsx.org'
 const SEARCH_BYTES = 512 * 1024
@@ -139,53 +140,15 @@ export function pairVariants(themes: readonly NewTheme[]): NewTheme[] {
   })
 }
 
-class ReachError extends Error {}
+const REACH: Readonly<Record<OutboundError['reason'], string>> = {
+  refused: 'Open VSX could not provide that.',
+  oversized: 'Open VSX sent more than a theme should need.',
+  timeout: 'Open VSX took too long to answer.',
+}
 const failure = (cause: unknown, fallback: string) =>
-  cause instanceof ReachError ? cause.message : fallback
-
-async function readCapped(response: Response, limit: number) {
-  const reader = response.body?.getReader()
-  if (!reader) return ''
-  const decoder = new TextDecoder()
-  let size = 0
-  let text = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) return text + decoder.decode()
-    size += value.byteLength
-    if (size > limit) {
-      await reader.cancel()
-      throw new ReachError('Open VSX sent more than a theme should need.')
-    }
-    text += decoder.decode(value, { stream: true })
-  }
-}
-
-/** Sends no cookies and no referrer, so the registry learns nothing about this server. */
-async function getText(url: string, limit: number, signal: AbortSignal) {
-  const controller = new AbortController()
-  const stop = () => controller.abort()
-  if (signal.aborted) stop()
-  signal.addEventListener('abort', stop, { once: true })
-  const timer = setTimeout(stop, TIMEOUT_MS)
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-    })
-    if (!response.ok) throw new ReachError('Open VSX could not provide that.')
-    return await readCapped(response, limit)
-  } catch (cause) {
-    if (controller.signal.aborted && !signal.aborted) {
-      throw new ReachError('Open VSX took too long to answer.')
-    }
-    throw cause
-  } finally {
-    clearTimeout(timer)
-    signal.removeEventListener('abort', stop)
-  }
-}
+  cause instanceof OutboundError ? REACH[cause.reason] : fallback
+const getText = (url: string, limit: number, signal: AbortSignal) =>
+  fetchAnonymous(url, { limit, timeout: TIMEOUT_MS, signal })
 
 const fileUrl = ({ namespace, name, version }: SearchEntry | ThemeExtension, path: string) =>
   [

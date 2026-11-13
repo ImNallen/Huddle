@@ -657,9 +657,15 @@ test('group metadata before a creation event preserves unread and newer message 
   const latest = snapshot.groups.find((g) => g.id === group.id)
   if (!latest) throw new Error('Missing group')
   state = observeGroup(state, latest, snapshot.cursor, id, latest)
-  expect(state.messages.find((m) => m.id === sent.id)?.body).toBe(corrected.body)
+  expect(state.messages.find((m) => m.id === sent.id)?.content).toEqual({
+    kind: 'text',
+    body: corrected.body,
+  })
   state = groupMessage(state, thread, sent)
-  expect(state.messages.find((m) => m.id === sent.id)?.body).toBe(corrected.body)
+  expect(state.messages.find((m) => m.id === sent.id)?.content).toEqual({
+    kind: 'text',
+    body: corrected.body,
+  })
   expect(state.authority.get(group.id)?.current?.group.unread).toBe(1)
 })
 

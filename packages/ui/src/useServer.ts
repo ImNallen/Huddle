@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { z } from 'zod'
 import {
-  GroupId,
-  Admission,
   GroupMessage,
   GroupObservation,
   GroupRemoval,
   type CreateGroup,
   type GroupAccess,
+  type MessageContent,
   AccessStage,
   ChannelId,
-  ConversationId,
   Cursor,
   DirectMessage,
   EventPage,
   Message,
   ServerEvent,
   Snapshot,
-  UserId,
+  sendFields,
   type Channel,
+  type ConversationId,
+  type UserId,
   type DirectConversation,
   type Room,
   type RoomId,
@@ -46,24 +46,23 @@ import {
   newerMessage,
   latestMessage,
   threadKey,
+  threadMessage,
+  type GroupRow,
   type Thread,
   type ThreadMessage,
   type Pending,
   type Queued,
 } from './chat'
+import { readOutbox, writeOutbox } from './outbox'
 export { threadKey, type Thread, type ThreadMessage, type Pending } from './chat'
-const inChannel = ({ channelId, ...message }: Message): ThreadMessage => ({
-  ...message,
-  thread: { kind: 'channel', id: channelId },
-})
-const inDirect = ({ conversationId, ...message }: DirectMessage): ThreadMessage => ({
-  ...message,
-  thread: { kind: 'direct', id: conversationId },
-})
+const inChannel = (message: Message) =>
+  threadMessage(message, { kind: 'channel', id: message.channelId })
+const inDirect = (message: DirectMessage) =>
+  threadMessage(message, { kind: 'direct', id: message.conversationId })
 type ThreadRoute = {
   message: z.ZodType<ThreadMessage>
   history: (id: string) => string
-  send: { path: string; body: (id: string, retryId: string, body: string) => unknown }
+  send: { path: string; body: (id: string, retryId: string, content: MessageContent) => unknown }
   read: { path: string; body: (id: string, cursor: string) => unknown }
 }
 const threadRoutes: Record<'channel' | 'direct', ThreadRoute> = {
@@ -72,7 +71,7 @@ const threadRoutes: Record<'channel' | 'direct', ThreadRoute> = {
     history: (id) => `/api/messages?channelId=${id}`,
     send: {
       path: '/api/messages',
-      body: (channelId, retryId, body) => ({ channelId, retryId, body }),
+      body: (channelId, retryId, content) => ({ channelId, retryId, ...sendFields(content) }),
     },
     read: { path: '/api/read', body: (channelId, cursor) => ({ channelId, cursor }) },
   },
@@ -81,50 +80,17 @@ const threadRoutes: Record<'channel' | 'direct', ThreadRoute> = {
     history: (id) => `/api/direct/messages?conversationId=${id}`,
     send: {
       path: '/api/direct/messages',
-      body: (conversationId, retryId, body) => ({ conversationId, retryId, body }),
+      body: (conversationId, retryId, content) => ({
+        conversationId,
+        retryId,
+        ...sendFields(content),
+      }),
     },
     read: {
       path: '/api/direct/read',
       body: (conversationId, cursor) => ({ conversationId, cursor }),
     },
   },
-}
-const StoredFields = {
-  retryId: z.uuid(),
-  body: z.string(),
-  kind: z.enum(['sending', 'failed']),
-  error: z.string().optional(),
-}
-const StoredPending = z.union([
-  z.object({
-    ...StoredFields,
-    thread: z.discriminatedUnion('kind', [
-      z.object({ kind: z.literal('channel'), id: ChannelId }),
-      z.object({ kind: z.literal('direct'), id: ConversationId }),
-      z.object({ kind: z.literal('group'), id: GroupId, admission: Admission }),
-    ]),
-    peerId: UserId.optional(),
-  }),
-  z.object({ ...StoredFields, channelId: ChannelId }).transform(({ channelId, ...item }) => ({
-    ...item,
-    thread: { kind: 'channel' as const, id: channelId },
-  })),
-])
-function restorePending(storageKey: string): Pending[] {
-  try {
-    const rows = StoredPending.array().parse(
-      JSON.parse(
-        typeof localStorage === 'undefined' ? '[]' : (localStorage.getItem(storageKey) ?? '[]'),
-      ),
-    )
-    return rows.map((item) => ({
-      ...item,
-      kind: 'failed',
-      error: 'Sending was interrupted. Retry with the same message ID.',
-    }))
-  } catch {
-    return []
-  }
 }
 export type Activity = { count: number; mentions: number }
 export type Unread = ReadonlyMap<string, Activity>
@@ -236,27 +202,20 @@ export function useServer(
   const [changes, setChanges] = useState(0)
   const [visible, setVisible] = useState(isVisible)
   const [pending, setPending] = useState<Pending[]>(() =>
-    restorePending(storageKey).filter((p) => p.thread.kind !== 'group'),
+    readOutbox(storageKey).filter((p) => p.thread.kind !== 'group'),
   )
   const [groups, setGroups] = useState(() =>
-    initialGroups(restorePending(storageKey).filter((p) => p.thread.kind === 'group')),
+    initialGroups(readOutbox(storageKey).filter((p) => p.thread.kind === 'group')),
   )
   const groupsRef = useRef(groups)
   function updateGroups(update: (state: GroupState) => GroupState) {
     const next = update(groupsRef.current)
     groupsRef.current = next
     setGroups(next)
-    try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify([
-          ...pendingRef.current.filter((p) => p.thread.kind !== 'group'),
-          ...next.pending,
-        ]),
-      )
-    } catch {
-      /* Revocation still clears memory when storage is full. */
-    }
+    writeOutbox(storageKey, [
+      ...pendingRef.current.filter((p) => p.thread.kind !== 'group'),
+      ...next.pending,
+    ])
   }
   function groupFailure(thread: GroupThread, error: unknown) {
     if (error instanceof RequestError && error.status === 404)
@@ -269,9 +228,7 @@ export function useServer(
   const [queueError, setQueueError] = useState('')
   function updatePending(update: (current: Pending[]) => Pending[]) {
     const next = update(pendingRef.current)
-    try {
-      localStorage.setItem(storageKey, JSON.stringify([...next, ...groupsRef.current.pending]))
-    } catch {
+    if (!writeOutbox(storageKey, [...next, ...groupsRef.current.pending])) {
       setQueueError('Could not save your outgoing message. Free local storage and try again.')
       return false
     }
@@ -735,20 +692,17 @@ export function useServer(
       }
     })
     .sort(newestFirst)
-  async function send({ retryId, thread, peerId, body }: Queued) {
+  async function send({ retryId, thread, peerId, content }: Queued) {
     if (thread.kind === 'group') {
       if (!allowed(thread)) return
-      const item: Pending = { retryId, thread, body, kind: 'sending' }
-      try {
-        localStorage.setItem(
-          storageKey,
-          JSON.stringify([
-            ...pendingRef.current,
-            ...groupsRef.current.pending.filter((p) => p.retryId !== retryId),
-            item,
-          ]),
-        )
-      } catch {
+      const item: Pending = { retryId, thread, content, kind: 'sending' }
+      if (
+        !writeOutbox(storageKey, [
+          ...pendingRef.current,
+          ...groupsRef.current.pending.filter((p) => p.retryId !== retryId),
+          item,
+        ])
+      ) {
         setQueueError('Could not save your outgoing message. Free local storage and try again.')
         return
       }
@@ -761,7 +715,7 @@ export function useServer(
           groupId: thread.id,
           admission: thread.admission,
           retryId,
-          body,
+          ...sendFields(content),
         })
         if (isActive()) updateGroups((state) => groupMessage(state, thread, message))
       } catch (error) {
@@ -783,7 +737,7 @@ export function useServer(
     const item: Queued = {
       retryId,
       thread,
-      body,
+      content,
       peerId:
         thread.kind === 'direct'
           ? (peerId ?? directs.find((direct) => direct.id === thread.id)?.peerId)
@@ -801,7 +755,7 @@ export function useServer(
       const message = await client.request(
         route.send.path,
         route.message,
-        route.send.body(thread.id, retryId, body),
+        route.send.body(thread.id, retryId, content),
       )
       if (!isActive()) return
       merge([message])
@@ -816,6 +770,14 @@ export function useServer(
           ),
         )
     }
+  }
+  function discard({ retryId, thread }: Pending) {
+    if (thread.kind === 'group')
+      updateGroups((state) => ({
+        ...state,
+        pending: state.pending.filter((p) => p.retryId !== retryId),
+      }))
+    else updatePending((current) => current.filter((p) => p.retryId !== retryId))
   }
   async function older() {
     const first = allMessages.find((message) => threadKey(message.thread) === openKey)
@@ -872,8 +834,16 @@ export function useServer(
       ),
     ]),
     groups: [...groups.authority.values()]
-      .flatMap((entry) =>
-        entry.current ? [{ ...entry.current.group, thread: entry.current.thread }] : [],
+      .flatMap(({ current }): GroupRow[] =>
+        current
+          ? [
+              {
+                ...current.group,
+                thread: current.thread,
+                latest: current.group.latest && threadMessage(current.group.latest, current.thread),
+              },
+            ]
+          : [],
       )
       .sort((a, b) =>
         BigInt(a.latest?.cursor ?? a.revision) > BigInt(b.latest?.cursor ?? b.revision) ? -1 : 1,
@@ -1005,6 +975,8 @@ export function useServer(
       }
     },
     send,
+    discard,
+    gifs: state.kind === 'ready' ? state.snapshot.gifs : null,
     older,
     retry: () => setAttempt((value) => value + 1),
   }

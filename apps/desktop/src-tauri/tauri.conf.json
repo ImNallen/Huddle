@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://open-vsx.org https://openvsx.eclipsecontent.org; connect-src ipc: http://ipc.localhost https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://open-vsx.org https://openvsx.eclipsecontent.org https://static.klipy.com https://static1.klipy.com https://static2.klipy.com; connect-src ipc: http://ipc.localhost https: wss: http://localhost:* http://127.0.0.1:* http://[::1]:* ws://localhost:* ws://127.0.0.1:* ws://[::1]:*"
     }
   },
   "bundle": {
