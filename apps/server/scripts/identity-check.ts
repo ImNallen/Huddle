@@ -160,7 +160,7 @@ function configFor(env: Record<string, string>) {
       'tsx',
       '--input-type=module',
       '-e',
-      "const { config, origins, serverHosts } = await import('./src/lib/config.ts'); process.stdout.write(JSON.stringify({ websocket: config.WS_PUBLIC_URL, age: config.SOCKET_MAX_AGE_SECONDS, origins: [...origins], hosts: [...serverHosts], voice: config.voice }))",
+      "const { config, origins, serverHosts } = await import('./src/lib/config.ts'); process.stdout.write(JSON.stringify({ websocket: config.WS_PUBLIC_URL, age: config.SOCKET_MAX_AGE_SECONDS, origins: [...origins], hosts: [...serverHosts], voice: config.voice, gifs: config.gifs }))",
     ],
     {
       cwd: new URL('..', import.meta.url),
@@ -182,6 +182,7 @@ assert.deepEqual(JSON.parse(hosted.stdout), {
   origins: ['https://huddle.tailnet.ts.net', 'tauri://localhost', 'https://tauri.localhost'],
   hosts: ['huddle.tailnet.ts.net'],
   voice: null,
+  gifs: null,
 })
 for (const [entry, reason] of [
   ['http://localhost:1420', 'plain HTTP'],
@@ -291,4 +292,49 @@ for (const [label, env, reason] of voiceRefusals) {
 }
 process.stdout.write(
   `PASS voice config covers ${voiceCases.length} settings and ${voiceRefusals.length} refusals.\n`,
+)
+
+const appKey = 'Klipy-key_0.9~'
+const gifCases: [string, Record<string, string>, unknown][] = [
+  ['no key means no GIFs', {}, null],
+  ['an empty key means no GIFs', { KLIPY_APP_KEY: '' }, null],
+  ['the filter defaults to medium', { KLIPY_APP_KEY: appKey }, { appKey, contentFilter: 'medium' }],
+  [
+    'an empty filter means medium',
+    { KLIPY_APP_KEY: appKey, KLIPY_CONTENT_FILTER: '' },
+    { appKey, contentFilter: 'medium' },
+  ],
+  ...(['off', 'low', 'medium', 'high'] as const).map(
+    (contentFilter) =>
+      [
+        `the ${contentFilter} filter`,
+        { KLIPY_APP_KEY: appKey, KLIPY_CONTENT_FILTER: contentFilter },
+        { appKey, contentFilter },
+      ] as [string, Record<string, string>, unknown],
+  ),
+  ['a filter with no key is ignored', { KLIPY_CONTENT_FILTER: 'high' }, null],
+]
+for (const [label, env, gifs] of gifCases) {
+  const result = configFor(env)
+  assert.equal(result.status, 0, `${label}: ${result.stderr}`)
+  assert.deepEqual(JSON.parse(result.stdout).gifs, gifs, label)
+}
+const gifRefusals: [string, Record<string, string>, RegExp][] = [
+  ['a key with a slash', { KLIPY_APP_KEY: 'leaked/key' }, /KLIPY_APP_KEY/],
+  ['a key with a space', { KLIPY_APP_KEY: 'leaked key' }, /KLIPY_APP_KEY/],
+  ['a key longer than 256 characters', { KLIPY_APP_KEY: 'k'.repeat(257) }, /KLIPY_APP_KEY/],
+  [
+    'an unknown filter',
+    { KLIPY_APP_KEY: appKey, KLIPY_CONTENT_FILTER: 'strict' },
+    /KLIPY_CONTENT_FILTER/,
+  ],
+]
+for (const [label, env, reason] of gifRefusals) {
+  const refused = configFor(env)
+  assert.notEqual(refused.status, 0, `${label} is refused`)
+  assert.match(refused.stderr, reason, `the refusal for ${label} says why`)
+  assert.doesNotMatch(refused.stderr, /leaked/, 'a refusal never prints the key')
+}
+process.stdout.write(
+  `PASS GIF config covers ${gifCases.length} settings and ${gifRefusals.length} refusals.\n`,
 )

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { JoinCode } from './invite'
 import { emojiCatalog } from './emoji'
+import { GifRef, GifSettings, MessageBody, sendRequest } from './content'
 export * from './emoji'
 export const EmojiSymbol = z
   .string()
@@ -53,7 +54,10 @@ export const Message = z.object({
   authorName: z.string(),
   authorAvatar: Avatar.nullish(),
   retryId: z.uuid(),
+  /** The text, or plainText() of other content, so a client that knows nothing else can show it. */
   body: z.string(),
+  /** Null for text. Older servers and stored events omit it. */
+  gif: GifRef.nullable().catch(null),
   cursor: Cursor,
   createdAt: z.string(),
   reactionRevision: Cursor.default('0'),
@@ -101,10 +105,7 @@ export const CreateGroup = z
   .object({ retryId: z.uuid(), name: GroupName, others: GroupPeople.min(2) })
   .strict()
 export const AddGroupPeople = GroupAccess.extend({ userIds: GroupPeople.min(1) }).strict()
-export const SendGroupMessage = GroupAccess.extend({
-  retryId: z.uuid(),
-  body: z.string().trim().min(1).max(8000),
-}).strict()
+export const SendGroupMessage = sendRequest(GroupAccess.shape)
 export const MarkGroupRead = GroupAccess.extend({ cursor: Cursor }).strict()
 export type GroupId = z.infer<typeof GroupId>
 export type Admission = z.infer<typeof Admission>
@@ -117,7 +118,7 @@ const EditFields = {
   messageId: z.uuid(),
   expectedRevision: Cursor,
   retryId: z.uuid(),
-  body: z.string().trim().min(1).max(8000),
+  body: MessageBody,
 }
 export const EditMessage = z.object({ channelId: ChannelId, ...EditFields }).strict()
 export const EditDirectMessage = z
@@ -225,16 +226,13 @@ export const Snapshot = z.object({
   directs: z.array(DirectConversation),
   groups: z.array(GroupConversation),
   cursor: Cursor,
+  /** Members only, because it carries the host's KLIPY key. Null when GIFs are off. */
+  gifs: GifSettings.nullable().catch(null),
 })
 export const MarkRead = z.object({ channelId: ChannelId, cursor: Cursor }).strict()
-const MessageBody = z.string().trim().min(1).max(8000)
-export const SendMessage = z
-  .object({ channelId: ChannelId, retryId: z.uuid(), body: MessageBody })
-  .strict()
+export const SendMessage = sendRequest({ channelId: ChannelId })
 export const OpenDirect = z.object({ userId: UserId }).strict()
-export const SendDirectMessage = z
-  .object({ conversationId: ConversationId, retryId: z.uuid(), body: MessageBody })
-  .strict()
+export const SendDirectMessage = sendRequest({ conversationId: ConversationId })
 export const MarkDirectRead = z.object({ conversationId: ConversationId, cursor: Cursor }).strict()
 export const RoomName = z.string().trim().min(1).max(40)
 export const CreateRoom = z.object({ name: RoomName }).strict()
@@ -302,6 +300,8 @@ export const ServerInfo = z.object({
   serverUrl: z.url(),
   websocketUrl: z.url(),
   voice: z.boolean().default(false),
+  /** Public, so it says only whether GIFs are on. */
+  gifs: z.boolean().default(false),
 })
 export const JoinVoice = z.object({ channelId: ChannelId }).strict()
 export const VoiceGrant = z.object({ url: z.url(), token: z.string().min(1) })
@@ -391,4 +391,17 @@ export type AccessStage = z.infer<typeof AccessStage>
 export type AccessCommand = z.infer<typeof AccessCommand>
 export type AccessError = z.infer<typeof AccessError>
 export { JoinCode, formatInvite, parseInvite, serverOrigin } from './invite'
+export {
+  ContentFilter,
+  GifRef,
+  GifSettings,
+  KLIPY_MEDIA_HOSTS,
+  MessageBody,
+  plainText,
+  readContent,
+  sameContent,
+  sendFields,
+  storedFields,
+  type MessageContent,
+} from './content'
 export type { Invite } from './invite'

@@ -26,6 +26,7 @@ import {
   inviteCode,
   tailscale,
 } from './harness'
+import { LegacyEventPage, legacyAnswer } from './legacy-contracts'
 
 const database = await migratedDatabase()
 const code = randomUUID()
@@ -41,6 +42,7 @@ const sockets = new Set<WebSocket>()
 async function call<T>(client: Client, path: string, schema: z.ZodType<T>, body?: unknown) {
   const { response, value } = await client.call(path, body)
   assert.equal(response.status, 200, `${path}: ${JSON.stringify(value)}`)
+  legacyAnswer(path, body !== undefined)?.parse(value)
   return schema.parse(value)
 }
 const access = (group: GroupConversation, id: UserId) => ({
@@ -62,6 +64,7 @@ async function replay(client: Client, after = '0') {
   await delay(100)
   socket.terminate()
   sockets.delete(socket)
+  for (const frame of frames) LegacyEventPage.parse(JSON.parse(frame))
   return {
     text: frames.join('\n'),
     events: frames.flatMap((frame) => EventPage.parse(JSON.parse(frame)).events),
@@ -108,6 +111,29 @@ try {
   const conflict = await a.call('/api/group/messages', { ...send, body: 'changed' })
   assert.equal(conflict.response.status, 409)
   assert.ok(!JSON.stringify(conflict.value).includes(message.body))
+  const groupGif = {
+    slug: `group-${randomUUID()}`,
+    title: `Group GIF ${randomUUID()}`,
+    width: 220,
+    height: 180,
+    animated: `https://static.klipy.com/ii/${randomUUID()}/group.webp`,
+    still: `https://static1.klipy.com/ii/${randomUUID()}/group.jpg`,
+  }
+  const gifSend = { ...aa, retryId: randomUUID(), gif: groupGif }
+  const gifMessage = await call(a, '/api/group/messages', GroupMessage, gifSend)
+  assert.deepEqual(gifMessage.gif, groupGif, 'a group GIF is stored exactly as sent')
+  assert.equal(gifMessage.body, `GIF · ${groupGif.title}`)
+  assert.deepEqual(await call(a, '/api/group/messages', GroupMessage, gifSend), gifMessage)
+  for (const changed of [
+    { ...gifSend, gif: { ...groupGif, height: 181 } },
+    { ...aa, retryId: gifSend.retryId, body: gifMessage.body },
+  ])
+    assert.equal((await a.call('/api/group/messages', changed)).response.status, 409)
+  assert.deepEqual(
+    (await call(b, '/api/snapshot', Snapshot)).groups.find((g) => g.id === group.id)?.latest,
+    gifMessage,
+    'the group summary carries the latest GIF',
+  )
   const path = (grant: ReturnType<typeof access>) =>
     `/api/group/messages?groupId=${grant.groupId}&admission=${grant.admission}`
   const random = { ...aa, groupId: randomUUID() }
@@ -129,7 +155,16 @@ try {
     404,
   )
   const hidden = await replay(d)
-  for (const secret of [group.id, group.name, message.body, duplicateName.group.id])
+  for (const secret of [
+    group.id,
+    group.name,
+    message.body,
+    duplicateName.group.id,
+    groupGif.slug,
+    groupGif.title,
+    groupGif.animated,
+    groupGif.still,
+  ])
     assert.ok(!hidden.text.includes(secret), 'outsider replay contains no group data')
   assert.ok(
     (await replay(b)).events.some(
@@ -179,9 +214,15 @@ try {
   const noOp = await call(a, '/api/group/people', GroupObservation, { ...aa, userIds: [dee.id] })
   assert.equal(noOp.at, added.at, 'adding existing member emits no event')
   assert.equal((await call(d, '/api/snapshot', Snapshot)).groups[0]?.unread, 0)
+  const lateHistory = await call(d, path(da), GroupMessage.array())
   assert.ok(
-    (await call(d, path(da), GroupMessage.array())).some((m) => m.id === message.id),
+    lateHistory.some((m) => m.id === message.id),
     'new member reads earlier history',
+  )
+  assert.deepEqual(
+    lateHistory.find((m) => m.id === gifMessage.id),
+    gifMessage,
+    'new member reads earlier GIFs',
   )
   const joined = await replay(d, beforeAdd.cursor)
   assert.ok(joined.events.some((e) => e.kind === 'group.changed' && e.group.id === group.id))
@@ -190,6 +231,8 @@ try {
     'old history is fetched, not replayed across admissions',
   )
   assert.equal(await photoStatus(d), 200)
+  const bobGif = { ...ba, retryId: randomUUID(), gif: { ...groupGif, slug: `bob-${randomUUID()}` } }
+  await call(b, '/api/group/messages', GroupMessage, bobGif)
   await call(b, '/api/group/read', z.unknown(), { ...ba, cursor: '9999999999999999999' })
   const removal = await call(b, '/api/group/leave', GroupRemoval, ba)
   const afterLeave = await call(a, '/api/group/messages', GroupMessage, {
@@ -223,6 +266,11 @@ try {
       'old admission denied after re-add',
     )
   assert.equal((await b.call(path(ba))).response.status, 404)
+  assert.equal(
+    (await b.call('/api/group/messages', { ...bobGif, ...ba2 })).response.status,
+    409,
+    'a GIF retried under a later admission is a different message',
+  )
   assert.ok((await call(b, path(ba2), GroupMessage.array())).some((m) => m.id === afterLeave.id))
   const readded = await replay(b)
   assert.ok(
@@ -333,7 +381,7 @@ try {
   )
   assert.ok(!filtered.text.includes(capacity.group.id))
   process.stdout.write(
-    'PASS group creation, validation, retries, four-account privacy, replay, photos, add/leave/re-add admission fencing, read markers, restart, serialized departure, the 32-person cap and history paging.\n',
+    'PASS group creation, validation, retries, GIFs, four-account privacy, replay, photos, add/leave/re-add admission fencing, read markers, restart, serialized departure, the 32-person cap and history paging.\n',
   )
 } catch (error) {
   process.stderr.write(server.logs())

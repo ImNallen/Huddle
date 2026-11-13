@@ -84,6 +84,8 @@ export async function startServer(options: {
     SERVER_URL: origin,
     WS_PUBLIC_URL: `ws://localhost:${options.port + 1}`,
     TRUSTED_ORIGINS: '',
+    KLIPY_APP_KEY: 'huddle-suite-klipy-key',
+    KLIPY_CONTENT_FILTER: undefined,
     ...options.env,
   }
   let child: ChildProcess | undefined

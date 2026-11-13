@@ -34,6 +34,7 @@ import {
   startServer,
   tailscale,
 } from './harness'
+import { LegacyEventPage, legacyAnswer } from './legacy-contracts'
 
 const livekit = await runningLivekit()
 const database = await migratedDatabase()
@@ -66,8 +67,18 @@ async function call<S extends z.ZodType>(
 ): Promise<z.output<S>> {
   const result = await client.call(path, body)
   assert.equal(result.response.status, 200, `${path}: ${JSON.stringify(result.value)}`)
+  legacyAnswer(path, body !== undefined)?.parse(result.value)
   return schema.parse(result.value)
 }
+const gifFor = (label: string) => ({
+  slug: `${label}-${randomUUID()}`,
+  title: `${label} ${randomUUID()}`,
+  width: 200,
+  height: 150,
+  animated: `https://static.klipy.com/ii/${randomUUID()}/${label}.webp`,
+  still: `https://static2.klipy.com/ii/${randomUUID()}/${label}.jpg`,
+})
+const gifTraces = (gif: ReturnType<typeof gifFor>) => [gif.slug, gif.title, gif.animated, gif.still]
 const done = z.object({}).strict()
 async function status(client: Client, path: string, body?: unknown) {
   return (await client.call(path, body)).response.status
@@ -90,6 +101,7 @@ function watch(client: Client, after: string) {
   socket.on('open', () => socket.send(JSON.stringify({ kind: 'watch', after })))
   socket.on('message', (data) => {
     frames.push(data.toString())
+    LegacyEventPage.parse(JSON.parse(data.toString()))
     events.push(...EventPage.parse(JSON.parse(data.toString())).events)
   })
   socket.on('error', () => {})
@@ -341,6 +353,12 @@ try {
     (await call(client, '/api/snapshot', Snapshot)).unread.find((u) => u.channelId === doomed.id)
   assert.deepEqual(await unread(a), { channelId: doomed.id, count: 1, mentions: 1 })
   assert.deepEqual(await unread(c), { channelId: doomed.id, count: 1, mentions: 0 })
+  const doomedGif = gifFor('doomed')
+  await call(b, '/api/messages', Message, {
+    channelId: doomed.id,
+    retryId: randomUUID(),
+    gif: doomedGif,
+  })
   const cyWatch = watch(c, await head(c))
   for (const confirm of ['Doomed', 'doom', 'lobby'])
     assert.equal(
@@ -366,11 +384,11 @@ try {
   })
   cyWatch.stop()
   const rows = await dump()
-  for (const body of [secret, edited])
+  for (const body of [secret, edited, ...gifTraces(doomedGif)])
     assert.deepEqual(
       rows.filter((row) => row.text.includes(body)),
       [],
-      'no table keeps a deleted message body',
+      'no table keeps a deleted message body or GIF',
     )
   assert.ok(
     rows.some((row) => row.text.includes(kept)),
@@ -506,6 +524,12 @@ try {
     retryId: randomUUID(),
     body: atticBody,
   })
+  const atticGif = gifFor('attic')
+  await call(b, '/api/messages', Message, {
+    channelId: atticText.id,
+    retryId: randomUUID(),
+    gif: atticGif,
+  })
   const atticSpare = await call(a, '/api/channels', Channel, {
     roomId: attic.id,
     kind: 'text',
@@ -537,10 +561,12 @@ try {
     false,
   )
   const atticRows = await dump()
-  assert.deepEqual(
-    atticRows.filter((row) => row.text.includes(atticBody)),
-    [],
-  )
+  for (const trace of [atticBody, ...gifTraces(atticGif)])
+    assert.deepEqual(
+      atticRows.filter((row) => row.text.includes(trace)),
+      [],
+      'no table keeps a message or GIF from a deleted room',
+    )
   assert.deepEqual(
     atticRows.filter((row) => row.text.includes(attic.id)).map((row) => row.table),
     ['event'],
@@ -622,6 +648,8 @@ try {
     body: 'Hi Sam, from Bo',
   }
   const boReply = await call(b, '/api/direct/messages', DirectMessage, boSent)
+  const boGifSent = { conversationId: conversation.id, retryId: randomUUID(), gif: gifFor('bo') }
+  const boGif = await call(b, '/api/direct/messages', DirectMessage, boGifSent)
   const group = (
     await call(b, '/api/groups', GroupObservation, {
       retryId: randomUUID(),
@@ -737,7 +765,7 @@ try {
   )
   assert.deepEqual(
     directs.map(({ body }) => body),
-    ['Hi Bo, from Sam', 'Hi Sam, from Bo'],
+    ['Hi Bo, from Sam', 'Hi Sam, from Bo', boGif.body],
     'the peer keeps the conversation',
   )
   const refused = await b.call('/api/direct/messages', {
@@ -751,6 +779,16 @@ try {
     await call(b, '/api/direct/messages', DirectMessage, boSent),
     boReply,
     'a retry of a message sent before the removal returns it',
+  )
+  assert.deepEqual(
+    await call(b, '/api/direct/messages', DirectMessage, boGifSent),
+    boGif,
+    'a retry of a GIF sent before the removal returns it',
+  )
+  assert.equal(
+    await status(b, '/api/direct/messages', { ...boGifSent, retryId: randomUUID() }),
+    409,
+    'a new GIF to a removed person is refused',
   )
   await call(b, '/api/direct/messages/edit', DirectMessage, {
     conversationId: conversation.id,

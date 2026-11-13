@@ -2,7 +2,17 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import pg from 'pg'
-import { Cursor, JoinCode, ServerEvent, UserId } from '@huddle/contracts'
+import {
+  Cursor,
+  DirectMessage,
+  GifRef,
+  GroupMessage,
+  JoinCode,
+  KLIPY_MEDIA_HOSTS,
+  Message,
+  ServerEvent,
+  UserId,
+} from '@huddle/contracts'
 import { migrate, migratedDatabase, scratchDatabase } from './harness'
 
 const database = await scratchDatabase()
@@ -21,19 +31,19 @@ try {
   const scratch = new pg.Client({ connectionString: database.url })
   await scratch.connect()
   const migrations = new URL('../migrations/', import.meta.url)
-  async function applyThrough(last: string) {
-    await scratch.query('BEGIN')
-    await scratch.query(
+  async function applyThrough(last: string, client = scratch) {
+    await client.query('BEGIN')
+    await client.query(
       'CREATE TABLE IF NOT EXISTS huddle_migration (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
     )
-    const applied = await scratch.query('SELECT name FROM huddle_migration')
+    const applied = await client.query('SELECT name FROM huddle_migration')
     const done = new Set(applied.rows.map((row) => row.name))
     for (const file of (await readdir(migrations)).filter((file) => file <= last).sort()) {
       if (done.has(file)) continue
-      await scratch.query(await readFile(new URL(file, migrations), 'utf8'))
-      await scratch.query('INSERT INTO huddle_migration(name) VALUES ($1)', [file])
+      await client.query(await readFile(new URL(file, migrations), 'utf8'))
+      await client.query('INSERT INTO huddle_migration(name) VALUES ($1)', [file])
     }
-    await scratch.query('COMMIT')
+    await client.query('COMMIT')
   }
   const rows = async (query: string, values: unknown[] = []) =>
     (await scratch.query(query, values)).rows
@@ -538,6 +548,7 @@ try {
         sql.slice(0, sql.indexOf('ALTER TABLE event')),
       ),
     )
+    await scratch.query(await readFile(new URL('018_gif_messages.sql', migrations), 'utf8'))
     await pruneAccess()
     assert.deepEqual(
       await rows('SELECT id FROM account_photo ORDER BY id'),
@@ -878,7 +889,8 @@ try {
       'DROP TABLE message_reaction_receipt, message_reaction, direct_message_reaction, group_message_reaction',
     )
     for (const table of ['message', 'direct_message', 'group_message'])
-      await scratch.query(`ALTER TABLE ${table} DROP COLUMN reaction_revision`)
+      await scratch.query(`ALTER TABLE ${table} DROP COLUMN reaction_revision, DROP COLUMN gif`)
+    await scratch.query('DROP FUNCTION huddle_gif_ok')
     const refusedOrphan = await migrate(database.url)
     assert.notEqual(refusedOrphan.code, 0, '016 refuses an event naming a missing channel')
     assert.match(refusedOrphan.output, /event_channel_id_fkey/)
@@ -1080,11 +1092,352 @@ try {
       await installed.end()
       await fresh.drop()
     }
+
+    const at017 = await scratchDatabase()
+    const old = new pg.Client({ connectionString: at017.url })
+    await old.connect()
+    try {
+      await applyThrough('017_message_reactions.sql', old)
+      const [ana, bo] = [UserId.parse('ana-at-017'), UserId.parse('bo-at-017')]
+      const room = randomUUID(),
+        channelAt017 = randomUUID(),
+        conversationAt017 = randomUUID(),
+        groupAt017 = randomUUID()
+      await old.query(`INSERT INTO "user"(id, name) VALUES ($1, 'Ana'), ($2, 'Bo')`, [ana, bo])
+      await old.query(`INSERT INTO member(user_id, role) VALUES ($1, 'admin'), ($2, 'member')`, [
+        ana,
+        bo,
+      ])
+      await old.query("INSERT INTO server(name, cursor) VALUES ('At 017', 9)")
+      await old.query("INSERT INTO room(id, name) VALUES ($1, 'Lounge')", [room])
+      await old.query(
+        "INSERT INTO channel(id, room_id, name, kind) VALUES ($1, $2, 'general', 'text')",
+        [channelAt017, room],
+      )
+      await old.query('INSERT INTO direct_conversation(id, user_a, user_b) VALUES ($1, $2, $3)', [
+        conversationAt017,
+        ana,
+        bo,
+      ])
+      await old.query(
+        'INSERT INTO group_conversation(id,name,creator_id,create_retry_id,create_others) VALUES($1,$2,$3,$4,$5)',
+        [groupAt017, 'Pair', ana, randomUUID(), [bo]],
+      )
+      await old.query(
+        'INSERT INTO group_member(group_id,user_id,admission,read_cursor) VALUES($1,$2,1,1),($1,$3,1,1)',
+        [groupAt017, ana, bo],
+      )
+      const pairAt017 = [ana, bo]
+      const scopesAt017 = [
+        {
+          kind: 'channel',
+          table: 'message',
+          column: 'channel_id',
+          key: 'channelId',
+          id: channelAt017,
+          events: [
+            ['message.created', { mentions: [] }],
+            ['message.edited', {}],
+            ['message.reactions.changed', {}],
+          ],
+          request: { channelId: channelAt017 },
+          admission: null,
+          schema: Message,
+        },
+        {
+          kind: 'direct',
+          table: 'direct_message',
+          column: 'conversation_id',
+          key: 'conversationId',
+          id: conversationAt017,
+          events: [
+            ['direct.message.created', { participants: pairAt017 }],
+            ['direct.message.edited', { participants: pairAt017 }],
+            ['direct.message.reactions.changed', { participants: pairAt017 }],
+          ],
+          request: { conversationId: conversationAt017 },
+          admission: null,
+          schema: DirectMessage,
+        },
+        {
+          kind: 'group',
+          table: 'group_message',
+          column: 'group_id',
+          key: 'groupId',
+          id: groupAt017,
+          events: [
+            ['group.message.created', {}],
+            ['group.message.edited', {}],
+            ['group.message.reactions.changed', {}],
+          ],
+          request: { groupId: groupAt017, admission: '1' },
+          admission: '1',
+          schema: GroupMessage,
+        },
+      ] as const
+      let cursorAt017 = 0
+      for (const scope of scopesAt017) {
+        const [sentAt, editedAt, reactedAt] = [++cursorAt017, ++cursorAt017, ++cursorAt017].map(
+          String,
+        )
+        const id = randomUUID()
+        const sent = {
+          id,
+          [scope.key]: scope.id,
+          authorId: ana,
+          authorName: 'Ana',
+          authorAvatar: { kind: 'mascot', shape: 'circle', color: 'indigo' },
+          retryId: randomUUID(),
+          body: `Sent at 017 in ${scope.kind}`,
+          cursor: sentAt,
+          createdAt: '2026-11-01T00:00:00.000Z',
+          reactionRevision: '0',
+          reactions: [],
+          revision: '0',
+          editedAt: null,
+        }
+        const edited = {
+          ...sent,
+          body: `Edited at 017 in ${scope.kind}`,
+          revision: editedAt,
+          editedAt: '2026-11-01T00:01:00.000Z',
+        }
+        const reacted = {
+          ...edited,
+          reactionRevision: reactedAt,
+          reactions: [
+            {
+              emoji: '👍',
+              people: [
+                { id: bo, name: 'Bo', avatar: { kind: 'mascot', shape: 'square', color: 'teal' } },
+              ],
+            },
+          ],
+        }
+        await old.query(
+          `INSERT INTO ${scope.table}(id, ${scope.column}, author_id, author_name, author_avatar, retry_id, body, original_body, cursor, revision, edited_at, reaction_revision${scope.admission ? ', author_admission' : ''})
+          VALUES ($1, $2, $3, 'Ana', $4, $5, $6, $7, $8, $9, $10, $11${scope.admission ? ', $12' : ''})`,
+          [
+            id,
+            scope.id,
+            ana,
+            sent.authorAvatar,
+            sent.retryId,
+            edited.body,
+            sent.body,
+            sentAt,
+            editedAt,
+            edited.editedAt,
+            reactedAt,
+            ...(scope.admission ? [scope.admission] : []),
+          ],
+        )
+        for (const [cursor, [kind, extra], message] of [
+          [sentAt, scope.events[0], sent],
+          [editedAt, scope.events[1], edited],
+          [reactedAt, scope.events[2], reacted],
+        ] as const)
+          await old.query(
+            'INSERT INTO event(cursor, event, audience, group_id, channel_id) VALUES ($1, $2, $3, $4, $5)',
+            [
+              cursor,
+              { kind, cursor, message, ...extra },
+              scope.kind === 'channel' ? null : pairAt017,
+              scope.kind === 'group' ? scope.id : null,
+              scope.kind === 'channel' ? scope.id : null,
+            ],
+          )
+        await old.query(
+          'INSERT INTO message_edit_receipt(author_id, retry_id, request, response, channel_id) VALUES ($1, $2, $3, $4, $5)',
+          [
+            ana,
+            randomUUID(),
+            {
+              kind: scope.kind,
+              ...scope.request,
+              messageId: id,
+              expectedRevision: '0',
+              retryId: randomUUID(),
+              body: edited.body,
+            },
+            edited,
+            scope.kind === 'channel' ? scope.id : null,
+          ],
+        )
+        await old.query(
+          `INSERT INTO message_reaction_receipt(user_id, retry_id, request, response, ${scope.kind}_message_id) VALUES ($1, $2, $3, $4, $5)`,
+          [
+            bo,
+            randomUUID(),
+            {
+              kind: scope.kind,
+              ...scope.request,
+              messageId: id,
+              emoji: '👍',
+              present: true,
+              retryId: randomUUID(),
+            },
+            reacted,
+            id,
+          ],
+        )
+      }
+      const messageRows = (table: string) =>
+        old.query(`SELECT id, body, original_body FROM ${table} ORDER BY id`).then((r) => r.rows)
+      const beforeGifs = Object.fromEntries(
+        await Promise.all(
+          scopesAt017.map(async ({ table }) => [table, await messageRows(table)] as const),
+        ),
+      )
+      const storedJson = async () => ({
+        events: (await old.query('SELECT event FROM event ORDER BY cursor')).rows.map(
+          (row) => row.event,
+        ),
+        edits: (await old.query('SELECT request, response FROM message_edit_receipt')).rows,
+        reactions: (await old.query('SELECT request, response FROM message_reaction_receipt')).rows,
+      })
+      const storedBefore = await storedJson()
+      await applyThrough('018_gif_messages.sql', old)
+      for (const { table } of scopesAt017) {
+        assert.deepEqual(
+          await messageRows(table),
+          beforeGifs[table],
+          `018 keeps every ${table} body`,
+        )
+        assert.deepEqual(
+          (await old.query(`SELECT gif FROM ${table}`)).rows,
+          [{ gif: null }],
+          `018 leaves every existing ${table} row as text`,
+        )
+      }
+      const storedAfter = await storedJson()
+      assert.deepEqual(storedAfter, storedBefore, '018 rewrites no stored event or receipt')
+      assert.equal(storedAfter.events.length, 9)
+      for (const event of storedAfter.events)
+        assert.deepEqual(
+          ServerEvent.parse(event),
+          { ...event, message: { ...event.message, gif: null } },
+          `a stored ${event.kind} event replays unchanged, as text`,
+        )
+      const schemaFor = (kind: string) =>
+        scopesAt017.find((scope) => scope.kind === kind)?.schema ?? Message
+      for (const receipt of [...storedAfter.edits, ...storedAfter.reactions])
+        assert.deepEqual(
+          schemaFor(receipt.request.kind).parse(receipt.response),
+          { ...receipt.response, gif: null },
+          `a stored ${receipt.request.kind} receipt answers its retry unchanged, as text`,
+        )
+
+      const gif = {
+        slug: 'happy-dance-48213',
+        title: 'Happy Dance',
+        width: 498,
+        height: 280,
+        animated: 'https://static.klipy.com/ii/4e7bea9f/happy-dance.webp',
+        still: 'https://static1.klipy.com/ii/4e7bea9f/happy-dance.jpg',
+      }
+      const insertGif = (
+        scope: (typeof scopesAt017)[number],
+        value: unknown,
+        row: { revision?: number; editedAt?: string; body?: string } = {},
+      ) =>
+        old.query(
+          `INSERT INTO ${scope.table}(id, ${scope.column}, author_id, author_name, retry_id, body, original_body, cursor, revision, edited_at, gif${scope.admission ? ', author_admission' : ''})
+          VALUES ($1, $2, $3, 'Ana', $4, $5, 'GIF · Happy Dance', $6, $7, $8, $9${scope.admission ? ', $10' : ''})`,
+          [
+            randomUUID(),
+            scope.id,
+            ana,
+            randomUUID(),
+            row.body ?? 'GIF · Happy Dance',
+            ++cursorAt017,
+            row.revision ?? 0,
+            row.editedAt ?? null,
+            JSON.stringify(value),
+            ...(scope.admission ? [scope.admission] : []),
+          ],
+        )
+      for (const scope of scopesAt017) {
+        await insertGif(scope, gif)
+        for (const [label, row] of [
+          ['a later revision', { revision: 7 }],
+          ['an edit time', { editedAt: '2026-11-02T00:00:00.000Z' }],
+          ['a body that differs from the original', { body: 'GIF · Edited' }],
+        ] as const)
+          await assert.rejects(
+            insertGif(scope, gif, row),
+            new RegExp(`${scope.table}_gif_unedited`),
+            `a ${scope.table} GIF with ${label} is refused`,
+          )
+        await assert.rejects(
+          old.query(
+            `UPDATE ${scope.table} SET body = 'Edited', revision = revision + 1 WHERE gif IS NOT NULL`,
+          ),
+          new RegExp(`${scope.table}_gif_unedited`),
+          `an older binary editing a ${scope.table} GIF fails instead of changing it`,
+        )
+        await assert.rejects(
+          insertGif(scope, { ...gif, width: 0 }),
+          new RegExp(`${scope.table}_gif_ok`),
+        )
+      }
+      const { still: _still, ...missingStill } = gif
+      for (const [label, value] of [
+        ['a missing key', missingStill],
+        ['an extra key', { ...gif, mp4: gif.animated }],
+        ['a string width', { ...gif, width: '498' }],
+        ['width 0', { ...gif, width: 0 }],
+        ['width 4097', { ...gif, width: 4097 }],
+        ['a fractional height', { ...gif, height: 1.5 }],
+        ['an empty slug', { ...gif, slug: '' }],
+        ['a 201-character title', { ...gif, title: 'x'.repeat(201) }],
+        ['a numeric still', { ...gif, still: 7 }],
+        ['an array', [gif]],
+        ['JSON null', null],
+      ] as const)
+        await assert.rejects(
+          insertGif(scopesAt017[0], value),
+          /message_gif_ok/,
+          `018 refuses a GIF with ${label}`,
+        )
+      const sqlAccepts = async (url: string) =>
+        (await old.query('SELECT huddle_gif_ok($1::jsonb) AS ok', [{ ...gif, animated: url }]))
+          .rows[0].ok
+      for (const [url, accepted] of [
+        ...KLIPY_MEDIA_HOSTS.map((host) => [`https://${host}/ii/4e7bea9f/a.webp`, true] as const),
+        ['http://static.klipy.com/a.webp', false],
+        ['https://static.klipy.com:444/a.webp', false],
+        ['https://user@static.klipy.com/a.webp', false],
+        ['https://static.klipy.com.evil.test/a.webp', false],
+        ['https://evil.test/static.klipy.com/a.webp', false],
+        ['https://STATIC.klipy.com/a.webp', false],
+        ['https://static3.klipy.com/a.webp', false],
+        ['https://klipy.com/a.webp', false],
+        ['https://media.klipy.com/a.webp', false],
+        ['https://static.klipy.com/a.webp ', false],
+        ['https://static.klipy.com/é.webp', false],
+        [`https://static.klipy.com/${'a'.repeat(2048)}`, false],
+      ] as const) {
+        assert.equal(
+          GifRef.safeParse({ ...gif, animated: url }).success,
+          accepted,
+          `contracts ${accepted ? 'accept' : 'refuse'} ${url.slice(0, 60)}`,
+        )
+        assert.equal(
+          await sqlAccepts(url),
+          accepted,
+          `018 agrees with KLIPY_MEDIA_HOSTS on ${url.slice(0, 60)}`,
+        )
+      }
+    } finally {
+      await old.end()
+      await at017.drop()
+    }
   } finally {
     await scratch.end()
   }
   process.stdout.write(
-    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. 015 backfills original bodies, revision zero and null edit timestamps in channel, direct and group messages. 016 refuses an event naming a missing channel without deleting it, scopes every room and channel event and channel edit receipt, refuses wrong scopes, and deleting a channel or room by SQL removes its events, receipts, messages, mentions and reads by cascade. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
+    'PASS 006 backfills a General room and roomId on legacy events. 007 refuses two workspaces without creating anything, then migrates one workspace losslessly into server, member and event: rooms, channels, messages, read markers, mentions and events are unchanged except the dropped workspace ids, owner becomes admin, and a second server row is impossible. 011 keeps same-named channels in different rooms, backfills every channel and stored channel.created event to text, requires a kind on every insert. 012 leaves every existing event open to all members, enforces one ordered conversation per pair, photo pruning respects direct messages. 013 keeps every account, role, room, channel, message, read, mention, event, direct message, avatar and photo by ID, leaves every login NULL, keeps old usernames as labels, drops credential tables, and issues a valid join code. 015 backfills original bodies, revision zero and null edit timestamps in channel, direct and group messages. 016 refuses an event naming a missing channel without deleting it, scopes every room and channel event and channel edit receipt, refuses wrong scopes, and deleting a channel or room by SQL removes its events, receipts, messages, mentions and reads by cascade. 018 leaves every message at 017 as text with its bodies, rewrites no stored event or receipt, and every message event and edit and reaction receipt still parses unchanged with no GIF. Its CHECKs accept a GIF row in all three tables, refuse a malformed GIF and any edited GIF, and accept exactly the hosts in KLIPY_MEDIA_HOSTS. Snapshot and replay work on the result, and a fresh install from 000 reaches the same shape.\n',
   )
 } finally {
   await closeDomain()

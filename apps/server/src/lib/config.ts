@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { serverOrigin } from '@huddle/contracts'
+import { ContentFilter, serverOrigin } from '@huddle/contracts'
 
 const tauriOrigins = ['tauri://localhost', 'https://tauri.localhost']
 
@@ -33,13 +33,30 @@ const Environment = z
     LIVEKIT_PORT: z.coerce.number().int().min(1).max(65535).default(7880),
     LIVEKIT_PUBLIC_URL: z.url({ protocol: /^wss?$/ }).optional(),
     VOICE_ACCESS_GRACE_SECONDS: z.coerce.number().int().min(1).default(60),
+    KLIPY_APP_KEY: z
+      .union([
+        z.literal('').transform(() => undefined),
+        z.string().regex(/^[A-Za-z0-9._~-]{1,256}$/),
+      ])
+      .optional(),
+    KLIPY_CONTENT_FILTER: z
+      .union([z.literal('').transform(() => 'medium' as const), ContentFilter])
+      .default('medium'),
   })
   .refine(
     (env) => !env.SERVER_URL.startsWith('https:') || !env.LIVEKIT_PUBLIC_URL?.startsWith('ws:'),
     { error: 'An HTTPS SERVER_URL requires a wss: LIVEKIT_PUBLIC_URL.' },
   )
   .transform((parsed) => {
-    const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_PORT, LIVEKIT_PUBLIC_URL, ...env } = parsed
+    const {
+      LIVEKIT_API_KEY,
+      LIVEKIT_API_SECRET,
+      LIVEKIT_PORT,
+      LIVEKIT_PUBLIC_URL,
+      KLIPY_APP_KEY,
+      KLIPY_CONTENT_FILTER,
+      ...env
+    } = parsed
     const https = env.SERVER_URL.startsWith('https:')
     return {
       ...env,
@@ -58,6 +75,7 @@ const Environment = z
             adminUrl: `http://127.0.0.1:${LIVEKIT_PORT}`,
           }
         : null,
+      gifs: KLIPY_APP_KEY ? { appKey: KLIPY_APP_KEY, contentFilter: KLIPY_CONTENT_FILTER } : null,
       trusted: env.TRUSTED_ORIGINS.split(',')
         .map((entry) => entry.trim())
         .filter(Boolean),

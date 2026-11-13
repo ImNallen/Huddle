@@ -29,6 +29,7 @@ import {
   inviteCode,
   tailscale,
 } from './harness'
+import { LegacyEventPage, legacyAnswer } from './legacy-contracts'
 
 const database = await migratedDatabase()
 const code = randomUUID()
@@ -48,6 +49,7 @@ async function call<S extends z.ZodType>(
 ): Promise<z.output<S>> {
   const result = await client.call(path, body)
   assert.equal(result.response.status, 200, `${path}: ${JSON.stringify(result.value)}`)
+  legacyAnswer(path, body !== undefined)?.parse(result.value)
   return schema.parse(result.value)
 }
 async function replay(client: Client, after = '0') {
@@ -63,6 +65,7 @@ async function replay(client: Client, after = '0') {
     for (let i = 0; i < 100 && !frames.length; i++) await delay(25)
     assert.ok(frames.length)
     await delay(100)
+    for (const frame of frames) LegacyEventPage.parse(JSON.parse(frame))
     return {
       text: frames.join('\n'),
       events: frames.flatMap((f) => EventPage.parse(JSON.parse(f)).events),
@@ -225,6 +228,60 @@ try {
     )
     assert.equal(events.length, 4, 'only state changes emit events')
   }
+  const gifTargets = new Map<string, unknown>()
+  const gifReactions = []
+  for (const scope of scopes) {
+    const target = await call(a, scope.path, scope.schema, {
+      ...scope.scope,
+      retryId: randomUUID(),
+      gif: {
+        slug: `react-${randomUUID()}`,
+        title: 'Reaction GIF',
+        width: 300,
+        height: 300,
+        animated: 'https://static1.klipy.com/ii/react/a.webp',
+        still: 'https://static1.klipy.com/ii/react/a.jpg',
+      },
+    })
+    gifTargets.set(target.id, target.gif)
+    const request = {
+      ...scope.scope,
+      messageId: target.id,
+      emoji: '😊',
+      present: true,
+      retryId: randomUUID(),
+    }
+    const reacted = await call(a, scope.path + '/reaction', scope.schema, request)
+    assert.deepEqual(reacted.gif, target.gif, `${scope.path} keeps the GIF on a reaction`)
+    assert.equal(reacted.body, target.body)
+    assert.equal(reacted.reactions[0]?.emoji, '😊')
+    const unreacted = await call(a, scope.path + '/reaction', scope.schema, {
+      ...request,
+      present: false,
+      retryId: randomUUID(),
+    })
+    assert.deepEqual(
+      unreacted,
+      { ...target, reactionRevision: unreacted.reactionRevision },
+      'unreacting returns the GIF as it was sent',
+    )
+    gifReactions.push({ path: scope.path + '/reaction', schema: scope.schema, request, reacted })
+  }
+  await server.stop()
+  await server.start()
+  for (const { path, schema, request, reacted } of gifReactions)
+    assert.deepEqual(
+      await call(a, path, schema, request),
+      reacted,
+      'a GIF reaction receipt survives restart with its GIF',
+    )
+  const gifEvents = (await replay(b)).events.filter(
+    (e) => e.kind.endsWith('reactions.changed') && 'message' in e && gifTargets.has(e.message.id),
+  )
+  assert.equal(gifEvents.length, 6, 'each GIF was reacted to and unreacted in every scope')
+  for (const event of gifEvents)
+    if ('message' in event)
+      assert.deepEqual(event.message.gif, gifTargets.get(event.message.id), 'replay keeps the GIF')
   for (const scope of scopes) {
     const target = await call(a, scope.path, scope.schema, {
       ...scope.scope,
@@ -349,7 +406,7 @@ try {
     await sql.end()
   }
   process.stdout.write(
-    'PASS persistent reactions: all scopes, privacy, independent revisions, no-ops, concurrent actors, durable retries, restart, replay, exact admissions, removed peers and SQL cascades.\n',
+    'PASS persistent reactions: all scopes, GIF targets, privacy, independent revisions, no-ops, concurrent actors, durable retries, restart, replay, exact admissions, removed peers and SQL cascades.\n',
   )
 } finally {
   await server.stop()

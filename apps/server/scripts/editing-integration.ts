@@ -26,6 +26,7 @@ import {
   inviteCode,
   tailscale,
 } from './harness'
+import { LegacyEventPage, legacyAnswer } from './legacy-contracts'
 
 const database = await migratedDatabase()
 const code = randomUUID()
@@ -45,6 +46,7 @@ async function call<S extends z.ZodType>(
 ): Promise<z.output<S>> {
   const result = await client.call(path, body)
   assert.equal(result.response.status, 200, `${path}: ${JSON.stringify(result.value)}`)
+  legacyAnswer(path, body !== undefined)?.parse(result.value)
   return schema.parse(result.value)
 }
 async function replay(client: Client, after = '0') {
@@ -60,6 +62,7 @@ async function replay(client: Client, after = '0') {
     for (let i = 0; i < 100 && !frames.length; i++) await delay(25)
     assert.ok(frames.length)
     await delay(100)
+    for (const frame of frames) LegacyEventPage.parse(JSON.parse(frame))
     return {
       text: frames.join('\n'),
       events: frames.flatMap((f) => EventPage.parse(JSON.parse(f)).events),
@@ -268,6 +271,56 @@ try {
       ),
     )
     assert.ok(!visible.text.includes('original_body'))
+    const gifMessage = await call(a, scope.path, scope.schema, {
+      ...scope.scope,
+      retryId: randomUUID(),
+      gif: {
+        slug: `edit-${randomUUID()}`,
+        title: 'Not a caption',
+        width: 120,
+        height: 90,
+        animated: 'https://static.klipy.com/ii/edit/a.webp',
+        still: 'https://static.klipy.com/ii/edit/a.jpg',
+      },
+    })
+    const gifEdit = {
+      ...scope.scope,
+      messageId: gifMessage.id,
+      expectedRevision: '0',
+      retryId: randomUUID(),
+      body: 'A caption',
+    }
+    const cursorBeforeGifEdit = (await call(a, '/api/snapshot', Snapshot)).cursor
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refused = await a.call(`${scope.path}/edit`, gifEdit)
+      assert.equal(refused.response.status, 409, `${scope.path} refuses to edit a GIF`)
+      assert.deepEqual(refused.value, { message: 'GIF messages cannot be edited.' })
+    }
+    assert.equal(
+      (await call(a, '/api/snapshot', Snapshot)).cursor,
+      cursorBeforeGifEdit,
+      'a refused GIF edit emits no event',
+    )
+    assert.deepEqual(
+      (await call(a, scope.history, scope.schema.array())).find((m) => m.id === gifMessage.id),
+      gifMessage,
+      'a refused GIF edit leaves the message unchanged',
+    )
+    const laterNow = (await call(a, scope.history, scope.schema.array())).find(
+      (m) => m.id === later.id,
+    )
+    assert.ok(laterNow)
+    assert.equal(
+      (
+        await call(a, `${scope.path}/edit`, scope.schema, {
+          ...gifEdit,
+          messageId: later.id,
+          expectedRevision: laterNow.revision,
+        })
+      ).body,
+      'A caption',
+      'a refused GIF edit stores no receipt, so its retry ID still edits text',
+    )
   }
   const groupMessage = (
     await call(
@@ -323,7 +376,7 @@ try {
     body: 'Edited after rejoining',
   })
   process.stdout.write(
-    'PASS message editing in channels, directs and groups: authorization, validation, stale saves, durable receipts, original send retries, summaries, unchanged mentions and unread, restart, private replay and exact admissions.\n',
+    'PASS message editing in channels, directs and groups: GIFs refused without an event or receipt, authorization, validation, stale saves, durable receipts, original send retries, summaries, unchanged mentions and unread, restart, private replay and exact admissions.\n',
   )
 } finally {
   await server.stop()
