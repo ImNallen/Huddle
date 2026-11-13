@@ -132,6 +132,7 @@ export function groupMessage(
   live = false,
   countUnread = false,
   eventCursor = message.cursor,
+  acknowledge = true,
 ): GroupState {
   if (
     message.groupId !== thread.id ||
@@ -152,7 +153,9 @@ export function groupMessage(
     ...state,
     messages: [...messages.values()].sort((a, b) => (BigInt(a.cursor) < BigInt(b.cursor) ? -1 : 1)),
     pending: state.pending.filter(
-      (p) => !(threadKey(p.thread) === threadKey(thread) && p.retryId === message.retryId),
+      (p) =>
+        !acknowledge ||
+        !(threadKey(p.thread) === threadKey(thread) && p.retryId === message.retryId),
     ),
     authority: new Map(state.authority).set(thread.id, {
       ...entry,

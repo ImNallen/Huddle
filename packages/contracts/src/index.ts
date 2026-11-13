@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { JoinCode } from './invite'
+import { emojiCatalog } from './emoji'
+export * from './emoji'
+export const EmojiSymbol = z
+  .string()
+  .refine((value) => emojiCatalog.some(([symbol]) => symbol === value), 'Unsupported emoji')
 
 export const MascotShape = z.enum(['circle', 'square', 'bean', 'hexagon', 'triangle', 'flower'])
 export const MascotColor = z.enum([
@@ -37,6 +42,10 @@ export const Channel = z.object({
   name: z.string(),
   kind: ChannelKind,
 })
+export const MessageReaction = z.object({
+  emoji: EmojiSymbol,
+  people: z.array(z.object({ id: UserId, name: z.string(), avatar: Avatar })),
+})
 export const Message = z.object({
   id: z.uuid(),
   channelId: ChannelId,
@@ -47,6 +56,8 @@ export const Message = z.object({
   body: z.string(),
   cursor: Cursor,
   createdAt: z.string(),
+  reactionRevision: Cursor.default('0'),
+  reactions: z.array(MessageReaction).default([]),
   revision: Cursor.default('0'),
   editedAt: z.string().nullable().default(null),
 })
@@ -117,7 +128,35 @@ export type EditMessage = z.infer<typeof EditMessage>
 export type EditDirectMessage = z.infer<typeof EditDirectMessage>
 export type EditGroupMessage = z.infer<typeof EditGroupMessage>
 
+const ReactionFields = {
+  messageId: z.uuid(),
+  emoji: EmojiSymbol,
+  present: z.boolean(),
+  retryId: z.uuid(),
+}
+export const SetReaction = z.object({ channelId: ChannelId, ...ReactionFields }).strict()
+export const SetDirectReaction = z
+  .object({ conversationId: ConversationId, ...ReactionFields })
+  .strict()
+export const SetGroupReaction = GroupAccess.extend(ReactionFields).strict()
+export type ReactionCommand =
+  | ({ kind: 'channel' } & z.infer<typeof SetReaction>)
+  | ({ kind: 'direct' } & z.infer<typeof SetDirectReaction>)
+  | ({ kind: 'group' } & z.infer<typeof SetGroupReaction>)
+
 export const ServerEvent = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('message.reactions.changed'), cursor: Cursor, message: Message }),
+  z.object({
+    kind: z.literal('direct.message.reactions.changed'),
+    cursor: Cursor,
+    message: DirectMessage,
+    participants: z.tuple([UserId, UserId]),
+  }),
+  z.object({
+    kind: z.literal('group.message.reactions.changed'),
+    cursor: Cursor,
+    message: GroupMessage,
+  }),
   z.object({ kind: z.literal('message.edited'), cursor: Cursor, message: Message }),
   z.object({
     kind: z.literal('direct.message.edited'),

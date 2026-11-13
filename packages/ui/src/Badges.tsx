@@ -1,3 +1,4 @@
+import { EmojiText } from './Emoji'
 import type { CSSProperties } from 'react'
 import { Hash, Volume2 } from 'lucide-react'
 import type { ChannelKind } from '@huddle/contracts'
@@ -38,7 +39,7 @@ export function Mentions({ text }: { text: string }) {
         {part}
       </span>
     ) : (
-      part
+      <EmojiText key={index} text={part} />
     ),
   )
 }

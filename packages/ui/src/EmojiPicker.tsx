@@ -2,92 +2,17 @@ import { useRef, useState, type RefObject } from 'react'
 import { X } from 'lucide-react'
 import { Popover } from './Popover'
 
-const smileys = [
-  ['😀', 'Grinning face'],
-  ['😃', 'Happy face'],
-  ['😄', 'Laughing face'],
-  ['😁', 'Beaming face'],
-  ['😊', 'Smiling face'],
-  ['🥰', 'Feeling loved'],
-  ['😎', 'Cool sunglasses'],
-  ['🤗', 'Hugging face'],
-  ['😂', 'Tears of joy'],
-  ['🤣', 'Rolling with laughter'],
-  ['🙂', 'Slight smile'],
-  ['🙃', 'Upside down face'],
-  ['😉', 'Winking face'],
-  ['😍', 'Heart eyes'],
-  ['🤩', 'Star eyes'],
-  ['🥳', 'Party face'],
-  ['😌', 'Relieved face'],
-  ['😴', 'Sleeping face'],
-  ['🤔', 'Thinking face'],
-  ['🫡', 'Saluting face'],
-  ['🙌', 'Raised hands'],
-  ['👏', 'Clapping hands'],
-  ['👍', 'Thumbs up'],
-  ['👋', 'Waving hand'],
-  ['❤️', 'Red heart love'],
-  ['✨', 'Sparkles'],
-  ['🎉', 'Celebration party popper'],
-  ['💯', 'Hundred points'],
-  ['☕', 'Coffee hot drink'],
-  ['🌿', 'Herb leaves'],
-  ['🌞', 'Sun face'],
-  ['🌈', 'Rainbow'],
-] as const
-const nature = [
-  ['🌿', 'Herb leaves'],
-  ['🌞', 'Sun face'],
-  ['🌈', 'Rainbow'],
-  ['🌱', 'Seedling'],
-  ['🌻', 'Sunflower'],
-  ['🌸', 'Cherry blossom'],
-  ['🌳', 'Tree'],
-  ['🍀', 'Four leaf clover'],
-  ['🌙', 'Crescent moon'],
-  ['⭐', 'Star'],
-  ['🌊', 'Ocean wave'],
-  ['🦋', 'Butterfly'],
-  ['🐝', 'Honey bee'],
-  ['🐈', 'Cat'],
-  ['🐕', 'Dog'],
-  ['🐦', 'Bird'],
-] as const
-const food = [
-  ['☕', 'Coffee hot drink'],
-  ['🍵', 'Tea'],
-  ['🥐', 'Croissant'],
-  ['🍞', 'Bread'],
-  ['🍎', 'Apple'],
-  ['🍓', 'Strawberry'],
-  ['🍋', 'Lemon'],
-  ['🥑', 'Avocado'],
-  ['🍕', 'Pizza'],
-  ['🍜', 'Noodles'],
-  ['🍪', 'Cookie'],
-  ['🍰', 'Cake'],
-  ['🍫', 'Chocolate'],
-  ['🍿', 'Popcorn'],
-  ['🧃', 'Juice'],
-  ['🥤', 'Cold drink'],
-] as const
-type Emoji = readonly [symbol: string, name: string]
-const catalog: Emoji[] = [
-  ...new Map<string, Emoji>(
-    [
-      ...smileys,
-      ...nature,
-      ...food,
-      ['💛', 'Yellow heart'] as const,
-      ['💭', 'Thought balloon'] as const,
-    ].map((emoji) => [emoji[0], emoji]),
-  ).values(),
-]
+import {
+  smileys,
+  nature,
+  food,
+  emojiCatalog as catalog,
+  type CatalogEmoji,
+} from '@huddle/contracts'
+import { Emoji } from './Emoji'
 const categories = ['Recent', 'Smileys', 'Nature', 'Food'] as const
 type Category = (typeof categories)[number]
 const recentKey = 'huddle.emoji.recent'
-const monochromeGlyph = (emoji: string) => emoji.replaceAll('\ufe0f', '\ufe0e')
 function readRecent(): string[] {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(recentKey) ?? '[]')
@@ -109,16 +34,22 @@ function readRecent(): string[] {
 export function EmojiPicker({
   onInsert,
   anchorRef,
+  id = 'composer-emoji',
+  title = 'Emoji',
+  action = 'Insert',
 }: {
   onInsert: (emoji: string) => void
-  anchorRef: RefObject<HTMLElement | null>
+  id?: string
+  title?: string
+  action?: string
+  anchorRef?: RefObject<HTMLElement | null>
 }) {
   const popover = useRef<HTMLDivElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<Category>('Smileys')
   const [recent, setRecent] = useState(readRecent)
-  const [hovered, setHovered] = useState<Emoji>(smileys[4])
+  const [hovered, setHovered] = useState<CatalogEmoji>(smileys[4])
   const source =
     category === 'Recent'
       ? recent.flatMap((symbol) => catalog.filter(([value]) => value === symbol))
@@ -136,8 +67,8 @@ export function EmojiPicker({
   const preview = choices.find(([symbol]) => symbol === hovered[0]) ?? choices[0]
   return (
     <Popover
-      id="composer-emoji"
-      label="Emoji picker"
+      id={id}
+      label={title === 'Emoji' ? 'Emoji picker' : title}
       className="emoji-picker"
       side="top"
       align="start"
@@ -150,7 +81,7 @@ export function EmojiPicker({
       }}
     >
       <header className="emoji-header">
-        <h2>Emoji</h2>
+        <h2>{title}</h2>
         <button
           type="button"
           className="icon-button"
@@ -220,7 +151,7 @@ export function EmojiPicker({
           <button
             key={emoji[0]}
             type="button"
-            aria-label={`Insert ${emoji[0]}`}
+            aria-label={`${action} ${emoji[0]}`}
             aria-description={emoji[1]}
             onPointerEnter={() => setHovered(emoji)}
             onFocus={() => setHovered(emoji)}
@@ -238,7 +169,7 @@ export function EmojiPicker({
               onInsert(emoji[0])
             }}
           >
-            {monochromeGlyph(emoji[0])}
+            <Emoji symbol={emoji[0]} />
           </button>
         ))}
         {!choices.length && (
@@ -264,7 +195,7 @@ export function EmojiPicker({
         )}
       </div>
       <div className="emoji-name" aria-hidden="true">
-        <span>{preview ? monochromeGlyph(preview[0]) : ''}</span>
+        <span>{preview ? <Emoji symbol={preview[0]} /> : null}</span>
         {preview ? preview[1] : 'The draft stays in the composer.'}
       </div>
     </Popover>

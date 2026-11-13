@@ -15,10 +15,17 @@ export async function accountRequest(request: Request, actor: Member) {
       SELECT 1 FROM member mine WHERE mine.user_id=$2)
       AND (EXISTS(SELECT 1 FROM account_security a WHERE a.avatar->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM message m WHERE m.author_avatar->>'uploadId'=p.id::text)
+      OR EXISTS(SELECT 1 FROM message_reaction r WHERE r.person->'avatar'->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM group_message g JOIN group_member gm ON gm.group_id=g.group_id
         WHERE gm.user_id=$2 AND g.author_avatar->>'uploadId'=p.id::text)
+      OR EXISTS(SELECT 1 FROM group_message_reaction r JOIN group_message g ON g.id=r.message_id
+        JOIN group_member gm ON gm.group_id=g.group_id
+        WHERE gm.user_id=$2 AND r.person->'avatar'->>'uploadId'=p.id::text)
       OR EXISTS(SELECT 1 FROM direct_message d JOIN direct_conversation c ON c.id=d.conversation_id
-        WHERE d.author_avatar->>'uploadId'=p.id::text AND $2 IN (c.user_a, c.user_b)))))`,
+        WHERE d.author_avatar->>'uploadId'=p.id::text AND $2 IN (c.user_a, c.user_b))
+      OR EXISTS(SELECT 1 FROM direct_message_reaction r JOIN direct_message d ON d.id=r.message_id
+        JOIN direct_conversation c ON c.id=d.conversation_id
+        WHERE r.person->'avatar'->>'uploadId'=p.id::text AND $2 IN (c.user_a, c.user_b)))))`,
       [id, actor.user.id],
     )
     if (!result.rows[0]) throw new AccessFailure('invalid')

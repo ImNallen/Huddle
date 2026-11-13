@@ -491,6 +491,7 @@ export function useServer(
                     )
                     break
                   case 'group.message.created':
+                  case 'group.message.reactions.changed':
                   case 'group.message.edited': {
                     const thread = groupsRef.current.authority.get(event.message.groupId)?.current
                       ?.thread
@@ -507,6 +508,7 @@ export function useServer(
                               coveredRef.current ||
                               !isVisible()),
                           event.cursor,
+                          event.kind === 'group.message.created',
                         ),
                       )
                     if (event.kind === 'group.message.created') heard = true
@@ -525,12 +527,15 @@ export function useServer(
                     heard = true
                     break
                   case 'message.created':
+                  case 'message.reactions.changed':
                   case 'message.edited':
                   case 'direct.message.created':
+                  case 'direct.message.reactions.changed':
                   case 'direct.message.edited': {
                     if (
                       event.kind === 'direct.message.created' ||
-                      event.kind === 'direct.message.edited'
+                      event.kind === 'direct.message.edited' ||
+                      event.kind === 'direct.message.reactions.changed'
                     ) {
                       const [first, second] = event.participants
                       change({
@@ -544,13 +549,20 @@ export function useServer(
                       })
                     }
                     const message =
-                      event.kind === 'message.created' || event.kind === 'message.edited'
+                      event.kind === 'message.created' ||
+                      event.kind === 'message.edited' ||
+                      event.kind === 'message.reactions.changed'
                         ? inChannel(event.message)
                         : inDirect(event.message)
                     const mentioned =
                       event.kind === 'message.created' && event.mentions.includes(userId)
                     merge([message])
-                    if (event.kind === 'message.edited' || event.kind === 'direct.message.edited')
+                    if (
+                      event.kind === 'message.reactions.changed' ||
+                      event.kind === 'message.edited' ||
+                      event.kind === 'direct.message.edited' ||
+                      event.kind === 'direct.message.reactions.changed'
+                    )
                       break
                     if (message.authorId === userId) {
                       updatePending((current) =>
@@ -926,6 +938,37 @@ export function useServer(
     historyState,
     historyError,
     queueError,
+    react: async (message: ThreadMessage, emoji: string, present: boolean, retryId: string) => {
+      const thread = message.thread
+      if (!isActive() || !allowed(thread))
+        throw new Error('This conversation is no longer available.')
+      const fields = { messageId: message.id, emoji, present, retryId }
+      try {
+        if (thread.kind === 'group') {
+          const result = await client.request('/api/group/messages/reaction', GroupMessage, {
+            groupId: thread.id,
+            admission: thread.admission,
+            ...fields,
+          })
+          if (isActive() && allowed(thread))
+            updateGroups((state) =>
+              groupMessage(state, thread, result, false, false, result.reactionRevision, false),
+            )
+        } else {
+          const scope =
+            thread.kind === 'channel' ? { channelId: thread.id } : { conversationId: thread.id }
+          const result = await client.request(
+            thread.kind === 'channel' ? '/api/messages/reaction' : '/api/direct/messages/reaction',
+            threadRoutes[thread.kind].message,
+            { ...scope, ...fields },
+          )
+          if (isActive() && allowed(thread)) merge([result])
+        }
+      } catch (error) {
+        if (isActive() && thread.kind === 'group') groupFailure(thread, error)
+        throw error
+      }
+    },
     edit: async (
       message: ThreadMessage,
       body: string,
