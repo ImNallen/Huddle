@@ -35,12 +35,14 @@ export function initialGroups(pending: Pending[]): GroupState {
 export function hasGroup(state: GroupState, thread: GroupThread) {
   return state.authority.get(thread.id)?.current?.thread.admission === thread.admission
 }
-function purge(state: GroupState, id: GroupId): GroupState {
+function purge(state: GroupState, id: GroupId, keep?: Admission): GroupState {
+  const kept = keep && threadKey({ kind: 'group', id, admission: keep })
+  const stale = (key: string) => key.startsWith(`group:${id}:`) && key !== kept
   return {
     ...state,
-    messages: state.messages.filter((m) => m.thread.id !== id),
-    pending: state.pending.filter((p) => p.thread.id !== id),
-    drafts: new Map([...state.drafts].filter(([key]) => !key.startsWith(`group:${id}:`))),
+    messages: state.messages.filter((m) => !stale(threadKey(m.thread))),
+    pending: state.pending.filter((p) => !stale(threadKey(p.thread))),
+    drafts: new Map([...state.drafts].filter(([key]) => !stale(key))),
   }
 }
 export function observeGroup(
@@ -61,7 +63,7 @@ export function observeGroup(
   )
     return state
   const same = old?.current?.thread.admission === member.admission
-  const next = same ? state : purge(state, group.id)
+  const next = same ? state : purge(state, group.id, member.admission)
   const previous = same ? old?.current : null
   const observed = !same || resetRead ? summary : undefined
   const value: Authority = {

@@ -586,7 +586,7 @@ test('on the desktop frontend the picker loads, pages on, browses, and recovers 
   expect(media.unexpected).toEqual([])
 })
 
-test('a GIF picked in a group that fails to send waits as failed, and Discard drops it', async ({
+test('a GIF picked in a group that fails to send waits as failed through a reload, and Discard drops it', async ({
   page,
 }) => {
   const media = await stubKlipy(page.context())
@@ -613,6 +613,11 @@ test('a GIF picked in a group that fails to send waits as failed, and Discard dr
         ),
       key,
     )
+  expect(await stored()).toEqual([oops])
+  await page.reload()
+  await scopes[2].open()
+  await expect(failed.getByRole('alert')).toContainText('Couldn’t send this GIF.')
+  await expect(failed.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
   expect(await stored()).toEqual([oops])
   await failed.getByRole('button', { name: 'Discard', exact: true }).click()
   await expect(failed).toHaveCount(0)

@@ -415,3 +415,101 @@ test('departure fences delayed history, sends, failures and persisted outbox acr
     await thirdContext.close()
   }
 })
+
+test('a failed group send survives reload and retries once, and an older admission never sends', async ({
+  browser,
+  page,
+}) => {
+  const context = await browser.newContext(),
+    other = await context.newPage()
+  try {
+    await joinNamed(page, 'Keep A')
+    await joinNamed(other, 'Keep B')
+    const a = await who(page),
+      b = await who(other)
+    const { group } = GroupObservation.parse(
+      await apiPost(page, '/api/groups', {
+        name: 'Keep group',
+        retryId: crypto.randomUUID(),
+        others: [b.id, fixture.admin.userId],
+      }),
+    )
+    const old = grant(group, b.id)
+    await apiPost(other, '/api/group/leave', old)
+    const added = GroupObservation.parse(
+      await apiPost(page, '/api/group/people', { ...grant(group, a.id), userIds: [b.id] }),
+    )
+    const fresh = grant(added.group, b.id)
+    expect(fresh.admission).not.toBe(old.admission)
+    const posted: unknown[] = []
+    let failing = true
+    await other.route('**/api/group/messages', (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      posted.push(route.request().postDataJSON())
+      return failing
+        ? route.fulfill({ status: 500, json: { error: 'The server could not be reached.' } })
+        : route.continue()
+    })
+    await row(other, 'Keep group').click()
+    await other
+      .getByRole('textbox', { name: 'Message Keep group', exact: true })
+      .fill('Kept through reload')
+    await other.getByRole('button', { name: 'Send message', exact: true }).click()
+    const failed = other.getByRole('article').filter({ hasText: 'Kept through reload' })
+    await expect(failed.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+    expect(posted).toEqual([{ ...fresh, retryId: expect.any(String), body: 'Kept through reload' }])
+    const sent = posted[0] as { retryId: string }
+    const key = `huddle.outbox:${serverURL}:${b.id}`
+    await other.evaluate(
+      ({ key, entry }) =>
+        localStorage.setItem(
+          key,
+          JSON.stringify([...JSON.parse(localStorage.getItem(key) ?? '[]'), entry]),
+        ),
+      {
+        key,
+        entry: {
+          thread: { kind: 'group', id: old.groupId, admission: old.admission },
+          retryId: crypto.randomUUID(),
+          body: 'Old admission secret',
+          kind: 'failed',
+          error: 'x',
+        },
+      },
+    )
+    await other.reload()
+    await row(other, 'Keep group').click()
+    await expect(failed.getByRole('alert')).toContainText('Couldn’t send this message.')
+    await expect(other.locator('body')).not.toContainText('Old admission secret')
+    const stored = () =>
+      other.evaluate(
+        (key) =>
+          (JSON.parse(localStorage.getItem(key) ?? '[]') as { retryId: string }[]).map(
+            (entry) => entry.retryId,
+          ),
+        key,
+      )
+    expect(await stored()).toEqual([sent.retryId])
+    failing = false
+    await failed.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(failed.getByRole('alert')).toHaveCount(0)
+    await expect(failed.locator('time')).toBeVisible()
+    await row(page, 'Keep group').click()
+    await expect(
+      page.getByRole('main').getByText('Kept through reload', { exact: true }),
+    ).toHaveCount(1)
+    expect(posted).toEqual([sent, sent])
+    expect(await stored()).toEqual([])
+    const history = GroupMessage.array().parse(
+      await page.evaluate(
+        async (path) => (await fetch(path)).json(),
+        `/api/group/messages?groupId=${group.id}&admission=${grant(group, a.id).admission}`,
+      ),
+    )
+    expect(history.map((message) => [message.retryId, message.body])).toEqual([
+      [sent.retryId, 'Kept through reload'],
+    ])
+  } finally {
+    await context.close()
+  }
+})

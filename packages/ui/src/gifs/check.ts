@@ -14,9 +14,11 @@ import {
   sameContent,
   sendFields,
   storedFields,
+  UserId,
   type MessageContent,
 } from '@huddle/contracts'
 import { threadMessage, type Pending, type Thread } from '../chat'
+import { initialGroups, snapshotGroups } from '../groupState'
 import { readOutbox, writeOutbox } from '../outbox'
 import { fetchAnonymous, OutboundError } from '../outbound'
 import { gifBox } from './GifMessage'
@@ -200,6 +202,40 @@ function checkOutbox() {
       [wire.id, thread, picture],
     ],
     'a legacy channel entry still reads, and one bad entry drops only itself',
+  )
+  const admitted = (admission: string): Thread => ({
+    kind: 'group',
+    id: groupId,
+    admission: Admission.parse(admission),
+  })
+  const me = UserId.parse(wire.authorId)
+  store.set(
+    key,
+    JSON.stringify([
+      { retryId: wire.retryId, thread: admitted('5'), body: 'Still here?', kind: 'failed' },
+      { retryId: wire.id, thread: admitted('2'), gif, kind: 'failed' },
+    ]),
+  )
+  const reloaded = snapshotGroups(
+    initialGroups(readOutbox(key)),
+    [
+      {
+        id: groupId,
+        name: 'Weekend',
+        members: [{ userId: me, admission: Admission.parse('5') }],
+        revision: '5',
+        latest: null,
+        readCursor: '5',
+        unread: 0,
+      },
+    ],
+    '10',
+    me,
+  )
+  equal(
+    reloaded.pending.map((entry) => [entry.retryId, entry.thread, entry.content]),
+    [[wire.retryId, admitted('5'), { kind: 'text', body: 'Still here?' }]],
+    'after a reload a group entry keeps the current admission and drops an earlier one',
   )
   store.set(key, '{"not": "a list"}')
   equal(readOutbox(key), [], 'a stored value that is not a list reads as empty')
