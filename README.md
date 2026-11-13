@@ -2,7 +2,7 @@
 
 Huddle is a self-hosted chat server for you and your friends, like a Discord server that runs on your own machine. Everyone reaches it over [Tailscale](https://tailscale.com), and Tailscale says who they are, so there is nothing to sign in with. You run the server and share an invite link. A friend opens the link on a device signed in to Tailscale, confirms their name, and chats with you in rooms and channels. Friends can also message each other directly or in private groups from Home. Other members never see those conversations, but they are stored unencrypted on your server, so the host could read them.
 
-Huddle has text channels, direct messages, private group chats, and voice channels. You can edit your own sent messages with **Edit**, then **Save**. Admins can rename the server, rename or delete rooms and channels, and remove members, who stay blocked until an admin unblocks them. Allow microphone access when you join a voice call. If your system cannot make calls in the desktop app, open the server in a browser. Video, file uploads, and mobile apps are not built yet, and members cannot block each other.
+Huddle has text channels, direct messages, private group chats, and voice channels. You can edit your own sent messages with **Edit**, then **Save**. If the host turns GIFs on, you can search KLIPY and send a GIF as its own message. Admins can rename the server, rename or delete rooms and channels, and remove members, who stay blocked until an admin unblocks them. Allow microphone access when you join a voice call. If your system cannot make calls in the desktop app, open the server in a browser. Video, file uploads, and mobile apps are not built yet, and members cannot block each other.
 
 ## Host a server
 
@@ -32,6 +32,19 @@ To run the server in Docker with a Tailscale sidecar instead, see [hosting](docs
 3. Copy the invite link and send it to your friend.
 
 Your friend opens the link in a browser or pastes it into the Huddle desktop app, then confirms their name. Reaching the server is not enough to create an account. They also need the invite, so share it only with people you trust.
+
+## Turn on GIFs
+
+GIFs come from [KLIPY](https://klipy.com) and stay off until you add a KLIPY app key. Get a key from KLIPY's [partner dashboard](https://partner.klipy.com), add these lines to `.env`, and restart the server. Under Compose, use the command in [hosting](docs/hosting.md#turn-on-gifs) instead of a restart.
+
+```sh
+KLIPY_APP_KEY=your-app-key
+KLIPY_CONTENT_FILTER=medium
+```
+
+`KLIPY_CONTENT_FILTER` is `off`, `low`, `medium`, or `high`, and it defaults to `medium`. You can also set filtering in the partner dashboard. Every member's app receives the key, because their device makes the requests. To turn GIFs off, delete the key and restart. GIFs that were already sent still show.
+
+Each person's device talks to KLIPY directly when they open the GIF picker, search, or view a GIF. KLIPY sees that device's IP address, what it searches for, and which GIFs it loads. From a browser, each search and browse request also names your server's Tailscale address in its `Origin` header. Huddle stores which GIF was sent: its slug, title, size, and KLIPY's media addresses. It never stores the media. If KLIPY removes a GIF, the message shows **GIF unavailable**. A desktop app from before GIFs shows a GIF as `GIF · title`.
 
 ## Upgrade from an older version
 

@@ -65,6 +65,12 @@ keys:
   livekit/livekit-server:v1.13.11
 ```
 
+## Turn on GIFs
+
+The [README](../README.md#turn-on-gifs) covers `KLIPY_APP_KEY`, `KLIPY_CONTENT_FILTER`, and what KLIPY sees. The server never contacts KLIPY, so it needs no outbound access for GIFs. Each member's device reaches `api.klipy.com` and the media hosts `static.klipy.com`, `static1.klipy.com`, and `static2.klipy.com` itself.
+
+With Compose, run `docker compose up -d --no-build server` after you edit `.env`. `docker compose restart` keeps the environment the container started with, so the new key would not reach the server.
+
 ## Trust only your own origins
 
 The server accepts browser requests from `SERVER_URL` and from the desktop app's two origins, `tauri://localhost` and `https://tauri.localhost`. `TRUSTED_ORIGINS` is for development. On an HTTPS server, the server refuses to start if `TRUSTED_ORIGINS` lists a plain HTTP or loopback origin, because any page on a tailnet device acts as that device's person.
