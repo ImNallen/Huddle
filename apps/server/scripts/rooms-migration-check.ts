@@ -533,11 +533,58 @@ try {
         randomUUID(),
       ],
     )
+    await scratch.query(
+      await readFile(new URL('017_message_reactions.sql', migrations), 'utf8').then((sql) =>
+        sql.slice(0, sql.indexOf('ALTER TABLE event')),
+      ),
+    )
     await pruneAccess()
     assert.deepEqual(
       await rows('SELECT id FROM account_photo ORDER BY id'),
       [{ id: keptPhoto }],
       'pruning keeps a photo a direct message still shows and drops an unreferenced one',
+    )
+    const reactionPhotos: string[] = []
+    for (const table of ['message', 'direct_message', 'group_message']) {
+      const photo = randomUUID()
+      const target = await scratch.query(`SELECT id FROM ${table} LIMIT 1`)
+      assert.ok(target.rows[0], table + ' has a reaction target')
+      reactionPhotos.push(photo)
+      await scratch.query(
+        "INSERT INTO account_photo(id,user_id,bytes,created_at) VALUES($1,$2,$3,now()-interval '2 days')",
+        [photo, owner, Buffer.from('reaction photo')],
+      )
+      await scratch.query(
+        `INSERT INTO ${table}_reaction(message_id,user_id,emoji,person) VALUES($1,$2,$3,$4)`,
+        [
+          target.rows[0].id,
+          owner,
+          '✨',
+          { id: owner, name: 'Legacy owner', avatar: { kind: 'photo', uploadId: photo } },
+        ],
+      )
+    }
+    await pruneAccess()
+    assert.equal(
+      (
+        await scratch.query('SELECT id FROM account_photo WHERE id=ANY($1::uuid[])', [
+          reactionPhotos,
+        ])
+      ).rowCount,
+      reactionPhotos.length,
+      'reaction-only photos survive pruning',
+    )
+    for (const table of ['message', 'direct_message', 'group_message'])
+      await scratch.query(`DELETE FROM ${table}_reaction`)
+    await pruneAccess()
+    assert.equal(
+      (
+        await scratch.query('SELECT id FROM account_photo WHERE id=ANY($1::uuid[])', [
+          reactionPhotos,
+        ])
+      ).rowCount,
+      0,
+      'removed reactions release their old photos',
     )
     await scratch.query('DELETE FROM direct_conversation WHERE id = $1', [conversation])
     const snapshot = await domain.snapshot(owner)
@@ -739,6 +786,10 @@ try {
       }),
       pair,
     )
+    await scratch.query(
+      "INSERT INTO direct_message(id,conversation_id,author_id,author_name,retry_id,body,original_body,cursor) VALUES($1,$2,$3,'Legacy',$4,'Private','Private',$5)",
+      [scoped.direct, scoped.conversation, colleague, randomUUID(), directAt],
+    )
     await seed(
       (cursor) => ({
         kind: 'direct.message.edited',
@@ -783,6 +834,10 @@ try {
       pair,
       scoped.group,
     )
+    await scratch.query(
+      "INSERT INTO group_message(id,group_id,author_id,author_admission,author_name,retry_id,body,original_body,cursor) VALUES($1,$2,$3,$4,'Legacy',$5,'Grouped','Grouped',$6)",
+      [scoped.groupMessage, scoped.group, colleague, admitted, randomUUID(), groupAt],
+    )
     await seed(
       (cursor) => ({
         kind: 'group.message.edited',
@@ -819,6 +874,11 @@ try {
       orphan,
       { kind: 'channel.created', cursor: orphan, channel: { id: randomUUID(), roomId: studio } },
     ])
+    await scratch.query(
+      'DROP TABLE message_reaction_receipt, message_reaction, direct_message_reaction, group_message_reaction',
+    )
+    for (const table of ['message', 'direct_message', 'group_message'])
+      await scratch.query(`ALTER TABLE ${table} DROP COLUMN reaction_revision`)
     const refusedOrphan = await migrate(database.url)
     assert.notEqual(refusedOrphan.code, 0, '016 refuses an event naming a missing channel')
     assert.match(refusedOrphan.output, /event_channel_id_fkey/)
@@ -881,6 +941,56 @@ try {
         constraint,
         `a ${event.kind} event with the wrong scope is refused`,
       )
+    for (const [table, id, kind, column] of [
+      ['message', scoped.message, 'channel', 'channel_message_id'],
+      ['direct_message', scoped.direct, 'direct', 'direct_message_id'],
+      ['group_message', scoped.groupMessage, 'group', 'group_message_id'],
+    ]) {
+      assert.deepEqual(
+        await rows(`SELECT reaction_revision::text AS revision FROM ${table} WHERE id=$1`, [id]),
+        [{ revision: '0' }],
+      )
+      await scratch.query(
+        `INSERT INTO ${table}_reaction(message_id,user_id,emoji,person) VALUES($1,$2,'👍',$3)`,
+        [
+          id,
+          owner,
+          {
+            id: owner,
+            name: 'Legacy',
+            avatar: { kind: 'mascot', shape: 'circle', color: 'indigo' },
+          },
+        ],
+      )
+      await assert.rejects(
+        scratch.query(
+          `INSERT INTO ${table}_reaction(message_id,user_id,emoji,person) VALUES($1,$2,'👍','{}')`,
+          [id, owner],
+        ),
+        /duplicate key/,
+      )
+      await scratch.query(
+        `INSERT INTO message_reaction_receipt(user_id,retry_id,request,response,${column}) VALUES($1,$2,$3,$4,$5)`,
+        [owner, randomUUID(), { kind, messageId: id }, { id }, id],
+      )
+      await assert.rejects(
+        scratch.query(
+          `INSERT INTO message_reaction_receipt(user_id,retry_id,request,response,${column}) VALUES($1,$2,$3,'{}',$4)`,
+          [owner, randomUUID(), { kind: kind === 'channel' ? 'direct' : 'channel' }, id],
+        ),
+        /check constraint/,
+      )
+    }
+    await scratch.query(
+      'INSERT INTO event(cursor,event,channel_id) VALUES((SELECT max(cursor)+1 FROM event),$1,$2)',
+      [
+        {
+          kind: 'message.reactions.changed',
+          message: { id: scoped.message, channelId: scoped.text },
+        },
+        scoped.text,
+      ],
+    )
     await assert.rejects(
       scratch.query(
         "INSERT INTO message_edit_receipt(author_id, retry_id, request, response) VALUES ($1, $2, $3, '{}')",
@@ -900,7 +1010,7 @@ try {
       ),
       'deleting a channel deletes its created, message and edit events and keeps the rest',
     )
-    assert.equal(eventsBeforeDelete.length - (await rows(remaining)).length, 3)
+    assert.equal(eventsBeforeDelete.length - (await rows(remaining)).length, 4)
     for (const [table, column, id] of [
       ['message', 'channel_id', scoped.text],
       ['channel_read', 'channel_id', scoped.text],
@@ -928,6 +1038,27 @@ try {
       'group events survive channel and room deletes',
     )
 
+    assert.deepEqual(
+      await rows('SELECT 1 FROM message_reaction WHERE message_id=$1', [scoped.message]),
+      [],
+    )
+    assert.deepEqual(
+      await rows('SELECT 1 FROM message_reaction_receipt WHERE channel_message_id=$1', [
+        scoped.message,
+      ]),
+      [],
+    )
+    for (const [table, id, column] of [
+      ['direct_message', scoped.direct, 'direct_message_id'],
+      ['group_message', scoped.groupMessage, 'group_message_id'],
+    ]) {
+      await scratch.query(`DELETE FROM ${table} WHERE id=$1`, [id])
+      assert.deepEqual(await rows(`SELECT 1 FROM ${table}_reaction WHERE message_id=$1`, [id]), [])
+      assert.deepEqual(
+        await rows(`SELECT 1 FROM message_reaction_receipt WHERE ${column}=$1`, [id]),
+        [],
+      )
+    }
     const shape = `SELECT table_name, column_name, data_type, is_nullable, column_default
       FROM information_schema.columns WHERE table_schema = 'public'
       ORDER BY table_name, column_name`

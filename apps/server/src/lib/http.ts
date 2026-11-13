@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import {
+  SetReaction,
+  SetDirectReaction,
+  SetGroupReaction,
   EditMessage,
   EditDirectMessage,
   EditGroupMessage,
@@ -151,6 +154,18 @@ export async function applicationRequest(request: Request): Promise<Response> {
         result = {}
       } else if (path === '/api/messages')
         result = await domain.sendMessage(user, SendMessage.parse(body))
+      else if (path === '/api/messages/reaction')
+        result = await domain.setReaction(userId, { kind: 'channel', ...SetReaction.parse(body) })
+      else if (path === '/api/direct/messages/reaction')
+        result = await domain.setReaction(userId, {
+          kind: 'direct',
+          ...SetDirectReaction.parse(body),
+        })
+      else if (path === '/api/group/messages/reaction')
+        result = await domain.setReaction(userId, {
+          kind: 'group',
+          ...SetGroupReaction.parse(body),
+        })
       else if (path === '/api/messages/edit')
         result = await domain.editMessage(userId, { kind: 'channel', ...EditMessage.parse(body) })
       else if (path === '/api/direct/messages/edit')

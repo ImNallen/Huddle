@@ -3,6 +3,7 @@ import { AccessToken, TrackSource } from 'livekit-server-sdk'
 import type { PoolClient } from 'pg'
 import { z } from 'zod'
 import {
+  type ReactionCommand,
   type EditMessage,
   type EditDirectMessage,
   type EditGroupMessage,
@@ -63,8 +64,13 @@ export class DomainError extends Error {
 const channelColumns = 'id, room_id AS "roomId", name, kind'
 const authoredColumns =
   'm.id, m.author_id AS "authorId", m.author_name AS "authorName", m.author_avatar AS "authorAvatar", m.retry_id AS "retryId", m.body, m.revision::text, to_char(m.edited_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "editedAt", m.cursor::text, to_char(m.created_at AT TIME ZONE \'UTC\', \'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"\') AS "createdAt"'
-const messageColumns = `m.channel_id AS "channelId", ${authoredColumns}`
-const directColumns = `m.conversation_id AS "conversationId", ${authoredColumns}`
+const reactionColumns = (table: string) => `m.reaction_revision::text AS "reactionRevision",
+ coalesce((SELECT jsonb_agg(bucket ORDER BY bucket->>'emoji') FROM (
+ SELECT jsonb_build_object('emoji',r.emoji,'people',jsonb_agg(r.person ORDER BY r.user_id)) AS bucket
+ FROM ${table}_reaction r WHERE r.message_id=m.id GROUP BY r.emoji
+ ) reactions), '[]'::jsonb) AS reactions`
+const messageColumns = `m.channel_id AS "channelId", ${authoredColumns}, ${reactionColumns('message')}`
+const directColumns = `m.conversation_id AS "conversationId", ${authoredColumns}, ${reactionColumns('direct_message')}`
 const conversationRows = `SELECT c.id, CASE WHEN c.user_a = $1 THEN c.user_b ELSE c.user_a END AS "peerId",
     to_jsonb(latest) AS latest,
     (SELECT count(*)::integer FROM direct_message u
@@ -129,6 +135,7 @@ export function eventScope(event: ServerEvent): EventScope {
     case 'channel.deleted':
       return { ...none, roomId: event.roomId }
     case 'message.created':
+    case 'message.reactions.changed':
     case 'message.edited':
       return { ...none, channelId: event.message.channelId }
     case 'group.changed':
@@ -136,12 +143,14 @@ export function eventScope(event: ServerEvent): EventScope {
     case 'group.removed':
       return { ...none, groupId: event.groupId }
     case 'group.message.created':
+    case 'group.message.reactions.changed':
     case 'group.message.edited':
       return { ...none, groupId: event.message.groupId }
     case 'room.deleted':
     case 'server.renamed':
     case 'member.removed':
     case 'direct.message.created':
+    case 'direct.message.reactions.changed':
     case 'direct.message.edited':
       return none
   }
@@ -380,6 +389,8 @@ export async function sendMessage(
           cursor,
           createdAt: new Date().toISOString(),
           revision: '0',
+          reactionRevision: '0',
+          reactions: [],
           editedAt: null,
         },
       }),
@@ -523,6 +534,8 @@ export async function sendDirectMessage(
           cursor,
           createdAt: new Date().toISOString(),
           revision: '0',
+          reactionRevision: '0',
+          reactions: [],
           editedAt: null,
         },
       }),
@@ -690,7 +703,7 @@ export async function replay(userId: UserId, after: string) {
   }, true)
 }
 
-const groupColumns = `m.group_id AS "groupId", ${authoredColumns}`
+const groupColumns = `m.group_id AS "groupId", ${authoredColumns}, ${reactionColumns('group_message')}`
 const groupRows = `SELECT g.id, g.name, g.revision::text,
   (SELECT coalesce(jsonb_agg(jsonb_build_object('userId', user_id, 'admission', admission::text) ORDER BY admission, user_id), '[]') FROM group_member WHERE group_id=g.id) AS members,
   to_jsonb(latest) AS latest, viewer.read_cursor::text AS "readCursor",
@@ -880,6 +893,8 @@ export async function sendGroupMessage(
           cursor,
           createdAt: new Date().toISOString(),
           revision: '0',
+          reactionRevision: '0',
+          reactions: [],
           editedAt: null,
         },
       }),
@@ -1031,5 +1046,148 @@ export async function editMessage(userId: UserId, input: EditCommand) {
       ],
     )
     return event.message
+  })
+}
+
+export async function setReaction(userId: UserId, input: ReactionCommand) {
+  return transaction(async (sql) => {
+    await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [userId])
+    await lockServer(sql)
+    await requireMember(sql, userId)
+    let audience: UserId[] | 'everyone' = 'everyone'
+    let participants: [UserId, UserId] | null = null
+    try {
+      if (input.kind === 'direct') {
+        const { peerId } = await requireConversation(sql, input.conversationId, userId)
+        participants = [userId, peerId]
+        audience = participants
+      } else if (input.kind === 'group') {
+        await requireGroup(sql, userId, input)
+        const members = await sql.query<Record<string, unknown>>(
+          'SELECT user_id FROM group_member WHERE group_id=$1',
+          [input.groupId],
+        )
+        audience = z
+          .object({ user_id: UserId })
+          .array()
+          .parse(members.rows)
+          .map((m) => m.user_id)
+      }
+    } catch (error) {
+      if (error instanceof DomainError && error.status === 404)
+        throw new DomainError(404, 'Message not found.')
+      throw error
+    }
+    const scope =
+      input.kind === 'channel'
+        ? { table: 'message', column: 'channel_id', id: input.channelId, columns: messageColumns }
+        : input.kind === 'direct'
+          ? {
+              table: 'direct_message',
+              column: 'conversation_id',
+              id: input.conversationId,
+              columns: directColumns,
+            }
+          : { table: 'group_message', column: 'group_id', id: input.groupId, columns: groupColumns }
+    const rows = await sql.query<Record<string, unknown>>(
+      `SELECT ${scope.columns} FROM ${scope.table} m WHERE m.id=$1 AND m.${scope.column}=$2`,
+      [input.messageId, scope.id],
+    )
+    if (!rows.rowCount) throw new DomainError(404, 'Message not found.')
+    const parse = (value: unknown) =>
+      input.kind === 'channel'
+        ? Message.parse(value)
+        : input.kind === 'direct'
+          ? DirectMessage.parse(value)
+          : GroupMessage.parse(value)
+    const current = parse(rows.rows[0])
+    const receipt = await sql.query<Record<string, unknown>>(
+      'SELECT request, response FROM message_reaction_receipt WHERE user_id=$1 AND retry_id=$2',
+      [userId, input.retryId],
+    )
+    if (receipt.rowCount) {
+      const saved = z.object({ request: z.unknown(), response: z.unknown() }).parse(receipt.rows[0])
+      const same = await sql.query<{ same: boolean }>('SELECT $1::jsonb = $2::jsonb AS same', [
+        saved.request,
+        input,
+      ])
+      if (!same.rows[0]?.same)
+        throw new DomainError(409, 'This retry ID was already used for a different reaction.')
+      return parse(saved.response)
+    }
+    if (input.kind === 'direct' && participants) {
+      const peer = await sql.query('SELECT 1 FROM member WHERE user_id=$1', [participants[1]])
+      if (!peer.rowCount) throw new DomainError(409, 'This conversation is read-only.')
+    }
+    const present = current.reactions.some(
+      (r) => r.emoji === input.emoji && r.people.some((p) => p.id === userId),
+    )
+    let response = current
+    if (present !== input.present) {
+      if (input.present) {
+        const person = await sql.query(
+          'SELECT u.id, u.name, a.avatar FROM "user" u JOIN account_security a ON a.user_id=u.id WHERE u.id=$1',
+          [userId],
+        )
+        await sql.query(
+          `INSERT INTO ${scope.table}_reaction(message_id,user_id,emoji,person) VALUES($1,$2,$3,$4)`,
+          [current.id, userId, input.emoji, person.rows[0]],
+        )
+      } else {
+        await sql.query(
+          `DELETE FROM ${scope.table}_reaction WHERE message_id=$1 AND user_id=$2 AND emoji=$3`,
+          [current.id, userId, input.emoji],
+        )
+      }
+      const updated = await sql.query(
+        `SELECT ${scope.columns} FROM ${scope.table} m WHERE m.id=$1`,
+        [current.id],
+      )
+      const message = parse(updated.rows[0])
+      const event = await appendEvent(
+        sql,
+        (cursor) => {
+          const next = { ...message, reactionRevision: cursor }
+          if (input.kind === 'channel')
+            return {
+              kind: 'message.reactions.changed',
+              cursor,
+              message: Message.parse(next),
+            } satisfies ServerEvent
+          if (input.kind === 'direct' && participants)
+            return {
+              kind: 'direct.message.reactions.changed',
+              cursor,
+              message: DirectMessage.parse(next),
+              participants,
+            } satisfies ServerEvent
+          return {
+            kind: 'group.message.reactions.changed',
+            cursor,
+            message: GroupMessage.parse(next),
+          } satisfies ServerEvent
+        },
+        audience,
+      )
+      await sql.query(`UPDATE ${scope.table} SET reaction_revision=$2 WHERE id=$1`, [
+        current.id,
+        event.cursor,
+      ])
+      response = event.message
+    }
+    await sql.query(
+      `INSERT INTO message_reaction_receipt(user_id,retry_id,request,response,channel_message_id,direct_message_id,group_message_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        userId,
+        input.retryId,
+        input,
+        response,
+        input.kind === 'channel' ? current.id : null,
+        input.kind === 'direct' ? current.id : null,
+        input.kind === 'group' ? current.id : null,
+      ],
+    )
+    return response
   })
 }

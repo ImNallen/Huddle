@@ -12,6 +12,7 @@ import {
 } from './useServer'
 import { Avatar } from './Avatar'
 import { Mentions, clock } from './Badges'
+import { MessageReactions } from './MessageReactions'
 import { EmojiPicker } from './EmojiPicker'
 
 type Author = { id: string; name: string; avatar?: AvatarValue | null }
@@ -409,6 +410,16 @@ export function Transcript({
                       )}
                     </p>
                   </>
+                )}
+                {row.message && (
+                  <MessageReactions
+                    key={`${me.user.id}:${key}:${row.message.id}`}
+                    message={row.message}
+                    userId={me.user.id}
+                    photo={photo}
+                    closed={!!closed}
+                    react={sync.react}
+                  />
                 )}
                 {row.message && row.author.id === me.user.id && (
                   <button

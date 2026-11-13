@@ -162,7 +162,10 @@ test('own persisted channel, direct and group messages have independent accessib
     await row(page, body).hover()
     expect(await underPointer(editButton), 'Edit is not a pointer target').toBe(false)
     await composer.focus()
-    await page.keyboard.press('Shift+Tab')
+    for (let tab = 0; tab < 4; tab++) {
+      await page.keyboard.press('Shift+Tab')
+      if (await editButton.evaluate((button) => button === document.activeElement)) break
+    }
     await expect(editButton).toBeFocused()
     expect(await underPointer(editButton), 'Edit shows on keyboard focus').toBe(true)
     await page.keyboard.press('Enter')

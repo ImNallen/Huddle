@@ -2996,3 +2996,101 @@ button.member-row:hover {
 .new-group-action:hover {
   color: var(--text);
 }
+
+.color-emoji {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.2em;
+  object-fit: contain;
+}
+.emoji-choices .color-emoji {
+  width: 23px;
+  height: 23px;
+}
+.emoji-name .color-emoji {
+  width: 19px;
+  height: 19px;
+}
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+}
+.message-reactions:has(.reaction-pill) {
+  margin-top: 6px;
+}
+.message-reactions:empty {
+  display: none;
+}
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.reaction-pill .color-emoji {
+  width: 17px;
+  height: 17px;
+}
+.reaction-pill[aria-pressed='true'] {
+  border-color: var(--text);
+  background: var(--selected);
+}
+.reaction-pill:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.reaction-pill:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+.reaction-add,
+.reaction-details {
+  opacity: 0;
+}
+article:hover .reaction-add,
+article:hover .reaction-details,
+article:focus-within .reaction-add,
+article:focus-within .reaction-details {
+  opacity: 1;
+}
+.reaction-people {
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+}
+.reaction-people h2 {
+  font-size: 15px;
+}
+.reaction-people section {
+  margin-top: 12px;
+}
+.reaction-people section > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.message .reaction-add {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.message:has(.reaction-add) .message-edit.button {
+  right: 48px;
+}
