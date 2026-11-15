@@ -3,8 +3,10 @@ import { Account, Channel, Room } from '../packages/contracts/src/index'
 import { actAs, browserApp, railTile, onboard, serverURL } from './accounts'
 import { Client } from '../apps/server/scripts/harness'
 import { useScratchServer } from './server'
+import { fakeMicrophoneLaunch } from './voice'
 
 useScratchServer('ui')
+test.use({ launchOptions: fakeMicrophoneLaunch })
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Settings', exact: true })
 async function capture(page: Page, name: string) {
   await page.evaluate(() => document.fonts.ready)
@@ -98,6 +100,49 @@ test('Settings matches both themes, uses actual mascot shapes and preserves prof
     .getByRole('button', { name: 'Cancel', exact: true })
     .click()
   await dialog.getByRole('radio', { name: 'System', exact: true }).check()
+  await expect(
+    dialog.getByRole('navigation', { name: 'Settings', exact: true }).getByRole('button'),
+  ).toHaveText(['Profile', 'Appearance', 'Voice', 'Connection'])
+  await dialog.getByRole('button', { name: 'Appearance', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Voice', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(dialog.getByRole('button', { name: 'Voice', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(dialog.locator('.settings-bar h1')).toHaveText('Voice')
+  await expect(
+    dialog.getByText('How you sound and what you hear on this device.', { exact: true }),
+  ).toBeVisible()
+  await expect(dialog.getByLabel('Input device', { exact: true })).toBeEnabled()
+  await expect(
+    dialog.getByLabel('Input device', { exact: true }).locator('option').first(),
+  ).toHaveText(/^Default · /)
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    const cards = dialog.locator('.voice-card')
+    await expect(cards).toHaveCount(2)
+    await expect(cards.first()).toHaveCSS('border-radius', '18px')
+    await expect(cards.first()).toHaveCSS('padding', '24px')
+    await expect(dialog.getByLabel('Input device', { exact: true })).toHaveCSS('height', '40px')
+    await expect(dialog.getByLabel('Input device', { exact: true })).toHaveCSS(
+      'border-radius',
+      '12px',
+    )
+    const bars = dialog.locator('.voice-meter i')
+    await expect(bars).toHaveCount(32)
+    await expect(bars.first()).toHaveCSS('width', '5px')
+    await expect(bars.first()).toHaveCSS('height', '18px')
+    const [input, volume] = await Promise.all([
+      dialog.getByLabel('Input device', { exact: true }).boundingBox(),
+      dialog.getByLabel('Input volume', { exact: true }).boundingBox(),
+    ])
+    expect(
+      input && volume && Math.abs(input.y + input.height / 2 - (volume.y + volume.height / 2)),
+    ).toBeLessThan(2)
+    await capture(page, `settings-voice-${colorScheme}`)
+  }
   await dialog.getByRole('button', { name: 'Connection', exact: true }).click()
   await expect(dialog.getByText('Connected through Tailscale', { exact: true })).toBeVisible()
   await expect(dialog.getByText('uiadmin@huddle.test', { exact: true })).toBeVisible()

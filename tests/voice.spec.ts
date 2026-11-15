@@ -5,6 +5,7 @@ import { browserApp, loginOf, member, serverURL } from './accounts'
 import { useScratchServer } from './server'
 import {
   channelRow,
+  energy,
   expectHearing,
   expectInCall,
   expectSilence,
@@ -226,6 +227,79 @@ test('muting or deafening before a call makes the call start that way', async ({
     await mute.click()
     await expect(panel(ada.page).getByRole('status')).toHaveText('Voice connected')
     await expectHearing(bo.page)
+  } finally {
+    await ada.context.close()
+    await bo.context.close()
+  }
+})
+
+test('Voice settings change a live call, and mute and deafen still win', async ({ browser }) => {
+  const roomName = await voiceRoom('tuned')
+  const ada = await person(browser, 'ada', roomName)
+  const bo = await person(browser, 'bo', roomName)
+  try {
+    for (const caller of [ada, bo]) {
+      await channelRow(caller.page, roomName, 'tuned').click()
+      await join(caller.page).click()
+      await expectInCall(caller.page)
+    }
+    await expectHearing(ada.page)
+    await expectHearing(bo.page)
+    await expect.poll(() => playingSounds(ada.page)).toBe(1)
+    const volumes = () =>
+      ada.page.evaluate(() => [...document.querySelectorAll('audio')].map((sound) => sound.volume))
+    const voiceSettings = ada.page.getByRole('dialog', { name: 'Settings', exact: true })
+    const openVoice = async () => {
+      await ada.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await voiceSettings.getByRole('button', { name: 'Voice', exact: true }).click()
+    }
+    const outputVolume = voiceSettings.getByLabel('Output volume', { exact: true })
+    const inputVolume = voiceSettings.getByLabel('Input volume', { exact: true })
+
+    await openVoice()
+    await outputVolume.fill('40')
+    await expect.poll(volumes).toEqual([0.4])
+    await expect(inputVolume).toBeEnabled()
+    // Mute stops forwarding, so mute is exactly 0. Volume 0 still sends digital silence, which the
+    // receiver fills with comfort noise far below hearing, so compare it with full volume instead.
+    const heard = async () => {
+      const before = await energy(bo.page)
+      await bo.page.waitForTimeout(2000)
+      return (await energy(bo.page)) - before
+    }
+    const loud = await heard()
+    await inputVolume.fill('0')
+    await bo.page.waitForTimeout(1500)
+    const quiet = await heard()
+    expect(loud).toBeGreaterThan(0)
+    expect(quiet).toBeLessThan(loud / 10000)
+    await inputVolume.fill('100')
+    await expectHearing(bo.page)
+    await ada.page.keyboard.press('Escape')
+
+    const mute = profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    await mute.click()
+    await expectSilence(bo.page)
+    await mute.click()
+    await expectHearing(bo.page)
+
+    const deafen = profileBar(ada.page).getByRole('button', { name: 'Deafen', exact: true })
+    await deafen.click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Deafened')
+    await expect.poll(volumes).toEqual([0])
+    await openVoice()
+    await outputVolume.fill('70')
+    await ada.page.keyboard.press('Escape')
+    await expect.poll(volumes).toEqual([0])
+    await expectSilence(bo.page)
+    await deafen.click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Voice connected')
+    await expect.poll(volumes).toEqual([0.7])
+    await expectHearing(bo.page)
+
+    await panel(ada.page).getByRole('button', { name: 'Leave call', exact: true }).click()
+    await expect.poll(() => openMicrophones(ada.page)).toBe(0)
+    await expect.poll(() => openPeers(ada.page)).toBe(0)
   } finally {
     await ada.context.close()
     await bo.context.close()
