@@ -132,6 +132,7 @@ export const channelRow = (page: Page, roomName: string, name: string) =>
     .getByRole('navigation', { name: `${roomName} channels`, exact: true })
     .getByRole('button', { name })
 export const panel = (page: Page) => page.getByRole('region', { name: 'Call', exact: true })
+export const profileBar = (page: Page) => page.getByRole('region', { name: 'You', exact: true })
 export const main = (page: Page) => page.getByRole('main')
 export const join = (page: Page) =>
   main(page).getByRole('button', { name: 'Join voice', exact: true })

@@ -22,6 +22,8 @@ colors:
   amber-dark: '#ffb900'
   danger-light: '#c10007'
   danger-dark: '#ff6467'
+  danger-bg-light: '#f1e6e6'
+  danger-bg-dark: '#2f2626'
   danger-fill-light: '#c10007'
   danger-fill-dark: '#d92d36'
   chrome-light: '#f4f4f5'
@@ -330,7 +332,7 @@ components:
 
 **Creative North Star: "The Known Floor Plan"**
 
-A Discord user should know where everything is at first sight. Huddle deliberately follows Discord's desktop shell, at the user's request, and plays it straight: a rail of rounded-square tiles, a channel sidebar, a flexible chat, a member list, a composer at the bottom, and an account panel floating across the rail and sidebar. Recognition is the design. Nothing here competes with that layout for attention, and the shell asks nothing of the people chatting in it.
+A Discord user should know where everything is at first sight. Huddle deliberately follows Discord's desktop shell, at the user's request, and plays it straight: a rail of rounded-square tiles, a channel sidebar, a flexible chat, a member list, a composer at the bottom, and a profile bar floating at the foot of the sidebar. Recognition is the design. Nothing here competes with that layout for attention, and the shell asks nothing of the people chatting in it.
 
 Huddle keeps its own name and logo and uses no Discord logo, art, or font. The typeface is Figtree, bundled through `@fontsource-variable/figtree`. The result is a dense, flat room: a shell around a slightly lifted chat ground, one blue accent, and full-width messages with no bubbles. It replaces Huddle's earlier quiet SaaS arrangement of breadcrumbs, bubbles, and a centered message column.
 
@@ -361,9 +363,10 @@ The default theme is called Huddle. A near-black neutral family carries one satu
 
 Status colors, not a second brand voice.
 
-- **Connected Green** (`green`: #116b36, #23a55a): The account panel's connected dot, finished setup steps, the copied state, and being in a call: the call panel's status and the channel row's icon.
-- **Waiting Amber** (`amber`: #a34300, #ffb900): The account panel's not-connected dot, warning notices, and a call that is reconnecting.
-- **Soft Danger** (`danger`: #c10007, #ff6467): Error text, failed messages, invalid input borders, destructive actions, and a muted microphone.
+- **Connected Green** (`green`: #116b36, #23a55a): The profile bar's connected dot, finished setup steps, the copied state, and being in a call: the call strip's status and the channel row's icon.
+- **Waiting Amber** (`amber`: #a34300, #ffb900): The profile bar's not-connected dot, warning notices, and a call that is reconnecting.
+- **Soft Danger** (`danger`: #c10007, #ff6467): Error text, failed messages, invalid input borders, destructive actions, Leave call, and a pressed Mute or Deafen.
+- **Danger Tint** (`danger-bg`: #f1e6e6, #2f2626): 12% `danger` on `bg`, under a pressed Mute or Deafen and a hovered Leave call. Derived themes keep `danger` at 4.5:1 on it.
 - **Count Red** (`danger-fill`: #c10007, #d92d36): The unread count badge on the rail, with white numerals, and the Delete theme button.
 
 ### Tertiary
@@ -377,7 +380,7 @@ Server badges are tinted by hash: a hue from a set of eight, with lightness set 
 - **Shell** (`chrome`: #f4f4f5, #000000): The ground behind the rail and title bar.
 - **Channel Column** (`sidebar`: #fafafa, #000000): The channel sidebar, member list, and settings side column. In dark it matches the shell and is separated by a hairline only.
 - **Chat Ground** (`bg`: #fcfcfc, #0a0a0a): The main column, one step above the shell.
-- **Account Panel Ground** (`panel`: #f4f4f5, #111111): The floating account panel and the Settings window ground. `rail-tile` is #ffffff and #141414.
+- **Account Panel Ground** (`panel`: #f4f4f5, #111111): The call strip in the profile bar and the Settings window ground. `rail-tile` is #ffffff and #141414.
 - **Raised Surface** (`raised`: #ffffff, #141414): Menus, tooltips, and dialogs.
 - **Card Surface** (`card`: #ffffff, #0e0e0e): Cards, tables, setup steps, and the Appearance cards. In dark it sits between the chat ground and the panel, so the hairline border does the work.
 - **Composer Fill** (`input`: #f4f4f5, #141414): The composer and the segmented control.
@@ -442,7 +445,7 @@ A color reaches a stylesheet only as a `ColorLiteral`, which only `parseColor` m
 
 The shell is a fixed floor plan on a CSS grid filling the viewport below the window bar (minimum window height 480px): 72px rail, 248px channel sidebar, flexible chat, and 240px member list, all under a 32px title bar. In the browser it is a grid row showing the server. In the desktop app `WindowBar` replaces it with a fixed bar over every screen, and `:root[data-native]` collapses the row and sets `--window-bar-height`.
 
-The sidebar header and top bar share a 48px height, so one horizontal line runs across the top of the shell. The account panel is absolutely placed 8px from the bottom left, spanning the rail and sidebar minus 16px; the rail stops 72px above the window bottom and the sidebar reserves 80px of bottom padding, so nothing scrolls under it.
+The sidebar header and top bar share a 48px height, so one horizontal line runs across the top of the shell. The profile bar is absolutely placed 10px from the bottom of the sidebar and 10px in from its left edge, spanning the sidebar minus 20px. The sidebar reserves the bar's height in its bottom padding, so its last row scrolls clear of the bar.
 
 The thread runs full width with no measure: messages are inset 72px on the left to clear the 40px avatar, and 48px on the right. Pages within the chat column are narrower by purpose: Home is a centered 680px column, its setup state 440px; Members is a left-aligned table up to 880px. The Settings window centers its content in a column of up to 680px. Dialogs are 460px and the access card 480px.
 
@@ -452,21 +455,22 @@ Responsive changes are progressive. At 1000px the member list and its toggle dis
 
 ## Elevation & Depth
 
-A hybrid that is flat by default. The shell is built from tonal steps and hairlines; the chat ground sits one step above the shell, and the top-left corner of the sidebar is rounded 8px so the content area reads as a sheet set into the chrome. Shadows appear only on things that float above the shell, and on the card lifted off the access field. The account panel floats by position, with a hairline border and no shadow.
+A hybrid that is flat by default. The shell is built from tonal steps and hairlines; the chat ground sits one step above the shell, and the top-left corner of the sidebar is rounded 8px so the content area reads as a sheet set into the chrome. Shadows appear only on things that float above the shell, and on the card lifted off the access field. The profile bar floats over the sidebar, so it has a hairline border and the Bar shadow.
 
 ### Shadow Vocabulary
 
 - **Menu** (`box-shadow: 0 8px 24px rgb(0 0 0 / 0.4)` dark, `0 8px 24px rgb(24 24 27 / 0.16)` light): Server menu and rail tooltips.
 - **Modal** (`box-shadow: 0 16px 48px rgb(0 0 0 / 0.5)` dark, `0 16px 48px rgb(24 24 27 / 0.24)` light): Dialogs, over the scrim, and the create panel.
 - **Access Card** (`box-shadow: 0 4px 16px rgb(0 0 0 / 0.35)` dark, `0 4px 16px rgb(24 24 27 / 0.2)` light): The card on the access field.
+- **Bar** (`box-shadow: 0 8px 24px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3)` dark, `0 8px 24px rgb(0 0 0 / 0.1), 0 1px 3px rgb(0 0 0 / 0.06)` light): The profile bar, which floats over the sidebar's scrolling rows.
 
 ### Named Rules
 
-**The Flat Shell Rule.** Rail, sidebar, chat, member list, and account panel carry no shadow. A shadow means the element is temporarily above the shell or sits on the access field.
+**The Flat Shell Rule.** Rail, sidebar, chat, and member list carry no shadow. A shadow means the element is temporarily above the shell or sits on the access field.
 
 ## Shapes
 
-Gently rounded rectangles at a small set of radii: 4px for menu items, mentions, and tags; 6px for rows, tabs, and icon buttons; 8px for buttons, inputs, cards, and the account panel; 12px for dialogs and GIFs; 24px for the composer. People and channels are round: avatars, presence dots, and channel marks use 50%. Servers are rounded squares: rail tiles at 12px, tightening to 10px on hover, with server badges at 30%.
+Gently rounded rectangles at a small set of radii: 4px for menu items, mentions, and tags; 6px for rows, tabs, and icon buttons; 8px for buttons, inputs, cards, and the profile bar's icon buttons; 10px for the call strip; 12px for dialogs and GIFs; 16px for the profile bar; 24px for the composer. People and channels are round: avatars, presence dots, and channel marks use 50%. Servers are rounded squares: rail tiles at 12px, tightening to 10px on hover, with server badges at 30%.
 
 Mascot avatars are the system's one playful form: a rounded square (28%), circle, hexagon, triangle, bean, or flower in a mascot color, with two white vertical pill eyes. The Huddle logo is a circle cut by vertical slots and renders in `currentColor`.
 
@@ -558,14 +562,14 @@ A 420 by 480px popover above the composer, 8px clear of it and aligned to its st
 - **Footer:** The focused or hovered tile's title at the left in 12px weight 500 `text`, cut off with an ellipsis, and "Powered by KLIPY" at the right in 11px `muted`.
 - **Recent:** The last 24 GIFs picked on this device, newest first. It is per device, like Appearance.
 
-### Account Panel
+### Profile Bar
 
-A 56px hairline-bordered panel across the rail and sidebar: 32px avatar, name at 14px weight 600, a 12px role or connection line, and a settings icon. It holds the only presence dot in the product, 12px and ringed in `panel`. Green means connected and amber means not connected; the dot reflects connection state and says nothing about other people.
+A floating bar on `bg` at the foot of the sidebar, always on screen, with a 16px radius, 6px padding, a hairline border, and the Bar shadow. Its bottom row holds a 32px avatar, the name at 13px weight 600 over a 12px connection line, then Mute, Deafen, and Settings as 32px icon buttons. Mute and Deafen work with or without a call, and a call starts with the choice they show. A pressed Mute or Deafen shows its crossed-out icon in `danger` on `danger-bg`. Mute is dimmed while deafened. At 760px wide the avatar hides. At 480px wide the three buttons drop to a second row under the name.
 
 ### Voice
 
 - **Voice channel page:** Centered in the chat column. The channel mark, name, one line of state, and one button, which stays in place as Join voice, Cancel, Leave call, or Try again, so focus survives each change. When anyone is in the call, the mark gives way to a row of people, each a 56px avatar over a 14px name. In the call, a 22px mic-off badge sits at the avatar's corner when someone is muted. A failure replaces the line with its explanation in `danger`.
-- **Call panel:** A panel like the account panel, floating 8px above it from the moment someone joins until the call ends. It holds a 14px status in the state's color, the 12px channel name, a Mute toggle, and Leave call. The status and name are a button that opens the channel. A failed call stays here with a Dismiss button until it is dismissed or its channel opened, except that it stays out of the way while that channel is on screen. When a browser blocks playback, a full-width Turn on sound button joins it. At 480px wide its controls drop to a second row. The rail and sidebar reserve its height, so nothing scrolls under it.
+- **Call strip:** A strip on `panel` at a 10px radius that grows above the profile bar's bottom row from the moment someone joins until the call ends. It holds a 12px status in the state's color over an 11px channel and room line, both a button that opens the channel, and one 32px icon button at the right. That button is Leave call in `danger` during a call, Cancel while joining, and Dismiss after a failure. A failed call stays here until it is dismissed or its channel opened, except that it stays out of the way while that channel is on screen. When a browser blocks playback, a full-width Turn on sound button sits below the strip.
 
 ### Member List
 
@@ -596,7 +600,7 @@ Setup, join, and the screens that explain a missing identity share one frame: th
 
 ### Do:
 
-- **Do** place every shell zone where a Discord user expects it: 72px rail, 248px sidebar, flexible chat, 240px member list, composer at the bottom, account panel floating across rail and sidebar.
+- **Do** place every shell zone where a Discord user expects it: 72px rail, 248px sidebar, flexible chat, 240px member list, composer at the bottom, profile bar floating at the foot of the sidebar.
 - **Do** keep the Huddle name and logo on the rail and access screens.
 - **Do** set messages flat and full width, with authors grouped and continuation lines flush.
 - **Do** use the Rail Pill lengths exactly: 8px unread, 20px hover or focus, 32px current.
@@ -609,11 +613,11 @@ Setup, join, and the screens that explain a missing identity share one frame: th
 
 - **Don't** use Discord's logo, illustrations, or proprietary font.
 - **Don't** add controls for features that are not built, including search, file uploads, and presence, or show the GIF button on a server with GIFs off.
-- **Don't** show a presence dot anywhere but the account panel, or use it for anything but connection state.
+- **Don't** show a presence dot anywhere but the profile bar, or use it for anything but connection state.
 - **Don't** put messages in bubbles or constrain the thread to a centered column. Home, setup, and settings may still use a readable column.
 - **Don't** add breadcrumbs to the top bar.
 - **Don't** uppercase labels in the shell.
-- **Don't** add a resting shadow to the rail, sidebar, chat, member list, or account panel.
+- **Don't** add a resting shadow to the rail, sidebar, chat, or member list.
 - **Don't** use a gradient outside the access field and the Appearance swatches, the one exception, whose gradient is built from that half's own `--bg` and `--accent`.
 - **Don't** branch on the scheme with a media query. Use `light-dark()`, which accepts colors only, so a lightness or shadow pair is written as two full colors.
 - **Don't** paint a theme's value from a string that has not been through `parseColor`.
