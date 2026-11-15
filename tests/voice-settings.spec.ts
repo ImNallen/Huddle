@@ -254,7 +254,27 @@ test('without output routing the speakers say the system decides', async ({ brow
 test('the mic test meters the microphone, plays it back, and every way out closes it', async ({
   browser,
 }) => {
-  const { context, page } = await newPerson(browser)
+  const { context, page } = await newPerson(browser, (context) =>
+    context.addInitScript(() => {
+      const recorders: MediaRecorder[] = []
+      const Recorder = MediaRecorder
+      window.MediaRecorder = class extends Recorder {
+        constructor(...args: ConstructorParameters<typeof MediaRecorder>) {
+          super(...args)
+          recorders.push(this)
+        }
+      }
+      Object.assign(window, { recorders })
+    }),
+  )
+  // A cancelled test must stop its recorder too, which reads a stream of its own.
+  const recording = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { recorders: MediaRecorder[] }).recorders.filter(
+          (recorder) => recorder.state !== 'inactive',
+        ).length,
+    )
   try {
     await openVoice(page)
     await allowMicrophone(page)
@@ -284,14 +304,17 @@ test('the mic test meters the microphone, plays it back, and every way out close
 
     await button(page, 'Test microphone').click()
     await expect.poll(() => openMicrophones(page)).toBe(1)
+    await expect.poll(recording).toBe(1)
     await button(page, 'Stop test').click()
     await expect(testStatus(page)).toHaveText('Mic test')
     await expect.poll(() => openMicrophones(page)).toBe(0)
+    await expect.poll(recording).toBe(0)
 
     await button(page, 'Test microphone').click()
     await expect.poll(() => openMicrophones(page)).toBe(1)
     await settings(page).getByRole('button', { name: 'Connection', exact: true }).click()
     await expect.poll(() => openMicrophones(page)).toBe(0)
+    await expect.poll(recording).toBe(0)
 
     await settings(page).getByRole('button', { name: 'Voice', exact: true }).click()
     await button(page, 'Test microphone').click()
@@ -299,6 +322,7 @@ test('the mic test meters the microphone, plays it back, and every way out close
     await page.keyboard.press('Escape')
     await expect(settings(page)).toHaveCount(0)
     await expect.poll(() => openMicrophones(page)).toBe(0)
+    await expect.poll(recording).toBe(0)
 
     const total = await page.evaluate(() => window.probe.microphones.length)
     await page.waitForTimeout(5000)

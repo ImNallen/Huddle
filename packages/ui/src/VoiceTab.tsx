@@ -75,6 +75,8 @@ function startMicTest(
   let stream: MediaStream | null = null
   let context: AudioContext | null = null
   let gain: GainNode | null = null
+  let recording: MediaStreamAudioDestinationNode | null = null
+  let recorder: MediaRecorder | null = null
   let sound: HTMLAudioElement | null = null
   let url = ''
   let frame = 0
@@ -92,6 +94,9 @@ function startMicTest(
     cancelAnimationFrame(frame)
     clearInterval(timer)
     for (const track of stream?.getTracks() ?? []) track.stop()
+    // The recorder reads the destination's own stream, which closing the context leaves running.
+    if (recorder?.state !== 'inactive') recorder?.stop()
+    for (const track of recording?.stream.getTracks() ?? []) track.stop()
     if (context?.state !== 'closed') void context?.close().catch(() => {})
     if (sound) {
       sound.pause()
@@ -122,15 +127,17 @@ function startMicTest(
     gain.gain.value = voiceSettings().input.volume
     const analyser = listening.createAnalyser()
     analyser.fftSize = WINDOW
-    const recording = listening.createMediaStreamDestination()
+    const destination = listening.createMediaStreamDestination()
+    recording = destination
     listening.createMediaStreamSource(stream).connect(gain)
     gain.connect(analyser)
-    gain.connect(recording)
-    const recorder = new MediaRecorder(recording.stream)
+    gain.connect(destination)
+    const capture = new MediaRecorder(destination.stream)
+    recorder = capture
     const chunks: Blob[] = []
-    recorder.ondataavailable = (event) => chunks.push(event.data)
-    const recorded = new Promise((resolve) => (recorder.onstop = resolve))
-    recorder.start()
+    capture.ondataavailable = (event) => chunks.push(event.data)
+    const recorded = new Promise((resolve) => (capture.onstop = resolve))
+    capture.start()
     const samples = new Float32Array(WINDOW)
     const meter = () => {
       analyser.getFloatTimeDomainData(samples)
@@ -144,7 +151,7 @@ function startMicTest(
       secondsLeft -= 1
       if (secondsLeft > 0) return show({ phase: 'listening', secondsLeft })
       clearInterval(timer)
-      recorder.stop()
+      capture.stop()
     }, 1000)
     await recorded
     if (over) return
@@ -156,7 +163,7 @@ function startMicTest(
     onLevel(0)
     show({ phase: 'playing' })
 
-    const blob = new Blob(chunks, { type: recorder.mimeType })
+    const blob = new Blob(chunks, { type: capture.mimeType })
     const peaks = await listening
       .decodeAudioData(await blob.arrayBuffer())
       .then((buffer) => {
