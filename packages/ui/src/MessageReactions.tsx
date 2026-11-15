@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { Check, Smile } from 'lucide-react'
 import { emojiCatalog, type UserId } from '@huddle/contracts'
 import type { ThreadMessage } from './chat'
@@ -12,18 +12,25 @@ type Attempt = { emoji: string; present: boolean; retryId: string } & (
   | { kind: 'saving' }
   | { kind: 'failed'; error: string }
 )
+export type ReactionControl = { toggle: (emoji: string) => void; more: () => void }
+export const reacted = (message: ThreadMessage, emoji: string, userId: UserId) =>
+  message.reactions.some(
+    (reaction) => reaction.emoji === emoji && reaction.people.some((p) => p.id === userId),
+  )
 export function MessageReactions({
   message,
   userId,
   photo,
   closed,
   react,
+  ref,
 }: {
   message: ThreadMessage
   userId: UserId
   photo?: Transport['photo']
   closed: boolean
   react: (message: ThreadMessage, emoji: string, present: boolean, retryId: string) => Promise<void>
+  ref?: Ref<ReactionControl>
 }) {
   const [attempt, setAttempt] = useState<Attempt | null>(null)
   const alive = useRef(true)
@@ -61,10 +68,14 @@ export function MessageReactions({
     if (attempt || closed) return
     void save({ kind: 'saving', emoji, present, retryId: crypto.randomUUID() })
   }
+  useImperativeHandle(ref, () => ({
+    toggle: (emoji) => choose(emoji, !reacted(message, emoji, userId)),
+    more: () => anchor.current?.click(),
+  }))
   return (
     <div className="message-reactions">
       {message.reactions.map((reaction) => {
-        const mine = reaction.people.some((p) => p.id === userId)
+        const mine = reacted(message, reaction.emoji, userId)
         const name = emojiCatalog.find(([s]) => s === reaction.emoji)?.[1] ?? reaction.emoji
         return (
           <button

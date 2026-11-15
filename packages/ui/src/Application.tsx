@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { z } from 'zod'
-import type { AccessStage, ServerInfo } from '@huddle/contracts'
+import type { AccessStage, MemberRole, ServerInfo } from '@huddle/contracts'
 import { Access } from './Access'
 import { ServerView } from './ServerView'
 import { Settings } from './Settings'
@@ -169,7 +169,7 @@ function ReadyView({
   onServer?: () => void
   onServerName?: (name: string) => void
 }) {
-  const [settings, setSettings] = useState<string | null>(null)
+  const [settings, setSettings] = useState<{ name: string; role?: MemberRole } | null>(null)
   return (
     <>
       <ServerView
@@ -180,12 +180,14 @@ function ReadyView({
         onAccessChanged={onAccessChanged}
         onServer={onServer}
         onServerName={onServerName}
-        onSettings={(name) => setSettings(name ?? serverName)}
+        onSettings={(name, role?: MemberRole) => setSettings({ name: name ?? serverName, role })}
       />
       {settings !== null && (
         <Settings
           client={client}
-          serverName={settings}
+          serverName={settings.name}
+          role={settings.role}
+          user={stage.user}
           accept={accept}
           close={() => setSettings(null)}
         />

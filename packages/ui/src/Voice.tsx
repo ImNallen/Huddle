@@ -11,7 +11,7 @@ import type { Transport } from './transport'
 import { microphoneMuted, type Call, type VoiceCall } from './voiceCall'
 import { Avatar } from './Avatar'
 import { MemberToggle } from './Members'
-import { ChannelMenu, type ChannelActions } from './Conversation'
+import { BackButton, ChannelMenu, type ChannelActions } from './Conversation'
 import { Spinner } from './primitives'
 
 export type VoiceAvailability = 'on' | 'off'
@@ -51,6 +51,7 @@ export function VoiceChannel({
   client,
   me,
   channel,
+  roomName,
   channels,
   availability,
   voice,
@@ -59,11 +60,13 @@ export function VoiceChannel({
   memberList,
   onMemberList,
   onSettings,
+  onBack,
   admin,
 }: {
   client: Transport
   me: Me
   channel: Channel
+  roomName: string
   channels: Channel[]
   availability: VoiceAvailability
   voice: VoiceCall
@@ -72,6 +75,7 @@ export function VoiceChannel({
   memberList: boolean
   onMemberList: () => void
   onSettings: () => void
+  onBack: () => void
   admin?: ChannelActions
 }) {
   const { call } = voice
@@ -91,8 +95,10 @@ export function VoiceChannel({
   return (
     <main className="main">
       <header className="topbar">
+        <BackButton onBack={onBack} />
         <Volume2 size={20} />
         <strong>{channel.name}</strong>
+        <span className="topbar-subtitle">{roomName} · Voice</span>
         <div className="channel-actions">
           <MemberToggle pressed={memberList} onToggle={onMemberList} />
           <ChannelMenu channel={channel} admin={admin} onSettings={onSettings} />
@@ -160,6 +166,7 @@ export function VoiceChannel({
             ))}
           </ul>
         )}
+        {inCall && <CallControls voice={voice} status={callStatus(inCall)} />}
         {availability === 'on' &&
           (inCall || joining ? (
             <button className="button" onClick={voice.leave}>
@@ -199,6 +206,104 @@ function callStatus(call: Exclude<Call, { phase: 'idle' }>): string {
 }
 const liveCall = (call: Call) =>
   call.phase === 'connected' || call.phase === 'reconnecting' ? call : null
+function audioChoice(voice: VoiceCall) {
+  const audio = liveCall(voice.call)?.audio ?? voice.audio
+  return { muted: microphoneMuted(audio), deafened: audio.kind === 'deafened' }
+}
+
+/** The full-screen call's thumb-sized controls, shown only below 640px where the profile bar is gone. */
+function CallControls({ voice, status }: { voice: VoiceCall; status: string }) {
+  const { muted, deafened } = audioChoice(voice)
+  return (
+    <>
+      <p className="call-chip">
+        <Headphones size={16} aria-hidden="true" />
+        {status}
+      </p>
+      <div className="call-controls">
+        <button
+          className="call-control"
+          aria-pressed={muted}
+          disabled={deafened}
+          onClick={() => voice.setMuted(!muted)}
+        >
+          <span className="call-control-icon">
+            {muted ? <MicOff size={24} aria-hidden="true" /> : <Mic size={24} aria-hidden="true" />}
+          </span>
+          Mute
+        </button>
+        <button
+          className="call-control"
+          aria-pressed={deafened}
+          onClick={() => voice.setDeafened(!deafened)}
+        >
+          <span className="call-control-icon">
+            {deafened ? (
+              <HeadphoneOff size={24} aria-hidden="true" />
+            ) : (
+              <Headphones size={24} aria-hidden="true" />
+            )}
+          </span>
+          Deafen
+        </button>
+        <button className="call-control call-control-leave" onClick={voice.leave}>
+          <span className="call-control-icon">
+            <PhoneOff size={24} aria-hidden="true" />
+          </span>
+          Leave
+        </button>
+      </div>
+    </>
+  )
+}
+
+/** Stands in for the profile bar's call strip on a narrow window's pushed screens. */
+export function CallPill({
+  voice,
+  channels,
+  viewing,
+  onOpen,
+}: {
+  voice: VoiceCall
+  channels: Channel[]
+  viewing: Channel['id'] | null
+  onOpen: (channel: Channel) => void
+}) {
+  const { call } = voice
+  if (call.phase === 'idle' || call.channelId === viewing) return null
+  const channel = channels.find((item) => item.id === call.channelId)
+  const inCall = liveCall(call)
+  const { muted, deafened } = audioChoice(voice)
+  const detail = inCall
+    ? ['You', ...inCall.people.map(({ name }) => name.split(/\s+/)[0] ?? name)].join(', ')
+    : callStatus(call)
+  return (
+    <div className="call-pill">
+      <button
+        className="call-pill-place"
+        aria-label={channel ? `Open ${channel.name}` : 'Open voice channel'}
+        disabled={!channel}
+        onClick={() => channel && onOpen(channel)}
+      >
+        <Volume2 size={16} aria-hidden="true" />
+        <span>
+          {channel?.name ?? 'Voice channel'} · {detail}
+        </span>
+      </button>
+      {inCall && (
+        <button
+          className="call-pill-mute"
+          aria-label="Mute"
+          aria-pressed={muted}
+          disabled={deafened}
+          onClick={() => voice.setMuted(!muted)}
+        >
+          {muted ? <MicOff size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
+        </button>
+      )}
+    </div>
+  )
+}
 
 /** Shows the call wherever the person goes, above their name in the profile bar. */
 export function CallPanel({
@@ -263,9 +368,7 @@ export function CallPanel({
 
 /** Mute and Deafen work with or without a call, so the next call starts the way the person chose. */
 export function AudioControls({ voice }: { voice: VoiceCall }) {
-  const audio = liveCall(voice.call)?.audio ?? voice.audio
-  const muted = microphoneMuted(audio)
-  const deafened = audio.kind === 'deafened'
+  const { muted, deafened } = audioChoice(voice)
   return (
     <>
       <button

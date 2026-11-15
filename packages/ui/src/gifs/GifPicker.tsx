@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { z } from 'zod'
 import { GifRef, type GifSettings } from '@huddle/contracts'
 import { Popover } from '../Popover'
+import { PickerSwitch, focusUnlessNarrow } from '../EmojiPicker'
 import { gifName } from './GifMessage'
 import { isGridKey, masonry, neighbor, type Placement } from './grid'
 import { createKlipy, type GifCategory, type GifFeed, type GifResult } from './klipy'
@@ -270,10 +271,11 @@ export function GifPicker({
         setChip({ kind: 'trending' })
         setGrid({ kind: 'loading' })
         setOpen(true)
-        search.current?.focus()
+        focusUnlessNarrow(search.current)
       }}
       onClose={() => setOpen(false)}
     >
+      <PickerSwitch current="gifs" popover={popover} />
       <header className="emoji-header">
         <h2>GIFs</h2>
         <button

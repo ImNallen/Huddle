@@ -9,6 +9,7 @@ import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
 import { Overlay } from './primitives'
 import { Transcript } from './Transcript'
+import { BackButton } from './Conversation'
 
 export function GroupIcon({ size = 28 }: { size?: number }) {
   return (
@@ -22,12 +23,14 @@ export function GroupConversation({
   members,
   onMembers,
   onSettings,
+  onBack,
   ...shared
 }: {
   group: GroupRow
   members: Member[] | null
   onMembers: () => void
   onSettings: () => void
+  onBack: () => void
   client: Transport
   me: Me
   sync: ReturnType<typeof useServer>
@@ -47,6 +50,7 @@ export function GroupConversation({
       placeholder={`Message ${group.name}`}
       topbar={
         <header className="topbar group-topbar">
+          <BackButton onBack={onBack} />
           <GroupIcon size={36} />
           <div className="direct-person">
             <strong>{group.name}</strong>
@@ -55,9 +59,13 @@ export function GroupConversation({
             </span>
           </div>
           <div className="channel-actions">
-            <button className="header-pill" onClick={onMembers}>
+            <button
+              className="header-pill"
+              aria-label={`Members · ${group.members.length}`}
+              onClick={onMembers}
+            >
               <Users size={16} strokeWidth={1.6} />
-              Members · {group.members.length}
+              <span>Members · {group.members.length}</span>
             </button>
             <button
               className="icon-button"

@@ -14,6 +14,7 @@ import {
 import { errorText, type Transport } from './transport'
 import { Avatar } from './Avatar'
 import { Popover } from './Popover'
+import { BackButton } from './Conversation'
 
 export type Resource<T> =
   | { kind: 'loading' }
@@ -111,6 +112,7 @@ export function MemberList({
   onRemove,
   onClose,
   onRetry,
+  onInvite,
 }: {
   client: Transport
   me: Me
@@ -121,73 +123,91 @@ export function MemberList({
   onRemove?: (member: Member) => void
   onClose: () => void
   onRetry: () => void
+  onInvite?: () => void
 }) {
   const people = members.kind === 'ready' ? members.value : []
   return (
-    <aside className="member-list" aria-label="Server members">
-      <header className="member-list-header">
-        <h2>Members{members.kind === 'ready' && ` · ${people.length}`}</h2>
-        <button className="icon-button" aria-label="Close member list" onClick={onClose}>
-          <X size={18} aria-hidden="true" />
-        </button>
-      </header>
-      <div className="member-list-scroll">
-        {members.kind !== 'ready' ? (
-          <MemberState members={members} serverName={serverName} onRetry={onRetry} />
-        ) : (
-          <ul className="member-groups" aria-label="Members">
-            {groups.map(({ role, title }) => {
-              const group = people.filter((member) => member.role === role)
-              return (
-                group.length > 0 && (
-                  <li key={role}>
-                    <h3>
-                      {title} · {group.length}
-                    </h3>
-                    <ul>
-                      {group.map((member) => {
-                        const row = (
-                          <>
-                            <Avatar
-                              avatar={member.avatar}
-                              name={member.name}
-                              photo={client.photo?.bind(client)}
-                              size={28}
-                            />
-                            <span className="member-compact-name">
-                              <span className="member-label">{member.name}</span>
-                              {member.id === me.user.id && (
-                                <span className="member-you"> · You</span>
-                              )}
-                            </span>
-                          </>
-                        )
-                        return member.id === me.user.id ? (
-                          <li key={member.id} className="member-row">
-                            {row}
-                          </li>
-                        ) : (
-                          <MemberActions
-                            key={member.id}
-                            member={member}
-                            onSelect={onSelect}
-                            onMessage={onMessage}
-                            onRemove={member.role === 'admin' ? undefined : onRemove}
-                          >
-                            {row}
-                          </MemberActions>
-                        )
-                      })}
-                    </ul>
-                  </li>
+    <>
+      {/* Below 640px the list is a sheet over the thread, and this is its backdrop. */}
+      <div className="member-sheet-scrim" hidden aria-hidden="true" onClick={onClose} />
+      <aside className="member-list" aria-label="Server members">
+        <header className="member-list-header">
+          <h2>
+            Members
+            {members.kind === 'ready' && (
+              <>
+                <span className="member-list-separator"> · </span>
+                <span className="member-list-count">{people.length}</span>
+              </>
+            )}
+          </h2>
+          {onInvite && (
+            <button className="member-list-invite" hidden onClick={onInvite}>
+              Share invite
+            </button>
+          )}
+          <button className="icon-button" aria-label="Close member list" onClick={onClose}>
+            <X size={18} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="member-list-scroll">
+          {members.kind !== 'ready' ? (
+            <MemberState members={members} serverName={serverName} onRetry={onRetry} />
+          ) : (
+            <ul className="member-groups" aria-label="Members">
+              {groups.map(({ role, title }) => {
+                const group = people.filter((member) => member.role === role)
+                return (
+                  group.length > 0 && (
+                    <li key={role}>
+                      <h3>
+                        {title} · {group.length}
+                      </h3>
+                      <ul>
+                        {group.map((member) => {
+                          const row = (
+                            <>
+                              <Avatar
+                                avatar={member.avatar}
+                                name={member.name}
+                                photo={client.photo?.bind(client)}
+                                size={28}
+                              />
+                              <span className="member-compact-name">
+                                <span className="member-label">{member.name}</span>
+                                {member.id === me.user.id && (
+                                  <span className="member-you"> · You</span>
+                                )}
+                              </span>
+                            </>
+                          )
+                          return member.id === me.user.id ? (
+                            <li key={member.id} className="member-row">
+                              {row}
+                            </li>
+                          ) : (
+                            <MemberActions
+                              key={member.id}
+                              member={member}
+                              onSelect={onSelect}
+                              onMessage={onMessage}
+                              onRemove={member.role === 'admin' ? undefined : onRemove}
+                            >
+                              {row}
+                            </MemberActions>
+                          )
+                        })}
+                      </ul>
+                    </li>
+                  )
                 )
-              )
-            })}
-          </ul>
-        )}
-      </div>
-      <p className="member-list-note">Choose a person to message.</p>
-    </aside>
+              })}
+            </ul>
+          )}
+        </div>
+        <p className="member-list-note">Choose a person to message.</p>
+      </aside>
+    </>
   )
 }
 
@@ -565,6 +585,7 @@ export function MembersPage({
   onMessage,
   onRemove,
   onRetry,
+  onBack,
 }: {
   client: Transport
   me: Me
@@ -575,6 +596,7 @@ export function MembersPage({
   onMessage: (userId: UserId, signal?: AbortSignal) => Promise<void>
   onRemove: (member: Member) => void
   onRetry: () => void
+  onBack: () => void
 }) {
   const people = members.kind === 'ready' ? members.value : []
   const [sending, setSending] = useState<UserId | null>(null)
@@ -600,6 +622,7 @@ export function MembersPage({
   return (
     <main className="main">
       <header className="topbar members-topbar">
+        <BackButton onBack={onBack} />
         <strong>Members</strong>
         <button className="header-pill topbar-action" onClick={onInvite}>
           Share invite

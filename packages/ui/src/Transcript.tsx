@@ -1,6 +1,21 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowUp, Plus, Smile } from 'lucide-react'
-import type { Avatar as AvatarValue, Me, MessageContent } from '@huddle/contracts'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent,
+  type ReactNode,
+} from 'react'
+import { ArrowUp, Copy, Pencil, Plus, Smile, SmilePlus } from 'lucide-react'
+import {
+  emojiCatalog,
+  type Avatar as AvatarValue,
+  type Me,
+  type MessageContent,
+  type UserId,
+} from '@huddle/contracts'
 import { errorText, type Transport } from './transport'
 import { RequestError } from './connection'
 import {
@@ -12,7 +27,9 @@ import {
 } from './useServer'
 import { Avatar } from './Avatar'
 import { Mentions, clock } from './Badges'
-import { MessageReactions } from './MessageReactions'
+import { MessageReactions, reacted, type ReactionControl } from './MessageReactions'
+import { Emoji } from './Emoji'
+import { Overlay } from './primitives'
 import { EmojiPicker } from './EmojiPicker'
 import { GifMessage } from './gifs/GifMessage'
 import { GifPicker } from './gifs/GifPicker'
@@ -39,7 +56,14 @@ type Editor =
       retryId: string
     } & { kind: 'editing' | 'saving' | 'failed' | 'conflict' })
 
+// The long-pressed message, and where it sat when pressed so its lifted copy can start there.
+type Actions = { messageId: ThreadMessage['id']; top: number } | null
+type Press = { x: number; y: number; timer: number }
+
 const groupWindow = 7 * 60 * 1000
+const longPressMs = 450
+const pressSlop = 10
+const quickReactions = ['👍', '❤️', '😂', '🎉', '🙌', '✨']
 const atEndTolerance = 2
 const layoutOf = (view: HTMLElement) => `${view.scrollHeight}x${view.clientHeight}`
 
@@ -121,6 +145,9 @@ export function Transcript({
   closed?: string
 }) {
   const [editor, setEditor] = useState<Editor>({ kind: 'closed' })
+  const [actions, setActions] = useState<Actions>(null)
+  const press = useRef<Press | null>(null)
+  const reactionControl = useRef<ReactionControl>(null)
   const invoker = useRef<HTMLElement | null>(null)
   const [more, setMore] = useState(true)
   const [error, setError] = useState('')
@@ -132,10 +159,14 @@ export function Transcript({
   const key = threadKey(thread)
   const draft = sync.draft(thread)
   const onDraft = (value: string) => sync.setDraft(thread, value)
-  useEffect(() => setEditor({ kind: 'closed' }), [key, me.user.id, client])
-  function editable(row: MessageRow) {
-    return row.message && row.author.id === me.user.id && row.content.kind === 'text'
-      ? { message: row.message, text: row.content.body }
+  useEffect(() => {
+    setEditor({ kind: 'closed' })
+    setActions(null)
+  }, [key, me.user.id, client])
+  useEffect(() => () => cancelPress(), [])
+  function editable(message: ThreadMessage | null) {
+    return message && message.authorId === me.user.id && message.content.kind === 'text'
+      ? { message, text: message.content.body }
       : null
   }
   function openEditor(
@@ -179,6 +210,33 @@ export function Transcript({
       )
     }
   }
+  function cancelPress() {
+    if (press.current) clearTimeout(press.current.timer)
+    press.current = null
+  }
+  function hasActions(row: MessageRow) {
+    return !!row.message && (row.content.kind === 'text' || !closed)
+  }
+  function startPress(row: MessageRow, event: PointerEvent<HTMLElement>) {
+    cancelPress()
+    if (event.pointerType !== 'touch' || !row.message || !hasActions(row)) return
+    if ((event.target as Element).closest('button, a, form')) return
+    const article = event.currentTarget
+    const messageId = row.message.id
+    press.current = {
+      x: event.clientX,
+      y: event.clientY,
+      timer: window.setTimeout(() => {
+        press.current = null
+        setActions({ messageId, top: article.getBoundingClientRect().top })
+      }, longPressMs),
+    }
+  }
+  function movePress(event: PointerEvent<HTMLElement>) {
+    const start = press.current
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > pressSlop)
+      cancelPress()
+  }
   const messages = sync.messages.filter((message) => threadKey(message.thread) === key)
   const pending = sync.pending.filter((message) => threadKey(message.thread) === key)
   const isEmpty = sync.historyState === 'ready' && !messages.length && !pending.length
@@ -218,6 +276,14 @@ export function Transcript({
     void sync.send({ retryId: crypto.randomUUID(), thread, content: { kind: 'text', body } })
     onDraft('')
   }
+  const acting = actions && messages.find((message) => message.id === actions.messageId)
+  const sheetOpen = !!acting
+  const { cover } = sync
+  useEffect(() => {
+    if (!sheetOpen) return
+    cover(true)
+    return () => cover(false)
+  }, [sheetOpen, cover])
   async function older() {
     try {
       setMore((await sync.older()) === 100)
@@ -290,8 +356,27 @@ export function Transcript({
               <article
                 key={row.key}
                 className={`message ${row.continued ? 'continued' : ''} ${row.pending?.kind ?? ''}`}
+                data-lifted={acting?.id === row.key || undefined}
+                onPointerDown={(event) => startPress(row, event)}
+                onPointerMove={movePress}
+                onPointerUp={cancelPress}
+                onPointerCancel={cancelPress}
+                onContextMenu={(event) => {
+                  // A touch long press also fires contextmenu on Android; a mouse keeps the
+                  // browser's menu and its text selection.
+                  const touch =
+                    (event.nativeEvent as globalThis.PointerEvent).pointerType === 'touch' ||
+                    press.current !== null
+                  if (!touch || !row.message || !hasActions(row)) return
+                  event.preventDefault()
+                  cancelPress()
+                  setActions({
+                    messageId: row.message.id,
+                    top: event.currentTarget.getBoundingClientRect().top,
+                  })
+                }}
                 onDoubleClick={(event) => {
-                  const target = editable(row)
+                  const target = editable(row.message)
                   if (!target) return
                   if (editor.kind !== 'closed' && editor.message.id === row.key) return
                   if ((event.target as Element).closest('form, button')) return
@@ -419,6 +504,7 @@ export function Transcript({
                 {row.message && (
                   <MessageReactions
                     key={`${me.user.id}:${key}:${row.message.id}`}
+                    ref={acting?.id === row.message.id ? reactionControl : undefined}
                     message={row.message}
                     userId={me.user.id}
                     photo={photo}
@@ -426,14 +512,14 @@ export function Transcript({
                     react={sync.react}
                   />
                 )}
-                {editable(row) && (
+                {editable(row.message) && (
                   <button
                     type="button"
                     className="message-edit button small"
                     hidden={editor.kind !== 'closed' && editor.message.id === row.key}
                     aria-label="Edit message"
                     onClick={(event) => {
-                      const target = editable(row)
+                      const target = editable(row.message)
                       if (target) openEditor(target, event.currentTarget)
                     }}
                   >
@@ -512,7 +598,7 @@ export function Transcript({
             >
               <Smile size={18} />
             </button>
-            <EmojiPicker onInsert={insert} anchorRef={composer} />
+            <EmojiPicker onInsert={insert} anchorRef={composer} gifs={!!sync.gifs} />
             {sync.gifs && (
               <>
                 <button
@@ -552,6 +638,157 @@ export function Transcript({
           </div>
         </form>
       )}
+      {acting && actions && (
+        <MessageActions
+          message={acting}
+          top={actions.top}
+          userId={me.user.id}
+          photo={photo}
+          canReact={!closed}
+          onReact={(emoji) => {
+            reactionControl.current?.toggle(emoji)
+            setActions(null)
+          }}
+          onMore={() => {
+            const control = reactionControl.current
+            setActions(null)
+            requestAnimationFrame(() => control?.more())
+          }}
+          onEdit={
+            editable(acting)
+              ? () => {
+                  const target = editable(acting)
+                  setActions(null)
+                  if (target) openEditor(target, input.current)
+                }
+              : undefined
+          }
+          onClose={() => setActions(null)}
+        />
+      )}
     </main>
+  )
+}
+
+function MessageActions({
+  message,
+  top,
+  userId,
+  photo,
+  canReact,
+  onReact,
+  onMore,
+  onEdit,
+  onClose,
+}: {
+  message: ThreadMessage
+  top: number
+  userId: UserId
+  photo?: Transport['photo']
+  canReact: boolean
+  onReact: (emoji: string) => void
+  onMore: () => void
+  onEdit?: () => void
+  onClose: () => void
+}) {
+  const title = useId()
+  const lifted = useRef<HTMLDivElement>(null)
+  const sheet = useRef<HTMLDivElement>(null)
+  const pressedOutside = useRef(false)
+  const [copy, setCopy] = useState<'idle' | 'failed'>('idle')
+  const content = message.content
+  useLayoutEffect(() => {
+    const card = lifted.current
+    const panel = sheet.current
+    if (!card || !panel) return
+    const limit = panel.getBoundingClientRect().top - card.offsetHeight - 12
+    card.style.top = `${Math.max(16, Math.min(top, limit))}px`
+  }, [top])
+  const outside = (target: EventTarget) => !sheet.current?.contains(target as Node)
+  return (
+    <Overlay className="message-actions" labelledBy={title} onClose={onClose}>
+      <div
+        className="message-actions-layer"
+        onPointerDown={(event) => {
+          pressedOutside.current = outside(event.target)
+        }}
+        onClick={(event) => {
+          if (pressedOutside.current && outside(event.target)) onClose()
+        }}
+      >
+        <div className="message-lifted" ref={lifted}>
+          <Avatar avatar={message.authorAvatar} name={message.authorName} photo={photo} size={36} />
+          <div>
+            <div className="message-meta">
+              <strong>{message.authorName}</strong>
+              <time dateTime={message.createdAt}>{clock(message.createdAt)}</time>
+            </div>
+            {content.kind === 'text' ? (
+              <p className="message-body">
+                <Mentions text={content.body} />
+              </p>
+            ) : (
+              <GifMessage gif={content.gif} />
+            )}
+          </div>
+        </div>
+        <div className="message-actions-sheet" ref={sheet}>
+          <h2 id={title} className="sr-only">
+            Message actions
+          </h2>
+          {canReact && (
+            <div className="quick-reactions" role="group" aria-label="Quick reactions">
+              {quickReactions.map((emoji) => {
+                const name = emojiCatalog.find(([symbol]) => symbol === emoji)?.[1] ?? emoji
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    aria-label={`React with ${name.toLowerCase()}`}
+                    aria-pressed={reacted(message, emoji, userId)}
+                    onClick={() => onReact(emoji)}
+                  >
+                    <Emoji symbol={emoji} />
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                className="quick-more"
+                aria-label="More reactions"
+                onClick={onMore}
+              >
+                <SmilePlus size={20} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+          <div className="message-actions-list">
+            {onEdit && (
+              <button type="button" onClick={onEdit}>
+                <Pencil size={20} aria-hidden="true" />
+                Edit message
+              </button>
+            )}
+            {content.kind === 'text' && (
+              <button
+                type="button"
+                aria-live="polite"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(content.body)
+                    onClose()
+                  } catch {
+                    setCopy('failed')
+                  }
+                }}
+              >
+                <Copy size={20} aria-hidden="true" />
+                {copy === 'failed' ? 'Copy failed' : 'Copy text'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </Overlay>
   )
 }

@@ -1,0 +1,437 @@
+/*
+ * Below 640px floating things become bottom sheets: the composer's pickers, a long-pressed
+ * message's actions, the member list, and a member's card. Elements that exist only for this
+ * layout carry the hidden attribute, which these rules lift, so wider windows never show them.
+ */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes sheet-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  :root {
+    --picker-sheet: calc(min(380px, 55dvh) + env(safe-area-inset-bottom, 0px));
+    --sheet-scrim: color-mix(in srgb, var(--bg) 50%, transparent);
+  }
+
+  /* Composer: a round add button, a pill holding the text with GIF and emoji, a round send. */
+  .composer {
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 8px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: 0;
+    background: var(--bg);
+  }
+  .composer:focus-within {
+    box-shadow: none;
+  }
+  .composer-closed {
+    display: block;
+    padding: 12px 16px;
+  }
+  .composer-actions {
+    display: contents;
+  }
+  .composer textarea {
+    flex: 1;
+    min-height: 40px;
+    max-height: 40dvh;
+    padding: 9px 48px 9px 16px;
+    border-radius: 20px;
+    background: var(--input);
+    transition: box-shadow 120ms;
+  }
+  .composer textarea:focus-visible {
+    box-shadow: 0 0 0 1px var(--line-strong);
+  }
+  .composer-actions > button {
+    width: 40px;
+    height: 40px;
+  }
+  .composer .lucide {
+    width: 20px;
+    height: 20px;
+  }
+  .composer-tool:first-child {
+    order: -1;
+    margin-left: 0;
+    background: var(--input);
+    color: var(--text);
+  }
+  /*
+   * GIF and emoji follow the text area in the row and pull back into its right padding, which
+   * holds GIF, a 2px gap, emoji, and 8px of pill. Each negative margin also cancels the row's gap.
+   */
+  .composer:has(.composer-gif) textarea {
+    padding-right: 82px;
+  }
+  .composer-actions > .composer-gif,
+  .composer-actions > [popovertarget='composer-emoji'] {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 4px;
+    color: var(--muted);
+  }
+  .composer-actions > .composer-gif {
+    order: 1;
+    margin-left: -82px;
+  }
+  .composer-actions > [popovertarget='composer-emoji'] {
+    order: 2;
+    margin-left: -48px;
+  }
+  .composer:has(.composer-gif) [popovertarget='composer-emoji'] {
+    margin-left: -6px;
+  }
+  .composer-send {
+    order: 3;
+    margin-left: 8px;
+  }
+  .gif-glyph {
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .composer-actions:has(#composer-gif:popover-open) .gif-glyph {
+    background: none;
+  }
+  .composer:has(#composer-emoji:popover-open) [popovertarget='composer-emoji'],
+  .composer:has(#composer-gif:popover-open) .composer-gif {
+    background: var(--selected);
+    color: var(--text);
+  }
+
+  /* Pickers: a sheet in the keyboard's place, with the composer and draft kept above it. */
+  .main:has(#composer-emoji:popover-open),
+  .main:has(#composer-gif:popover-open) {
+    padding-bottom: var(--picker-sheet);
+  }
+  .emoji-picker,
+  .gif-picker {
+    top: auto !important;
+    right: 0;
+    bottom: 0;
+    left: 0 !important;
+    width: 100%;
+    max-width: none;
+    height: var(--picker-sheet);
+    padding: 12px 16px calc(4px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--sidebar);
+    box-shadow: none;
+    animation: sheet-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .emoji-picker:popover-open {
+    gap: 12px;
+  }
+  .picker-switch[hidden] {
+    display: flex;
+    flex: none;
+    padding: 3px;
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  .picker-switch button {
+    flex: 1;
+    height: 32px;
+    border-radius: 9px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .picker-switch button[aria-pressed='true'] {
+    background: var(--bg);
+    color: var(--text);
+    cursor: default;
+  }
+  .emoji-picker:has(> .picker-switch) > .emoji-header,
+  .emoji-name {
+    display: none;
+  }
+  .emoji-picker input {
+    height: 40px;
+    min-height: 40px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg);
+    font-size: 14px;
+  }
+  .emoji-section {
+    font-size: 12px;
+  }
+
+  /* Message actions: a long-pressed message lifts above a blurred thread, its sheet below. */
+  .message[data-lifted] {
+    visibility: hidden;
+  }
+  .message-actions {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font-family: var(--font);
+  }
+  .message-actions::backdrop {
+    background: var(--sheet-scrim);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    animation: sheet-scrim-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .message-actions-layer {
+    position: absolute;
+    inset: 0;
+  }
+  .message-lifted {
+    position: fixed;
+    right: 16px;
+    left: 16px;
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 12px;
+    max-height: 40dvh;
+    padding: 12px;
+    overflow: hidden;
+    border-radius: 18px;
+    background: var(--bg);
+    box-shadow: var(--shadow-menu);
+  }
+  .message-lifted .message-body {
+    margin-top: 2px;
+  }
+  .message-actions-sheet {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 28px 28px 0 0;
+    background: var(--bg);
+    box-shadow: var(--shadow-modal);
+    animation: sheet-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .message-actions-sheet::before,
+  .member-list::before,
+  .member-details::before {
+    content: '';
+    display: block;
+    flex: none;
+    width: 36px;
+    height: 5px;
+    margin: 8.5px auto;
+    border-radius: 3px;
+    background: var(--muted);
+    opacity: 0.35;
+  }
+  .quick-reactions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 20px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .quick-reactions button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 42px;
+    border-radius: 9px;
+  }
+  .quick-reactions button[aria-pressed='true'],
+  .quick-reactions button:active {
+    background: var(--selected);
+  }
+  .quick-reactions .color-emoji {
+    width: 26px;
+    height: 26px;
+  }
+  .quick-reactions .quick-more {
+    width: 42px;
+    border-radius: 50%;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .message-actions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 12px 0;
+  }
+  .message-actions-list button {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 52px;
+    padding: 0 14px;
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 16px;
+  }
+  .message-actions-list button:active,
+  .message-actions-list button:hover {
+    background: var(--hover);
+  }
+
+  /* Members: the list rises as a sheet over the thread, and a person's card follows it. */
+  .member-sheet-scrim[hidden] {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: block;
+    background: var(--sheet-scrim);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    animation: sheet-scrim-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .app[data-stack='root'] .member-sheet-scrim {
+    display: none;
+  }
+  .member-list {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 41;
+    display: flex;
+    gap: 0;
+    width: auto;
+    height: min(640px, calc(100dvh - 96px));
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 28px 28px 0 0;
+    background: var(--bg);
+    box-shadow: var(--shadow-modal);
+    animation: sheet-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .member-list-header {
+    height: auto;
+    padding: 4px 16px 12px 20px;
+  }
+  .member-list-header h2 {
+    flex: 1;
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .member-list-separator {
+    font-size: 0;
+  }
+  .member-list-count {
+    margin-left: 8px;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .member-list-invite[hidden] {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 18px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .member-list-invite:hover {
+    background: var(--selected);
+  }
+  /* The backdrop closes the sheet; its close button stays for the keyboard and screen readers. */
+  .member-list-header .icon-button:not(:focus-visible) {
+    position: absolute;
+    clip-path: inset(50%);
+  }
+  .member-list-scroll {
+    flex: 1;
+    padding: 0 12px;
+  }
+  .member-groups > li + li,
+  .member-groups > li > ul > li + li {
+    margin-top: 0;
+  }
+  .member-groups h3 {
+    height: auto;
+    margin: 0;
+    padding: 12px 12px 6px;
+  }
+  .member-list .member-actions-trigger,
+  .member-list-note {
+    display: none;
+  }
+  .member-details {
+    top: auto !important;
+    right: 0;
+    bottom: 0;
+    left: 0 !important;
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    max-height: 85dvh;
+    padding: 0 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    border-bottom: 0;
+    border-radius: 28px 28px 0 0;
+    box-shadow: var(--shadow-modal);
+    animation: sheet-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .member-details::backdrop {
+    background: var(--sheet-scrim);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+  }
+  .member-details > .button {
+    height: 44px;
+    margin-top: 8px;
+  }
+}
+
+@media (max-width: 639px) and (pointer: coarse) {
+  /* A long press opens the actions sheet, which has Copy text, so it must not select or call out. */
+  .message {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+@media (max-width: 639px) and (hover: none) {
+  /* A tap leaves :hover behind on touch screens; the actions sheet offers reactions instead. */
+  .message .reaction-add {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 639px) and (prefers-reduced-motion: reduce) {
+  .emoji-picker,
+  .gif-picker,
+  .message-actions::backdrop,
+  .message-actions-sheet,
+  .member-sheet-scrim[hidden],
+  .member-list,
+  .member-details {
+    animation: none;
+  }
+}
