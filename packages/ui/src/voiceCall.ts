@@ -196,7 +196,9 @@ function startCall(
     setAudio(next) {
       audioChanges = audioChanges
         .then(async () => {
-          if (over || !microphone) return
+          if (over) return
+          // Before the prompt is answered there is nothing to mute yet, so joining reads the choice.
+          if (!microphone) return void (audio = next)
           changingAudio = true
           if (microphoneMuted(next)) await microphone.mute()
           if (over) return void microphone.stop()

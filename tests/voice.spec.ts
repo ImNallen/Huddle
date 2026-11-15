@@ -232,6 +232,45 @@ test('muting or deafening before a call makes the call start that way', async ({
   }
 })
 
+test('muting while the browser waits on the microphone starts the call muted', async ({
+  browser,
+}) => {
+  const roomName = await voiceRoom('prompt')
+  const ada = await person(browser, 'ada', roomName)
+  const bo = await person(browser, 'bo', roomName)
+  try {
+    await channelRow(bo.page, roomName, 'prompt').click()
+    await join(bo.page).click()
+    await expectInCall(bo.page)
+    await ada.page.evaluate(() => {
+      const devices = navigator.mediaDevices
+      const capture = devices.getUserMedia.bind(devices)
+      devices.getUserMedia = async (constraints) => {
+        await new Promise((resolve) => Object.assign(window, { answerPrompt: resolve }))
+        return capture(constraints)
+      }
+    })
+    await channelRow(ada.page, roomName, 'prompt').click()
+    await join(ada.page).click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Waiting for microphone')
+    const mute = profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', 'true')
+    await ada.page.waitForFunction(() => 'answerPrompt' in window)
+    await ada.page.evaluate(() =>
+      (window as unknown as { answerPrompt: () => void }).answerPrompt(),
+    )
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Microphone muted', {
+      timeout: 40000,
+    })
+    await expect(inCallList(bo.page).getByRole('listitem').nth(1)).toContainText('muted')
+    await expectSilence(bo.page)
+  } finally {
+    await ada.context.close()
+    await bo.context.close()
+  }
+})
+
 test('cancelling while the browser waits on the microphone releases it when it finally arrives', async ({
   browser,
 }) => {
