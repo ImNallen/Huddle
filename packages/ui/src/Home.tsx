@@ -140,9 +140,13 @@ export function Home({
           <section className="home-directs" aria-labelledby="directs-title">
             <div className="home-section-heading">
               <h2 id="directs-title">{groups.length ? 'Messages' : 'Direct messages'}</h2>
-              <button className="header-pill" onClick={() => onDialog({ kind: 'direct' })}>
+              <button
+                className="header-pill"
+                aria-label="New message"
+                onClick={() => onDialog({ kind: 'direct' })}
+              >
                 <Plus size={16} strokeWidth={1.6} />
-                New message
+                <span>New message</span>
               </button>
             </div>
             {started.length || groups.length ? (
@@ -199,7 +203,12 @@ export function Home({
                               {when(row.latest.createdAt)}
                             </time>
                           )}
-                          {row.unread > 0 && <span className="feed-unread">{row.unread} new</span>}
+                          {row.unread > 0 && (
+                            <span className="feed-unread">
+                              {row.unread}
+                              <span className="feed-unread-word"> new</span>
+                            </span>
+                          )}
                         </span>
                       </button>
                     </li>

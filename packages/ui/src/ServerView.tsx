@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { X } from 'lucide-react'
 import {
   DirectConversation as DirectConversationSchema,
@@ -7,6 +7,7 @@ import {
   type ChannelKind,
   type ConversationId,
   type Member,
+  type MemberRole,
   type PublicUser,
   type RoomId,
   type Me,
@@ -20,7 +21,7 @@ import { Sidebar } from './Sidebar'
 import { Home } from './Home'
 import { ChannelConversation, DirectConversation } from './Conversation'
 import { EmptyRoom } from './RoomViews'
-import { VoiceChannel, type VoiceAvailability } from './Voice'
+import { CallPill, VoiceChannel, type VoiceAvailability } from './Voice'
 import { useVoiceCall } from './voiceCall'
 import {
   ChannelDialog,
@@ -40,9 +41,12 @@ import { Frame, ServerCard } from './primitives'
 export type View =
   | { kind: 'home' }
   | { kind: 'members' }
-  | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null }
+  /** `list` puts the room's channel list in front on a narrow window. Wider windows ignore it. */
+  | { kind: 'room'; roomId: RoomId; channelId: ChannelId | null; list: boolean }
   | { kind: 'direct'; conversationId: ConversationId }
   | { kind: 'group'; thread: GroupThread }
+type Stack = 'root' | 'pushed'
+type Swipe = { pointerId: number; startX: number; x: number; time: number; speed: number }
 type Target = { kind: 'server' } | { kind: 'room'; id: RoomId } | { kind: 'channel'; id: ChannelId }
 export type Dialog =
   | { kind: 'none' }
@@ -94,7 +98,7 @@ export function ServerView({
   covered: boolean
   voiceAvailable: boolean
   onAccessChanged: () => void
-  onSettings: (serverName?: string) => void
+  onSettings: (serverName?: string, role?: MemberRole) => void
   onServer?: () => void
   onServerName?: (name: string) => void
 }) {
@@ -105,6 +109,8 @@ export function ServerView({
   const [memberAttempt, setMemberAttempt] = useState(0)
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' })
   const voice = useVoiceCall(client)
+  const shell = useRef<HTMLDivElement>(null)
+  const swipe = useRef<Swipe | null>(null)
 
   const sync = useServer(
     client,
@@ -114,7 +120,9 @@ export function ServerView({
     onAccessChanged,
   )
   const showSettings = () =>
-    onSettings(sync.state.kind === 'ready' ? sync.state.snapshot.server.name : undefined)
+    sync.state.kind === 'ready'
+      ? onSettings(sync.state.snapshot.server.name, sync.state.snapshot.server.role)
+      : onSettings()
   const group =
     requestedView.kind === 'group'
       ? sync.groups.find((g) => threadKey(g.thread) === threadKey(requestedView.thread))
@@ -172,9 +180,47 @@ export function ServerView({
     )
   }
   function openRoom(roomId: RoomId) {
-    open({ kind: 'room', roomId, channelId: landing(roomId)?.id ?? null })
+    open({ kind: 'room', roomId, channelId: landing(roomId)?.id ?? null, list: true })
   }
-  if (view.kind === 'room' && !view.channelId && landing(view.roomId)) openRoom(view.roomId)
+  function openChannel(channel: { id: ChannelId; roomId: RoomId }) {
+    open({ kind: 'room', roomId: channel.roomId, channelId: channel.id, list: false })
+  }
+  if (view.kind === 'room' && !view.channelId) {
+    const first = landing(view.roomId)
+    if (first) open({ ...view, channelId: first.id })
+  }
+  const stack: Stack =
+    view.kind === 'home' || (view.kind === 'room' && view.list) ? 'root' : 'pushed'
+  function back() {
+    open(view.kind === 'room' ? { ...view, list: true } : { kind: 'home' })
+  }
+  function swipeStart(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== 'touch' || stack !== 'pushed' || swipe.current) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const { pointerId, clientX: x, timeStamp: time } = event
+    swipe.current = { pointerId, startX: x, x, time, speed: 0 }
+    shell.current?.setAttribute('data-swiping', '')
+  }
+  function swipeMove(event: PointerEvent<HTMLDivElement>) {
+    const current = swipe.current
+    if (!current || current.pointerId !== event.pointerId) return
+    const elapsed = event.timeStamp - current.time
+    if (elapsed > 0) current.speed = (event.clientX - current.x) / elapsed
+    current.x = event.clientX
+    current.time = event.timeStamp
+    shell.current?.style.setProperty('--swipe', `${Math.max(0, current.x - current.startX)}px`)
+  }
+  function swipeEnd(event: PointerEvent<HTMLDivElement>) {
+    const current = swipe.current
+    if (!current || current.pointerId !== event.pointerId) return
+    swipe.current = null
+    const width = shell.current?.clientWidth ?? 0
+    const travelled = current.x - current.startX
+    const fling = current.speed > 0.5 && travelled > 24
+    shell.current?.removeAttribute('data-swiping')
+    shell.current?.style.removeProperty('--swipe')
+    if (event.type === 'pointerup' && (travelled > width * 0.3 || fling)) back()
+  }
   const room = view.kind === 'room' ? rooms.find((room) => room.id === view.roomId) : undefined
   const channel =
     view.kind === 'room' ? channels.find((channel) => channel.id === view.channelId) : undefined
@@ -182,7 +228,7 @@ export function ServerView({
     if (!room) leave({ kind: 'home' }, view.roomId)
     else if (view.channelId && !channel)
       leave(
-        { kind: 'room', roomId: room.id, channelId: landing(room.id)?.id ?? null },
+        { kind: 'room', roomId: room.id, channelId: landing(room.id)?.id ?? null, list: true },
         view.channelId,
       )
   }
@@ -269,7 +315,7 @@ export function ServerView({
     openDirect(conversation.id)
   }
   return (
-    <div className="app">
+    <div className="app" ref={shell} data-stack={stack} data-view={view.kind}>
       <Tooltips />
       <header className="titlebar">
         <Badge id={server.name} name={server.name} size={16} />
@@ -307,12 +353,14 @@ export function ServerView({
           onMessage={messageMember}
           onRemove={remove}
           onRetry={() => setMemberAttempt((value) => value + 1)}
+          onBack={back}
         />
       ) : channel?.kind === 'voice' ? (
         <VoiceChannel
           client={client}
           me={me}
           channel={channel}
+          roomName={room?.name ?? ''}
           channels={channels}
           availability={availability}
           voice={voice}
@@ -321,6 +369,7 @@ export function ServerView({
           memberList={memberList}
           onMemberList={() => setMemberList((value) => !value)}
           onSettings={showSettings}
+          onBack={back}
           admin={channelActions(channel.id)}
         />
       ) : group ? (
@@ -333,6 +382,7 @@ export function ServerView({
           sync={sync}
           onMembers={() => setDialog({ kind: 'group-members', thread: group.thread })}
           onSettings={showSettings}
+          onBack={back}
         />
       ) : direct ? (
         <DirectConversation
@@ -341,6 +391,7 @@ export function ServerView({
           me={me}
           direct={direct}
           onSettings={showSettings}
+          onBack={back}
           sync={sync}
         />
       ) : channel ? (
@@ -349,6 +400,8 @@ export function ServerView({
           client={client}
           me={me}
           channel={channel}
+          roomName={room?.name ?? ''}
+          onBack={back}
           memberCount={memberCount}
           onInvite={admin ? () => setDialog({ kind: 'invite' }) : undefined}
           onSettings={showSettings}
@@ -380,15 +433,27 @@ export function ServerView({
           unread={sync.unread}
           presence={sync.presence}
           onRoom={openRoom}
-          onChannel={(channel) =>
-            open({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
-          }
+          onChannel={openChannel}
           onDirect={openDirect}
           onDialog={setDialog}
           memberList={memberList}
           onMemberList={() => setMemberList((value) => !value)}
         />
       )}
+      <CallPill
+        voice={voice}
+        channels={channels}
+        viewing={view.kind === 'room' && !view.list ? view.channelId : null}
+        onOpen={openChannel}
+      />
+      <div
+        className="swipe-edge"
+        aria-hidden="true"
+        onPointerDown={swipeStart}
+        onPointerMove={swipeMove}
+        onPointerUp={swipeEnd}
+        onPointerCancel={swipeEnd}
+      />
       {memberList && view.kind !== 'members' && !direct && !group && (
         <MemberList
           client={client}
@@ -398,6 +463,7 @@ export function ServerView({
           onSelect={(member, anchor) => setDialog({ kind: 'member', member, anchor })}
           onMessage={messageMember}
           onRemove={admin ? remove : undefined}
+          onInvite={admin ? () => setDialog({ kind: 'invite' }) : undefined}
           onClose={() => setMemberList(false)}
           onRetry={() => setMemberAttempt((value) => value + 1)}
         />
@@ -434,7 +500,7 @@ export function ServerView({
           onDone={(room, cursor) => {
             sync.created({ kind: 'room.created', room }, cursor)
             setDialog({ kind: 'none' })
-            open({ kind: 'room', roomId: room.id, channelId: null })
+            open({ kind: 'room', roomId: room.id, channelId: null, list: true })
           }}
         />
       )}
@@ -447,7 +513,7 @@ export function ServerView({
           onDone={(channel, cursor) => {
             sync.created({ kind: 'channel.created', channel }, cursor)
             setDialog({ kind: 'none' })
-            open({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
+            openChannel(channel)
           }}
         />
       )}

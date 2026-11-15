@@ -167,12 +167,17 @@ test('Settings matches both themes, uses actual mascot shapes and preserves prof
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 540, height: 740 })
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await settings(page).getByRole('button', { name: 'Profile', exact: true }).click()
   await settings(page)
     .getByRole('button', { name: 'Save profile', exact: true })
     .scrollIntoViewIfNeeded()
   await expect(
     settings(page).getByRole('button', { name: 'Save profile', exact: true }),
   ).toBeInViewport()
+  await expect(
+    settings(page).getByRole('button', { name: 'Back to settings', exact: true }),
+  ).toBeInViewport()
+  await settings(page).getByRole('button', { name: 'Back to settings', exact: true }).click()
   await expect(
     settings(page).getByRole('button', { name: 'Close settings', exact: true }),
   ).toBeInViewport()

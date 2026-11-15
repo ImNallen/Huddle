@@ -13,6 +13,43 @@ import { Emoji } from './Emoji'
 const categories = ['Recent', 'Smileys', 'Nature', 'Food'] as const
 type Category = (typeof categories)[number]
 const recentKey = 'huddle.emoji.recent'
+export const narrowScreen = '(max-width: 639px)'
+// Below 640px the pickers take the on-screen keyboard's place, so they neither focus their search
+// nor leave the composer's field focused under them.
+export function focusUnlessNarrow(field: HTMLElement | null) {
+  if (!matchMedia(narrowScreen).matches) field?.focus()
+  else if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur()
+}
+export function PickerSwitch({
+  current,
+  popover,
+}: {
+  current: 'emoji' | 'gifs'
+  popover: RefObject<HTMLDivElement | null>
+}) {
+  const halves = [
+    { kind: 'emoji', label: 'Emoji', id: 'composer-emoji' },
+    { kind: 'gifs', label: 'GIFs', id: 'composer-gif' },
+  ] as const
+  return (
+    <div className="picker-switch" role="group" aria-label="Emoji or GIFs" hidden>
+      {halves.map(({ kind, label, id }) => (
+        <button
+          key={kind}
+          type="button"
+          aria-pressed={kind === current}
+          onClick={() => {
+            if (kind === current) return
+            popover.current?.hidePopover()
+            document.getElementById(id)?.showPopover()
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
 function readRecent(): string[] {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(recentKey) ?? '[]')
@@ -37,8 +74,10 @@ export function EmojiPicker({
   id = 'composer-emoji',
   title = 'Emoji',
   action = 'Insert',
+  gifs = false,
 }: {
   onInsert: (emoji: string) => void
+  gifs?: boolean
   id?: string
   title?: string
   action?: string
@@ -77,9 +116,10 @@ export function EmojiPicker({
       onOpen={() => {
         setQuery('')
         setRecent(readRecent())
-        search.current?.focus()
+        focusUnlessNarrow(search.current)
       }}
     >
+      {gifs && <PickerSwitch current="emoji" popover={popover} />}
       <header className="emoji-header">
         <h2>{title}</h2>
         <button

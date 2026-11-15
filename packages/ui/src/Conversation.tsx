@@ -1,5 +1,5 @@
 import { Popover } from './Popover'
-import { Hash, MoreHorizontal } from 'lucide-react'
+import { ChevronLeft, Hash, MoreHorizontal } from 'lucide-react'
 import type { Channel, Me } from '@huddle/contracts'
 import type { Transport } from './transport'
 import { channelLabel, type useServer } from './useServer'
@@ -14,6 +14,14 @@ type Shared = {
   sync: ReturnType<typeof useServer>
 }
 export type ChannelActions = { onRename: () => void; onDelete: () => void }
+/** Leaves a pushed screen on a narrow window. Hidden at 640px and wider. */
+export function BackButton({ onBack }: { onBack: () => void }) {
+  return (
+    <button className="icon-button back-button" aria-label="Back" onClick={onBack}>
+      <ChevronLeft size={24} />
+    </button>
+  )
+}
 export function ChannelMenu({
   channel,
   admin,
@@ -55,6 +63,8 @@ export function ChannelMenu({
 }
 export function ChannelConversation({
   channel,
+  roomName,
+  onBack,
   memberList,
   onMemberList,
   memberCount,
@@ -64,6 +74,8 @@ export function ChannelConversation({
   ...shared
 }: Shared & {
   channel: Channel
+  roomName: string
+  onBack: () => void
   memberCount: number
   onInvite?: () => void
   onSettings: () => void
@@ -78,8 +90,10 @@ export function ChannelConversation({
       label={`Message #${channel.name}`}
       topbar={
         <header className="topbar">
+          <BackButton onBack={onBack} />
           <Hash size={18} />
           <strong>{channel.name}</strong>
+          <span className="topbar-subtitle">{roomName}</span>
           <div className="channel-actions">
             {onInvite && (
               <button className="header-pill" onClick={onInvite}>
@@ -109,8 +123,9 @@ export function ChannelConversation({
 export function DirectConversation({
   direct,
   onSettings,
+  onBack,
   ...shared
-}: Shared & { direct: DirectRow; onSettings: () => void }) {
+}: Shared & { direct: DirectRow; onSettings: () => void; onBack: () => void }) {
   const { name, avatar } = direct.peer
   const [firstName = name] = name.split(/\s+/)
   const photo = shared.client.photo?.bind(shared.client)
@@ -127,6 +142,7 @@ export function DirectConversation({
       placeholder={`Message ${firstName}`}
       topbar={
         <header className="topbar direct-topbar">
+          <BackButton onBack={onBack} />
           <i className="avatar-slot" aria-hidden="true">
             <Avatar avatar={avatar} name={name} photo={photo} size={32} />
           </i>

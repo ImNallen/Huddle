@@ -1,0 +1,515 @@
+/*
+ * Below 640px Huddle shows one screen at a time. ServerView derives data-stack (root or pushed)
+ * and data-view on .app from its View, and every rule that reads them lives in the query below.
+ * The elements added for narrow windows stay hidden at every other width.
+ */
+.back-button,
+.topbar-subtitle,
+.call-pill,
+.call-chip,
+.call-controls,
+.swipe-edge {
+  display: none;
+}
+
+@keyframes stack-push {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 639px) {
+  :root {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app {
+    --rail-width: 64px;
+    --rail-tile-size: 38px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --stack-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  /* Root: the rail beside one list. */
+  .rail {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    padding: calc(var(--safe-top) + 12px) 0 calc(var(--safe-bottom) + 80px);
+  }
+  .rail-item.bottom {
+    display: none;
+  }
+  .sidebar {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    padding: calc(var(--safe-top) + 4px) 18px 0;
+  }
+  .sidebar-header {
+    height: 56px;
+    margin: 0 -12px;
+  }
+  .app .sidebar-nav {
+    padding-bottom: calc(76px + var(--safe-bottom));
+  }
+  .app:has(.call-panel) .sidebar-nav {
+    padding-bottom: calc(124px + var(--safe-bottom));
+  }
+  .app:has(.call-sound) .sidebar-nav {
+    padding-bottom: calc(160px + var(--safe-bottom));
+  }
+  .profile-bar {
+    right: 10px;
+    bottom: calc(10px + var(--safe-bottom));
+    left: 10px;
+    z-index: 3;
+    width: auto;
+  }
+  .account-avatar {
+    display: flex;
+  }
+  .app[data-stack='root'][data-view='room'] > .main,
+  .app[data-stack='root'] .member-list {
+    display: none;
+  }
+
+  /* Home's root: the sidebar keeps only its header, and Home's page fills the rest. */
+  .app[data-view='home'] > .sidebar {
+    grid-row: 1;
+  }
+  .app[data-view='home'] .sidebar-nav {
+    display: none;
+  }
+  .app[data-view='home'] > .main {
+    grid-column: 2;
+    grid-row: 2;
+    background: var(--sidebar);
+  }
+  .app[data-view='home'] > .main > .topbar,
+  .home-rooms {
+    display: none;
+  }
+  .app[data-view='home'] > .main > .scroll {
+    padding-bottom: calc(76px + var(--safe-bottom));
+  }
+  .app[data-view='home']:has(.call-panel) > .main > .scroll {
+    padding-bottom: calc(124px + var(--safe-bottom));
+  }
+  .app[data-view='home']:has(.call-sound) > .main > .scroll {
+    padding-bottom: calc(160px + var(--safe-bottom));
+  }
+  .home,
+  .setup-home {
+    width: auto;
+    margin: 0 18px;
+    padding: 4px 0 0;
+  }
+  .home-dashboard {
+    gap: 4px;
+  }
+  .home-welcome {
+    min-height: 0;
+    padding: 0 0 10px 10px;
+  }
+  .home-greeting {
+    font-size: 24px;
+    line-height: 1.4;
+  }
+  .home-date {
+    margin-top: 2px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .home-directs {
+    gap: 0;
+    min-height: 0;
+  }
+  .home-section-heading {
+    min-height: 52px;
+    padding-left: 12px;
+  }
+  .home-section-heading h2 {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.45;
+  }
+  .home-section-heading .header-pill {
+    width: 40px;
+    height: 40px;
+    margin-right: -12px;
+    padding: 0;
+    background: none;
+    color: var(--muted);
+  }
+  .home-section-heading .header-pill svg {
+    width: 14px;
+    height: 14px;
+  }
+  .home-section-heading .header-pill span {
+    display: none;
+  }
+  .feed {
+    gap: 0;
+  }
+  .feed-row {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 12px;
+    min-height: 0;
+    padding: 10px;
+    border-radius: 12px;
+  }
+  .feed-row.unread {
+    background: none;
+  }
+  .feed-badge {
+    zoom: 0.9;
+  }
+  .feed-main {
+    gap: 1px;
+    min-height: 0;
+    line-height: 1.4;
+  }
+  .feed-body {
+    font-size: 13px;
+  }
+  .feed-meta {
+    justify-items: end;
+    min-height: 0;
+    line-height: 1.4;
+  }
+  .feed-unread {
+    display: grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: var(--strong);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .feed-unread-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .home-voice-list {
+    margin-top: 16px;
+  }
+  .home-voice {
+    flex-wrap: nowrap;
+    gap: 10px;
+    padding: 0 12px 0 14px;
+  }
+  .home-voice .header-pill {
+    margin-left: 0;
+  }
+
+  /* Pushed: the screen covers its root, which shows again only while a swipe drags it aside. */
+  .app[data-stack='pushed'] > .main {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    z-index: 4;
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    animation: stack-push 200ms var(--stack-ease);
+    transition: transform 200ms var(--stack-ease);
+  }
+  .app[data-stack='pushed'] > :is(.rail, .sidebar, .profile-bar) {
+    visibility: hidden;
+    transition: visibility 0s 200ms;
+  }
+  .app[data-swiping] > :is(.rail, .sidebar, .profile-bar) {
+    visibility: visible;
+    transition: none;
+  }
+  .app[data-swiping] > .main {
+    box-shadow: var(--shadow-modal);
+    transform: translateX(var(--swipe, 0px));
+    transition: none;
+  }
+  .app[data-stack='pushed'] > .swipe-edge {
+    position: absolute;
+    top: calc(var(--safe-top) + 56px);
+    bottom: calc(var(--safe-bottom) + 64px);
+    left: 0;
+    z-index: 5;
+    display: block;
+    width: 24px;
+    touch-action: none;
+  }
+
+  /* The pushed screen's top bar: back, title over subtitle, then actions. */
+  .topbar {
+    display: grid;
+    grid-template-columns: 40px auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-content: center;
+    align-items: center;
+    gap: 0;
+    height: 56px;
+    padding: 0 8px 0 6px;
+  }
+  .topbar > * {
+    grid-row: 1 / 3;
+  }
+  .topbar > .back-button {
+    display: grid;
+    grid-column: 1;
+    margin-right: 2px;
+    color: var(--text);
+  }
+  .topbar > .back-button svg {
+    width: 24px;
+    height: 24px;
+    stroke-width: 2;
+  }
+  .topbar > svg {
+    grid-column: 2;
+    grid-row: 1;
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+  }
+  .topbar > strong {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .topbar > .topbar-subtitle {
+    display: block;
+    grid-column: 2 / 4;
+    grid-row: 2;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar strong {
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .topbar > .avatar-slot,
+  .topbar > .group-avatar,
+  .channel-actions > .header-pill:not(:has(svg)) {
+    display: none;
+  }
+  .topbar > .direct-person {
+    grid-column: 2 / 4;
+    height: auto;
+    line-height: 1.4;
+  }
+  .topbar > .direct-details-trigger,
+  .topbar > .channel-actions,
+  .topbar > .topbar-action {
+    grid-column: 4;
+  }
+  .channel-actions {
+    gap: 0;
+  }
+  .topbar .icon-button,
+  .topbar .member-toggle,
+  .group-topbar .channel-actions > .header-pill {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    margin-left: 0;
+    padding: 0;
+    border-radius: 20px;
+    background: none;
+    color: var(--muted);
+  }
+  .topbar .icon-button svg,
+  .topbar .member-toggle svg,
+  .group-topbar .channel-actions > .header-pill svg {
+    width: 20px;
+    height: 20px;
+  }
+  .topbar .member-toggle > span,
+  .group-topbar .channel-actions > .header-pill > span {
+    display: none;
+  }
+  .topbar .member-toggle[aria-pressed='true'] {
+    background: var(--selected);
+    color: var(--strong);
+  }
+  .channel-welcome h1 {
+    font-size: 22px;
+  }
+
+  /* The call pill stands in for the profile bar's call strip under a pushed top bar. */
+  .app[data-stack='pushed'] > .call-pill {
+    position: absolute;
+    top: calc(var(--safe-top) + 64px);
+    left: 50%;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100% - 32px);
+    padding: 4px 4px 4px 12px;
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--green) 12%, var(--bg));
+    color: var(--green);
+    transform: translateX(-50%);
+  }
+  .app[data-swiping] > .call-pill {
+    transform: translateX(calc(-50% + var(--swipe, 0px)));
+  }
+  .app[data-stack='pushed']:has(> .call-pill) > .main > .topbar {
+    margin-bottom: 52px;
+  }
+  .call-pill-place {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 28px;
+    color: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .call-pill-place svg {
+    flex: none;
+  }
+  .call-pill-place span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .call-pill-mute {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    color: inherit;
+  }
+  .call-pill-mute[aria-pressed='true'] {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+  .call-pill-mute:disabled {
+    opacity: 0.45;
+  }
+
+  /* A voice channel you are in takes the whole screen, with thumb-sized controls at the bottom. */
+  .center-state:has(> .call-controls) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 20px;
+  }
+  .center-state:has(> .call-controls) h1 {
+    font-size: 24px;
+    line-height: 1.4;
+  }
+  .center-state:has(> .call-controls) > p {
+    margin-top: 6px;
+    font-size: 14px;
+  }
+  .center-state:has(> .call-controls) > .button {
+    display: none;
+  }
+  .center-state:has(> .call-controls) .call-people {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+    max-width: none;
+    margin-top: 24px;
+  }
+  .center-state:has(> .call-controls) .call-person {
+    align-content: center;
+    gap: 14px;
+    width: auto;
+    height: 176px;
+    padding: 0 12px;
+    border-radius: 24px;
+    background: var(--panel);
+  }
+  .center-state:has(> .call-controls) .call-person-avatar {
+    zoom: 1.36;
+  }
+  .center-state:has(> .call-controls) .call-person-name {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .center-state > .call-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    margin-top: 20px;
+    padding: 0 14px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--green) 12%, var(--bg));
+    color: var(--green);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .call-controls {
+    display: flex;
+    justify-content: center;
+    gap: 28px;
+    margin-top: auto;
+    padding-top: 24px;
+  }
+  .call-control {
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .call-control-icon {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 32px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .call-control[aria-pressed='true'] .call-control-icon,
+  .call-control-leave .call-control-icon {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+  .call-control-leave {
+    color: var(--danger);
+  }
+  .call-control:disabled {
+    opacity: 0.45;
+  }
+
+  .app-notice,
+  .app:has(.member-list) .app-notice {
+    top: calc(var(--safe-top) + 64px);
+    right: 16px;
+    left: 16px;
+    max-width: calc(100% - 32px);
+  }
+  .call-sound.button {
+    padding: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app[data-stack='pushed'] > .main {
+    animation: none;
+  }
+}

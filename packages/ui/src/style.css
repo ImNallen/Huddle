@@ -2,4 +2,6 @@
 @import '@fontsource-variable/noto-emoji/wght.css';
 @import './chat.css';
 @import './access.css';
+@import './stack.css';
+@import './sheets.css';
 @import './appearance/appearance.css';

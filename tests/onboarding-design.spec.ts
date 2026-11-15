@@ -178,6 +178,7 @@ test('onboarding matches both themes and completes setup, optional profile, retr
     )
     await friend.setViewportSize({ width: 390, height: 740 })
     await friend.getByRole('button', { name: 'Settings', exact: true }).click()
+    await friend.getByRole('button', { name: 'Profile', exact: true }).click()
     await expect(friend.getByLabel('Name', { exact: true })).toHaveValue('Maya Lind')
   } finally {
     await friendContext.close()

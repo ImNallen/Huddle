@@ -2933,66 +2933,6 @@ button.member-row:hover {
     font-size: 24px;
   }
 }
-@media (max-width: 480px) {
-  .app {
-    --rail-width: 48px;
-    --sidebar-width: 130px;
-    --rail-tile-size: 32px;
-  }
-  .sidebar-nav {
-    padding-bottom: 92px;
-  }
-  .app:has(.call-panel) .sidebar-nav {
-    padding-bottom: 140px;
-  }
-  .app:has(.call-sound) .sidebar-nav {
-    padding-bottom: 176px;
-  }
-  .rail-tile {
-    font-size: 12px;
-  }
-  .account {
-    flex-wrap: wrap;
-    row-gap: 4px;
-    padding: 2px 0;
-  }
-  .account-name {
-    flex-basis: 100%;
-    padding-left: 4px;
-  }
-  .account-controls {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: 100%;
-  }
-  .account-controls .bar-control {
-    width: auto;
-  }
-  .call-sound.button {
-    padding: 0 8px;
-  }
-  .channel-actions .header-pill span {
-    display: none;
-  }
-  .channel-welcome h1 {
-    font-size: 22px;
-  }
-  .home {
-    width: calc(100% - 16px);
-  }
-  .feed-row {
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: 8px;
-    padding: 12px;
-  }
-  .feed-meta {
-    grid-column: 2;
-    min-height: 0;
-    display: flex;
-    gap: 8px;
-    text-align: left;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;

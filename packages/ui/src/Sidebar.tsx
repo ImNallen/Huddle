@@ -398,7 +398,12 @@ export function Sidebar({
                             className={`nav-row ${count ? 'unread' : ''} ${inCall ? 'in-call' : ''}`}
                             aria-current={current ? 'page' : undefined}
                             onClick={() =>
-                              onView({ kind: 'room', roomId: room.id, channelId: channel.id })
+                              onView({
+                                kind: 'room',
+                                roomId: room.id,
+                                channelId: channel.id,
+                                list: false,
+                              })
                             }
                           >
                             <ChannelIcon kind={channel.kind} size={18} />
@@ -540,7 +545,7 @@ export function Sidebar({
           rooms={rooms}
           viewing={view.kind === 'room' ? view.channelId : null}
           onOpen={(channel) =>
-            onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
+            onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id, list: false })
           }
         />
         <div className="account">
