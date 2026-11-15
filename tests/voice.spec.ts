@@ -18,6 +18,7 @@ import {
   openRoom,
   panel,
   playingSounds,
+  profileBar,
   voicePeople,
   watchCalls,
 } from './voice'
@@ -109,7 +110,7 @@ test('two people on different builds hear each other, mute, keep talking elsewhe
     await expect.poll(() => playingSounds(ada.page)).toBe(1)
     await expect.poll(() => playingSounds(bo.page)).toBe(1)
 
-    const mute = panel(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    const mute = profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true })
     await expect(mute).toHaveAttribute('aria-pressed', 'false')
     await mute.click()
     await expect(mute).toHaveAttribute('aria-pressed', 'true')
@@ -159,7 +160,7 @@ test('joining another channel leaves the first and a muted person stays muted', 
     await expect(channelRow(ada.page, roomName, 'north')).toHaveAccessibleName(
       /you're in this call/,
     )
-    await panel(ada.page).getByRole('button', { name: 'Mute', exact: true }).click()
+    await profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true }).click()
 
     await channelRow(ada.page, roomName, 'south').click()
     await expect(main(ada.page).getByText('Joining here takes you out of north.')).toBeVisible()
@@ -171,12 +172,63 @@ test('joining another channel leaves the first and a muted person stays muted', 
       /you're in this call/,
     )
     await expect(
-      panel(ada.page).getByRole('button', { name: 'Mute', exact: true }),
+      profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => openMicrophones(ada.page)).toBe(1)
     await expect.poll(() => openPeers(ada.page)).toBe(1)
   } finally {
     await ada.context.close()
+  }
+})
+
+test('muting or deafening before a call makes the call start that way', async ({ browser }) => {
+  const roomName = await voiceRoom('early')
+  const ada = await person(browser, 'ada', roomName)
+  const bo = await person(browser, 'bo', roomName)
+  try {
+    const mute = profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    const deafen = profileBar(ada.page).getByRole('button', { name: 'Deafen', exact: true })
+    await expect(panel(ada.page)).toHaveCount(0)
+    await mute.click()
+    await expect(mute).toHaveAttribute('aria-pressed', 'true')
+    expect(await ada.page.evaluate(() => window.probe.microphones.length)).toBe(0)
+
+    await channelRow(bo.page, roomName, 'early').click()
+    await join(bo.page).click()
+    await expectInCall(bo.page)
+    await channelRow(ada.page, roomName, 'early').click()
+    await join(ada.page).click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Microphone muted', {
+      timeout: 40000,
+    })
+    await expect(inCallList(bo.page).getByRole('listitem').nth(1)).toContainText('muted')
+    await expectHearing(ada.page)
+    await expectSilence(bo.page)
+
+    await panel(ada.page).getByRole('button', { name: 'Leave call', exact: true }).click()
+    await expect(panel(ada.page)).toHaveCount(0)
+    await expect(mute).toHaveAttribute('aria-pressed', 'true')
+    await deafen.click()
+    await expect(deafen).toHaveAttribute('aria-pressed', 'true')
+    await expect(mute).toBeDisabled()
+    await join(ada.page).click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Deafened', { timeout: 40000 })
+    await expect.poll(() => playingSounds(ada.page)).toBe(1)
+    expect(
+      await ada.page.evaluate(() =>
+        [...document.querySelectorAll('audio')].every((sound) => sound.volume === 0),
+      ),
+    ).toBe(true)
+    await expectSilence(bo.page)
+    await deafen.click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Microphone muted')
+    await expect(mute).toHaveAttribute('aria-pressed', 'true')
+    await mute.click()
+    await expect(panel(ada.page).getByRole('status')).toHaveText('Voice connected')
+    await expectHearing(bo.page)
+  } finally {
+    await ada.context.close()
+    await bo.context.close()
   }
 })
 
@@ -407,7 +459,7 @@ test('a microphone unplugged in a call shows muted, and unmuting without one end
       microphone?.stop()
       microphone?.dispatchEvent(new Event('ended'))
     })
-    const mute = panel(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    const mute = profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true })
     await expect(mute).toHaveAttribute('aria-pressed', 'true')
     await mute.click()
     await expect(main(ada.page).getByRole('alert')).toHaveText('Your microphone stopped working.')
@@ -604,11 +656,11 @@ test('native-marked frontend joins, hears, mutes, deafens, and releases media', 
     await expectInCall(bo.page)
     await expectHearing(ada.page)
     await expectHearing(bo.page)
-    const mute = panel(ada.page).getByRole('button', { name: 'Mute', exact: true })
+    const mute = profileBar(ada.page).getByRole('button', { name: 'Mute', exact: true })
     await mute.click()
     await expect(mute).toHaveAttribute('aria-pressed', 'true')
     await expectSilence(bo.page)
-    const deafen = panel(ada.page).getByRole('button', { name: 'Deafen', exact: true })
+    const deafen = profileBar(ada.page).getByRole('button', { name: 'Deafen', exact: true })
     await deafen.click()
     await expect(panel(ada.page).getByRole('status')).toHaveText('Deafened')
     await expect

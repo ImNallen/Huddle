@@ -20,7 +20,7 @@ import { Avatar } from './Avatar'
 import { ChannelIcon, initials } from './Badges'
 import { Logo } from './primitives'
 import { Popover } from './Popover'
-import { CallPanel } from './Voice'
+import { AudioControls, CallPanel } from './Voice'
 import type { VoiceCall } from './voiceCall'
 
 type Hint = { name: string; top: number; left: number; shown: boolean }
@@ -533,40 +533,45 @@ export function Sidebar({
           )}
         </nav>
       </aside>
-      <CallPanel
-        voice={voice}
-        channels={channels}
-        rooms={rooms}
-        viewing={view.kind === 'room' ? view.channelId : null}
-        onOpen={(channel) =>
-          onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
-        }
-      />
-      <footer className="account">
-        <span className="account-avatar">
-          <Avatar
-            avatar={me.user.avatar}
-            name={me.user.name}
-            photo={client.photo?.bind(client)}
-            size={32}
-          />
-        </span>
-        <span className="account-name">
-          <strong>{me.user.name}</strong>
-          <span>{connection}</span>
-          <span className="sr-only" role="status">
-            {connection}
+      <section className="profile-bar" aria-label="You">
+        <CallPanel
+          voice={voice}
+          channels={channels}
+          rooms={rooms}
+          viewing={view.kind === 'room' ? view.channelId : null}
+          onOpen={(channel) =>
+            onView({ kind: 'room', roomId: channel.roomId, channelId: channel.id })
+          }
+        />
+        <div className="account">
+          <span className="account-avatar">
+            <Avatar
+              avatar={me.user.avatar}
+              name={me.user.name}
+              photo={client.photo?.bind(client)}
+              size={32}
+            />
           </span>
-        </span>
-        <button
-          className="icon-button"
-          aria-label="Settings"
-          data-tooltip="Settings"
-          onClick={onSettings}
-        >
-          <Settings size={18} />
-        </button>
-      </footer>
+          <span className="account-name">
+            <strong>{me.user.name}</strong>
+            <span>{connection}</span>
+            <span className="sr-only" role="status">
+              {connection}
+            </span>
+          </span>
+          <span className="account-controls">
+            <AudioControls voice={voice} />
+            <button
+              className="bar-control"
+              aria-label="Settings"
+              data-tooltip="Settings"
+              onClick={onSettings}
+            >
+              <Settings size={18} aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+      </section>
     </>
   )
 }

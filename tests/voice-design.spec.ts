@@ -16,6 +16,7 @@ import {
   openPeers,
   panel,
   playingSounds,
+  profileBar,
   watchCalls,
 } from './voice'
 
@@ -87,6 +88,10 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
   await watchCalls(page.context())
   await page.goto(browserApp)
   await railTile(page, 'The studio').click()
+  await expect(profileBar(page)).toHaveCSS('width', '260px')
+  await expect(profileBar(page)).toHaveCSS('height', '50px')
+  await expect(panel(page)).toHaveCount(0)
+  await both(page, 'voice-idle')
   const contexts: BrowserContext[] = []
   let releaseToken = () => {}
   async function person(login: string) {
@@ -120,7 +125,7 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await expect.poll(() => page.evaluate(() => !!window.releaseVoiceDesignMicrophone)).toBe(true)
     await channelRow(page, 'The studio', 'general').click()
     await expect(panel(page).getByRole('status')).toHaveText('Waiting for microphone')
-    await expect(panel(page)).toHaveCSS('height', '116px')
+    await expect(profileBar(page)).toHaveCSS('height', '98px')
     await both(page, 'voice-permission')
     await panel(page).getByRole('button', { name: 'Cancel', exact: true }).click()
     await page.evaluate(() => window.releaseVoiceDesignMicrophone?.())
@@ -146,8 +151,8 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await expectInCall(page)
     await expectHearing(page)
     await expectHearing(maya)
-    await expect(panel(page)).toHaveCSS('width', '244px')
-    await expect(panel(page)).toHaveCSS('height', '132px')
+    await expect(profileBar(page)).toHaveCSS('width', '260px')
+    await expect(profileBar(page)).toHaveCSS('height', '98px')
     await expect(panel(page).locator('.call-location')).toHaveText('the-lounge · The studio')
     await expect(page.locator('.voice-in-call')).toHaveText('In call')
     const badge = page.locator('.voice-in-call')
@@ -157,24 +162,22 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     if (!rowBox || !badgeBox) throw new Error('The active call row is not visible.')
     expect(rowBox.x + rowBox.width - (badgeBox.x + badgeBox.width)).toBeCloseTo(12, 0)
     expect(badgeBox.width).toBeLessThan(40)
-    const headerInsets = await panel(page)
-      .locator('.call-place')
-      .evaluate((button) => {
-        const box = button.getBoundingClientRect()
-        const summary = button.querySelector('.call-summary')?.getBoundingClientRect()
-        const open = button.querySelector('.call-open')?.getBoundingClientRect()
-        if (!summary || !open) throw new Error('The call header is missing its labels.')
+    const stripInsets = await panel(page)
+      .locator('.call-row')
+      .evaluate((strip) => {
+        const box = strip.getBoundingClientRect()
+        const summary = strip.querySelector('.call-summary')?.getBoundingClientRect()
+        const leave = strip.querySelector('[aria-label="Leave call"]')?.getBoundingClientRect()
+        if (!summary || !leave) throw new Error('The call strip is missing its labels.')
         return {
           left: summary.left - box.left,
-          right: box.right - open.right,
+          right: box.right - leave.right,
           top: summary.top - box.top,
           bottom: box.bottom - summary.bottom,
+          leaveCentre: leave.top + leave.height / 2 - (box.top + box.height / 2),
         }
       })
-    expect(headerInsets.left).toBeGreaterThanOrEqual(8)
-    expect(headerInsets.right).toBeGreaterThanOrEqual(8)
-    expect(headerInsets.top).toBeGreaterThanOrEqual(6)
-    expect(headerInsets.bottom).toBeGreaterThanOrEqual(6)
+    expect(stripInsets).toEqual({ left: 10, right: 4, top: 6, bottom: 6, leaveCentre: 0 })
 
     await expect(page.getByRole('list', { name: 'In the-lounge', exact: true })).toContainText(
       'You',
@@ -189,8 +192,8 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     ).toBeVisible()
     expect(await page.evaluate(() => window.probe.microphones.length)).toBe(microphones)
 
-    const mute = panel(page).getByRole('button', { name: 'Mute', exact: true })
-    const deafen = panel(page).getByRole('button', { name: 'Deafen', exact: true })
+    const mute = profileBar(page).getByRole('button', { name: 'Mute', exact: true })
+    const deafen = profileBar(page).getByRole('button', { name: 'Deafen', exact: true })
     await mute.click()
     await expect(panel(page).getByRole('status')).toHaveText('Microphone muted')
     await expectSilence(maya)
@@ -268,7 +271,7 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await expect(panel(page).getByRole('status')).toHaveText('Call ended', { timeout: 20000 })
     await expect.poll(() => openMicrophones(page)).toBe(0)
     await expect.poll(() => openPeers(page)).toBe(0)
-    await expect(panel(page)).toHaveCSS('height', '116px')
+    await expect(profileBar(page)).toHaveCSS('height', '98px')
     await both(page, 'voice-ended')
     await panel(page).getByRole('button', { name: 'Open quiet-corner', exact: true }).click()
     await expect(page.getByRole('main').getByRole('alert')).toContainText(
@@ -302,7 +305,7 @@ test('voice browsing matches both themes, keeps calls and drafts, and deafens re
     await channelRow(page, 'The studio', 'general').click()
     const sound = panel(page).getByRole('button', { name: 'Turn on sound', exact: true })
     await expect(sound).toBeVisible({ timeout: 20000 })
-    await expect(panel(page)).toHaveCSS('height', '178px')
+    await expect(profileBar(page)).toHaveCSS('height', '134px')
     await both(page, 'voice-sound-blocked')
     await sound.click()
     await expect(sound).toHaveCount(0)

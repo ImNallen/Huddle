@@ -76,6 +76,7 @@ const WASH_ALPHA = {
   'scroll-thumb': { dark: 0.16, light: 0.22 },
 } as const
 const MENTION_ALPHA = { dark: 0.28, light: 0.12 } as const
+const DANGER_TINT = 0.12
 
 const surface =
   (name: keyof typeof SURFACE_STEP) =>
@@ -394,6 +395,14 @@ export const TOKENS = {
     vscode: ['errorForeground', 'editorError.foreground'],
     derive: statusInk(25, { dark: 0.72, light: 0.48 }),
     guard: { grounds: BODY_GROUNDS, min: 4.5 },
+  },
+  'danger-bg': {
+    label: 'Danger tint',
+    group: 'Status',
+    t3: [],
+    vscode: [],
+    derive: ({ read }) => flatten(withAlpha(read('danger'), DANGER_TINT), read('bg')),
+    guard: { grounds: ['danger'], min: 4.5 },
   },
   'danger-fill': {
     label: 'Count badge',

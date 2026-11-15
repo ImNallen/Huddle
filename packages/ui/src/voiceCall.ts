@@ -221,7 +221,13 @@ function startCall(
 export function useVoiceCall(client: Transport) {
   const [call, setCall] = useState<Call>({ phase: 'idle' })
   const session = useRef<Session | null>(null)
-  const audio = useRef<CallAudio>({ kind: 'listening', muted: false })
+  const [audio, setAudioState] = useState<CallAudio>({ kind: 'listening', muted: false })
+  const latestAudio = useRef(audio)
+  function choose(next: CallAudio) {
+    latestAudio.current = next
+    setAudioState(next)
+    session.current?.setAudio(next)
+  }
   useEffect(
     () => () => {
       session.current?.leave()
@@ -231,10 +237,12 @@ export function useVoiceCall(client: Transport) {
   )
   return {
     call,
+    /** The person's audio choice, kept between calls so the next one starts the same way. */
+    audio,
     /** Joins a channel, leaving any call already open and preserving the person's audio choices. */
     join(channelId: ChannelId) {
       session.current?.leave()
-      session.current = startCall(client, channelId, audio.current, setCall)
+      session.current = startCall(client, channelId, latestAudio.current, setCall)
     },
     leave() {
       session.current?.leave()
@@ -242,17 +250,15 @@ export function useVoiceCall(client: Transport) {
       setCall({ phase: 'idle' })
     },
     setMuted(next: boolean) {
-      if (audio.current.kind === 'deafened') return
-      audio.current = { kind: 'listening', muted: next }
-      session.current?.setAudio(audio.current)
+      if (latestAudio.current.kind === 'deafened') return
+      choose({ kind: 'listening', muted: next })
     },
     setDeafened(next: boolean) {
-      if (next && audio.current.kind === 'listening') {
-        audio.current = { kind: 'deafened', restoreMuted: audio.current.muted }
-      } else if (!next && audio.current.kind === 'deafened') {
-        audio.current = { kind: 'listening', muted: audio.current.restoreMuted }
-      }
-      session.current?.setAudio(audio.current)
+      const current = latestAudio.current
+      if (next && current.kind === 'listening')
+        choose({ kind: 'deafened', restoreMuted: current.muted })
+      else if (!next && current.kind === 'deafened')
+        choose({ kind: 'listening', muted: current.restoreMuted })
     },
     startSound: () => session.current?.startSound(),
   }

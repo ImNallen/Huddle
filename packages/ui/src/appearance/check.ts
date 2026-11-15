@@ -625,7 +625,7 @@ function checkTableOrder() {
     }
   }
   const keys = TOKEN_NAMES.flatMap((name): TokenName[] => [name])
-  equal(keys.length, 37, 'TOKENS has one row per color token')
+  equal(keys.length, 38, 'TOKENS has one row per color token')
 }
 
 checkParser()
