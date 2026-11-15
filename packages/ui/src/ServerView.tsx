@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { X } from 'lucide-react'
+import { narrowScreen } from './EmojiPicker'
 import {
   DirectConversation as DirectConversationSchema,
   type Avatar as AvatarValue,
@@ -78,6 +79,12 @@ function peerOf(
     ? { name: wrote.authorName, avatar: wrote.authorAvatar, former: false }
     : { name: 'Friend', avatar: null, former: false }
 }
+function watchNarrow(change: () => void) {
+  const query = matchMedia(narrowScreen)
+  query.addEventListener('change', change)
+  return () => query.removeEventListener('change', change)
+}
+const isNarrow = () => matchMedia(narrowScreen).matches
 function threadOf(view: View): Thread | null {
   if (view.kind === 'group') return view.thread
   if (view.kind === 'direct') return { kind: 'direct', id: view.conversationId }
@@ -111,12 +118,15 @@ export function ServerView({
   const voice = useVoiceCall(client)
   const shell = useRef<HTMLDivElement>(null)
   const swipe = useRef<Swipe | null>(null)
+  const narrow = useSyncExternalStore(watchNarrow, isNarrow, () => false)
+  // A narrow room shows its channel list in front of the selected channel.
+  const listInFront = narrow && requestedView.kind === 'room' && requestedView.list
 
   const sync = useServer(
     client,
     me.user.id,
     threadOf(requestedView),
-    covered || dialog.kind !== 'none',
+    covered || dialog.kind !== 'none' || listInFront,
     onAccessChanged,
   )
   const showSettings = () =>

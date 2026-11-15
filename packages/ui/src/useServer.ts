@@ -181,9 +181,12 @@ export function useServer(
   client: Transport,
   userId: UserId,
   selected: Thread | null,
-  covered: boolean,
+  coveredOutside: boolean,
   onAccessChanged: () => void,
 ) {
+  // A sheet the conversation opens over itself, such as message actions, covers it too.
+  const [sheet, setSheet] = useState(false)
+  const covered = coveredOutside || sheet
   const storageKey = `huddle.outbox:${client.origin}:${userId}`
   const [state, setState] = useState<SyncState>({ kind: 'loading' })
   const snapshotRef = useRef<Snapshot | null>(null)
@@ -848,6 +851,7 @@ export function useServer(
       .sort((a, b) =>
         BigInt(a.latest?.cursor ?? a.revision) > BigInt(b.latest?.cursor ?? b.revision) ? -1 : 1,
       ),
+    cover: setSheet,
     draft: (thread: Thread) =>
       (thread.kind === 'group' ? groups.drafts : drafts).get(threadKey(thread)) ?? '',
     setDraft: (thread: Thread, body: string) => {

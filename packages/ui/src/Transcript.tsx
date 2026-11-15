@@ -277,6 +277,13 @@ export function Transcript({
     onDraft('')
   }
   const acting = actions && messages.find((message) => message.id === actions.messageId)
+  const sheetOpen = !!acting
+  const { cover } = sync
+  useEffect(() => {
+    if (!sheetOpen) return
+    cover(true)
+    return () => cover(false)
+  }, [sheetOpen, cover])
   async function older() {
     try {
       setMore((await sync.older()) === 100)

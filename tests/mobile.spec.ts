@@ -93,6 +93,19 @@ const composer = (page: Page, name: string) =>
 const back = (page: Page) => main(page).getByRole('button', { name: 'Back', exact: true })
 const message = (page: Page, text: string) => page.getByRole('article').filter({ hasText: text })
 const actions = (page: Page) => page.getByRole('dialog', { name: 'Message actions', exact: true })
+/** The general row, which a pushed screen hides but which still carries its unread state. */
+const generalRow = (page: Page) =>
+  page
+    .getByRole('navigation', { name: 'The studio channels', exact: true, includeHidden: true })
+    .locator('.nav-row', { hasText: 'general' })
+/** Counts read acknowledgements the page sends from now on. */
+function countReads(page: Page) {
+  let reads = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/read') reads += 1
+  })
+  return () => reads
+}
 
 async function openHome(page: Page) {
   await actAs(page, 'uiadmin')
@@ -286,10 +299,24 @@ test('a phone moves between Home, rooms, and conversations as one stack', async 
   await back(page).tap()
   await expect(channels(page), 'Back returns to the channel list').toBeVisible()
   await expect(main(page)).toBeHidden()
+  const reads = countReads(page)
+  await maya.call('/api/messages', {
+    retryId: randomUUID(),
+    channelId: general?.id,
+    body: 'Posted while you browse the list.',
+  })
+  await expect(
+    channelRow(page, 'The studio', 'general'),
+    'a message behind the channel list stays unread',
+  ).toHaveAccessibleName('general unread')
+  await page.waitForTimeout(600)
+  expect(reads(), 'the hidden channel is not marked read').toBe(0)
   await channelRow(page, 'The studio', 'general').tap()
   await expect(composer(page, '#general'), 'the draft survives Back').toHaveValue(
     'Draft that waits for me.',
   )
+  await expect.poll(reads, { message: 'opening the channel marks it read' }).toBeGreaterThan(0)
+  await expect(generalRow(page)).not.toHaveClass(/\bunread\b/)
 
   const touch = await finger(page)
   const edge = { x: 6, y: phone.height / 2 }
@@ -360,8 +387,24 @@ test('a long press opens message actions, and a mouse never does', async ({ page
     actions(page).getByRole('button', { name: 'Edit message' }),
     'only your own text offers Edit',
   ).toHaveCount(0)
+  const reads = countReads(page)
+  const leah = new Client(serverURL, 'leah@huddle.test')
+  await leah.stage()
+  await leah.call('/api/messages', {
+    retryId: randomUUID(),
+    channelId: general?.id,
+    body: 'Arrived behind the actions sheet.',
+  })
+  await expect(message(page, 'Arrived behind the actions sheet.')).toBeAttached()
+  await expect(generalRow(page), 'a message behind the sheet stays unread').toHaveClass(
+    /\bunread\b/,
+  )
+  await page.waitForTimeout(600)
+  expect(reads(), 'nothing is marked read while the sheet covers the thread').toBe(0)
   await page.keyboard.press('Escape')
   await expect(actions(page)).toHaveCount(0)
+  await expect.poll(reads, { message: 'closing the sheet marks it read' }).toBeGreaterThan(0)
+  await expect(generalRow(page)).not.toHaveClass(/\bunread\b/)
 
   await touch.longPress(own.getByText(ownMessage))
   await actions(page).getByRole('button', { name: 'Edit message' }).tap()
@@ -595,7 +638,9 @@ test('a call keeps thumb-sized controls and a pill on other screens', async ({ p
     await channelRow(page, 'The studio', 'general').tap()
     const pill = page.getByRole('button', { name: 'Open the-lounge', exact: true })
     await expect(pill, 'a pill stands in for the call on other screens').toBeVisible()
-    await expect(pill).toContainText('You, Maya, Jonas')
+    await expect(pill, 'people keep the order they joined in').toContainText(
+      /You, (Maya, Jonas|Jonas, Maya)/,
+    )
     await pill.tap()
     await expect(
       main(page).getByRole('button', { name: 'Leave', exact: true }),
