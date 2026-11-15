@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { VoiceGrant, type ChannelId } from '@huddle/contracts'
-import type { LocalAudioTrack, RemoteAudioTrack, Room } from 'livekit-client'
+import type {
+  AudioProcessorOptions,
+  LocalAudioTrack,
+  RemoteAudioTrack,
+  Room,
+  Track,
+  TrackProcessor,
+} from 'livekit-client'
 import { errorText, type Transport } from './transport'
+import {
+  presentDevice,
+  sinkSupported,
+  subscribeVoiceSettings,
+  voiceSettings,
+} from './voiceSettings'
 
 export type CallAudio =
   | { kind: 'listening'; muted: boolean }
@@ -29,15 +42,27 @@ type Session = {
 }
 type LiveKit = typeof import('livekit-client')
 
-function microphoneProblem(lk: LiveKit, error: unknown) {
-  switch (lk.MediaDeviceFailure.getFailure(error)) {
-    case lk.MediaDeviceFailure.PermissionDenied:
-      return document.documentElement.dataset.native
-        ? "Huddle can't use your microphone. Allow Huddle in your system's microphone privacy settings, then quit and reopen Huddle."
-        : "Huddle can't use your microphone. Allow it in your browser's settings for this site, then try again."
-    case lk.MediaDeviceFailure.NotFound:
+export const microphoneDenied = () =>
+  document.documentElement.dataset.native
+    ? "Huddle can't use your microphone. Allow Huddle in your system's microphone privacy settings, then quit and reopen Huddle."
+    : "Huddle can't use your microphone. Allow it in your browser's settings for this site, then try again."
+export const callsUnsupported = () =>
+  document.documentElement.dataset.native
+    ? "Huddle can't make calls on this system. Open this server in Chrome, Edge, or Safari."
+    : "This browser can't make calls. Open Huddle in Chrome, Edge, or Safari."
+
+/** Explains a refused `getUserMedia` by the error names browsers use, old and new. */
+export function microphoneProblem(error: unknown) {
+  const name = typeof error === 'object' && error && 'name' in error ? error.name : ''
+  switch (name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return microphoneDenied()
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
       return "Huddle can't find a microphone. Connect one, then try again."
-    case lk.MediaDeviceFailure.DeviceInUse:
+    case 'NotReadableError':
+    case 'TrackStartError':
       return "Your microphone isn't responding. Another app may be using it. Close that app, then try again."
     default:
       return "Your microphone didn't start. Try again."
@@ -65,6 +90,39 @@ function endedMessage(lk: LiveKit, reason: number | undefined) {
   }
 }
 
+type InputGain = {
+  processor: TrackProcessor<Track.Kind.Audio, AudioProcessorOptions>
+  set: (volume: number) => void
+}
+
+/** Scales the microphone before it is published. The graph runs on its own context, so it keeps
+ *  working while the room's playback context waits for a click. */
+function inputGain(context: AudioContext, volume: number): InputGain {
+  const gain = context.createGain()
+  gain.gain.value = volume
+  const output = context.createMediaStreamDestination()
+  gain.connect(output)
+  let source: MediaStreamAudioSourceNode | null = null
+  const wire = async ({ track }: AudioProcessorOptions) => {
+    source?.disconnect()
+    source = context.createMediaStreamSource(new MediaStream([track]))
+    source.connect(gain)
+  }
+  return {
+    processor: {
+      name: 'huddle-input-volume',
+      processedTrack: output.stream.getAudioTracks()[0],
+      init: wire,
+      restart: wire,
+      async destroy() {
+        source?.disconnect()
+        source = null
+      },
+    },
+    set: (next) => gain.gain.setTargetAtTime(next, context.currentTime, 0.02),
+  }
+}
+
 /** Runs one attempt at one call. Everything it acquires is released on every path, so a person's
  *  microphone never stays open behind a call the interface says is over. */
 function startCall(
@@ -81,13 +139,62 @@ function startCall(
   let audio = initialAudio
   let changingAudio = false
   let audioChanges = Promise.resolve()
+  let mixer: AudioContext | null = null
+  let gain: InputGain | null = null
+  let inputDevice = 'default'
+  let outputDevice = ''
+  const outputVolume = () => (audio.kind === 'deafened' ? 0 : voiceSettings().output.volume)
 
+  const stopFollowing = subscribeVoiceSettings(followSettings)
+  navigator.mediaDevices?.addEventListener?.('devicechange', followSettings)
   function release() {
     over = true
+    stopFollowing()
+    navigator.mediaDevices?.removeEventListener?.('devicechange', followSettings)
     microphone?.stop()
+    void mixer?.close().catch(() => {})
+    mixer = null
     void room?.disconnect()
     for (const sound of sounds.keys()) sound.remove()
     sounds.clear()
+  }
+  async function setInputVolume(track: LocalAudioTrack, volume: number) {
+    if (gain) return gain.set(volume)
+    if (volume === 1) return
+    mixer = new AudioContext()
+    // Created after awaits, so it may start suspended, and a suspended graph publishes silence.
+    void mixer.resume().catch(() => {})
+    gain = inputGain(mixer, volume)
+    await track.setAudioContext(mixer)
+    await track.setProcessor(gain.processor)
+  }
+  /** Applies the stored settings, reading them when it runs so a burst of changes settles once. */
+  async function applySettings() {
+    if (over || !microphone) return
+    const current = microphone
+    const { input } = voiceSettings()
+    for (const track of sounds.values()) track.setVolume(outputVolume())
+    await setInputVolume(current, input.volume)
+    if (over) return void current.stop()
+    const wantedInput = (await presentDevice('input')) ?? 'default'
+    const wantedOutput = (await presentDevice('output')) ?? ''
+    if (over) return
+    if (wantedInput !== inputDevice) {
+      inputDevice = wantedInput
+      await current.setDeviceId(wantedInput)
+      if (over) return void current.stop()
+    }
+    if (sinkSupported() && wantedOutput !== outputDevice) {
+      outputDevice = wantedOutput
+      await Promise.all([...sounds.values()].map((track) => track.setSinkId(wantedOutput))).catch(
+        () => {},
+      )
+    }
+  }
+  function followSettings() {
+    audioChanges = audioChanges
+      .then(applySettings)
+      .catch(() => fail('Call ended', 'Your microphone stopped working.'))
   }
   function fail(title: string, message: string) {
     if (over) return
@@ -114,11 +221,7 @@ function startCall(
   async function begin() {
     onChange({ phase: 'requesting-mic', channelId })
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection)
-      return joinFailed(
-        document.documentElement.dataset.native
-          ? "Huddle can't make calls on this system. Open this server in Chrome, Edge, or Safari."
-          : "This browser can't make calls. Open Huddle in Chrome, Edge, or Safari.",
-      )
+      return joinFailed(callsUnsupported())
     let lk: LiveKit
     try {
       lk = await import('livekit-client')
@@ -128,11 +231,24 @@ function startCall(
     if (over) return
     let grabbed: LocalAudioTrack
     try {
-      grabbed = await lk.createLocalAudioTrack()
+      // Before the microphone is allowed the list is nameless, so the stored ID is the best guess.
+      const deviceId = (await presentDevice('input')) ?? voiceSettings().input.device?.id
+      grabbed = await lk.createLocalAudioTrack(deviceId ? { deviceId } : undefined)
+      // What was asked for, not what WebKit reports: there the default comes back as its hashed ID,
+      // and comparing against that would restart the microphone right after joining.
+      inputDevice = deviceId ?? 'default'
     } catch (error) {
-      return joinFailed(microphoneProblem(lk, error))
+      return joinFailed(microphoneProblem(error))
     }
     // A cancelled attempt still receives the microphone if the person answers the prompt afterwards.
+    if (over) return void grabbed.stop()
+    try {
+      // Before publishing, so a lowered volume never goes out at full volume first.
+      await setInputVolume(grabbed, voiceSettings().input.volume)
+    } catch (error) {
+      grabbed.stop()
+      return joinFailed(microphoneProblem(error))
+    }
     if (over) return void grabbed.stop()
     microphone = grabbed
     onChange({ phase: 'connecting', channelId })
@@ -149,8 +265,9 @@ function startCall(
       .on(lk.RoomEvent.SignalConnected, () => (reachedService = true))
       .on(lk.RoomEvent.TrackSubscribed, (track) => {
         if (!(track instanceof lk.RemoteAudioTrack) || over) return
-        const volume = audio.kind === 'deafened' ? 0 : 1
+        const volume = outputVolume()
         track.setVolume(volume)
+        if (outputDevice) void track.setSinkId(outputDevice).catch(() => {})
         const sound = document.createElement('audio')
         sound.volume = volume
         track.attach(sound)
@@ -188,6 +305,7 @@ function startCall(
     if (over) return
     inCall = true
     report()
+    followSettings()
   }
   void begin().catch((error: unknown) => joinFailed(errorText(error)))
 
@@ -203,7 +321,7 @@ function startCall(
           if (microphoneMuted(next)) await microphone.mute()
           if (over) return void microphone.stop()
           audio = next
-          for (const track of sounds.values()) track.setVolume(next.kind === 'deafened' ? 0 : 1)
+          for (const track of sounds.values()) track.setVolume(outputVolume())
           if (!microphoneMuted(next)) await microphone.unmute()
           if (over) return void microphone.stop()
           changingAudio = false

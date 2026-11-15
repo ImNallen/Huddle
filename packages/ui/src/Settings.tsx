@@ -7,10 +7,11 @@ import { ProfileEditor } from './Avatar'
 import { AppearanceTab } from './appearance/Appearance'
 import { useAppearance } from './appearance/store'
 import { HUDDLE_ID } from './appearance/builtins'
+import { VoiceTab } from './VoiceTab'
 import type { Connection } from './connection'
 import { errorText } from './transport'
 
-const tabKeys = ['profile', 'appearance', 'connection'] as const
+const tabKeys = ['profile', 'appearance', 'voice', 'connection'] as const
 const tabs = {
   profile: {
     title: 'Profile',
@@ -19,6 +20,10 @@ const tabs = {
   appearance: {
     title: 'Appearance',
     description: 'How Huddle looks on this device.',
+  },
+  voice: {
+    title: 'Voice',
+    description: 'How you sound and what you hear on this device.',
   },
   connection: {
     title: 'Connection',
@@ -116,6 +121,8 @@ export function Settings({
             </p>
             {tab === 'appearance' ? (
               <AppearanceTab />
+            ) : tab === 'voice' ? (
+              <VoiceTab />
             ) : !account ? (
               <>
                 <p role="status">Loading your account…</p>
