@@ -4,9 +4,11 @@ import { config } from './config'
 import { replay } from './domain'
 import { db } from './db'
 import { contextAllowed, requireAccess, upgradeHeaders } from './identity'
+import { currentDirectCall, startDirectCalls } from './directCalls'
 import { startVoicePresence } from './voicePresence'
 
 export async function startRealtime() {
+  const directCalls = await startDirectCalls()
   const wakeups = new Set<() => void>()
   const presence = config.voice ? startVoicePresence(config.voice) : null
   const listener = await db.connect()
@@ -63,12 +65,18 @@ export async function startRealtime() {
         if (closed) return
         if (!watcher) {
           watcher = user.id
-          stopWatching = presence?.watching(user.id)
+          const stopVoice = presence?.watching(user.id)
+          const stopDirect = directCalls.watching(user.id)
+          stopWatching = () => {
+            stopVoice?.()
+            stopDirect()
+          }
         }
         if (user.id !== watcher) {
           socket.close(1008, 'This login now belongs to another account.')
           return
         }
+        const directCall = await currentDirectCall(user.id)
         const { events, scanned } = await replay(user.id, watch.after)
         if (socket.bufferedAmount > 512 * 1024) {
           socket.close(1013, 'Reconnect to catch up.')
@@ -80,6 +88,7 @@ export async function startRealtime() {
               JSON.stringify({
                 kind: 'events',
                 events,
+                directCall,
                 ...(presence && { voice: presence.people() }),
               }),
             )
@@ -121,6 +130,7 @@ export async function startRealtime() {
   })
   return {
     close() {
+      directCalls.close()
       presence?.close()
       for (const socket of server.clients) socket.terminate()
       server.close()

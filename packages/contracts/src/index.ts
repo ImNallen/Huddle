@@ -208,10 +208,47 @@ export const VoicePresence = z.array(
   }),
 )
 export type VoicePresence = z.infer<typeof VoicePresence>
+export const CallId = z.uuid().brand<'CallId'>()
+export type CallId = z.infer<typeof CallId>
+const DirectCallFields = {
+  id: CallId,
+  conversationId: ConversationId,
+  callerId: UserId,
+  calleeId: UserId,
+  callerName: z.string(),
+  calleeName: z.string(),
+  revision: z.number().int().positive(),
+}
+export const DirectCallEndReason = z.enum([
+  'declined',
+  'cancelled',
+  'hangup',
+  'timeout',
+  'join-timeout',
+  'disconnected',
+  'access-lost',
+  'restart',
+])
+export type DirectCallEndReason = z.infer<typeof DirectCallEndReason>
+export const DirectCall = z.discriminatedUnion('state', [
+  z.object({ ...DirectCallFields, state: z.literal('ringing'), deadline: z.iso.datetime() }),
+  z.object({ ...DirectCallFields, state: z.literal('accepted'), deadline: z.iso.datetime() }),
+  z.object({ ...DirectCallFields, state: z.literal('ended'), reason: DirectCallEndReason }),
+])
+export type DirectCall = z.infer<typeof DirectCall>
+export const StartDirectCall = z.object({ callId: CallId, conversationId: ConversationId }).strict()
+export const DirectCallCommand = z.object({ callId: CallId }).strict()
+export const EndDirectCall = z
+  .object({
+    callId: CallId,
+    action: z.enum(['decline', 'cancel', 'hangup']),
+  })
+  .strict()
 export const EventPage = z.object({
   kind: z.literal('events'),
   events: z.array(ServerEvent),
   voice: VoicePresence.optional(),
+  directCall: DirectCall.nullable().optional(),
 })
 export const Unread = z.object({
   channelId: ChannelId,
@@ -300,6 +337,7 @@ export const ServerInfo = z.object({
   serverUrl: z.url(),
   websocketUrl: z.url(),
   voice: z.boolean().default(false),
+  directCalls: z.boolean().default(false),
   /** Public, so it says only whether GIFs are on. */
   gifs: z.boolean().default(false),
 })

@@ -24,12 +24,16 @@ import {
   RemoveMember,
   UnblockMember,
   JoinVoice,
+  StartDirectCall,
+  DirectCallCommand,
+  EndDirectCall,
   MarkDirectRead,
   MarkRead,
   OpenDirect,
   SendDirectMessage,
   SendMessage,
 } from '@huddle/contracts'
+import * as calls from './directCalls'
 import { config } from './config'
 import * as domain from './domain'
 import { db } from './db'
@@ -79,6 +83,7 @@ export async function applicationRequest(request: Request): Promise<Response> {
           serverUrl: config.SERVER_URL,
           websocketUrl: config.WS_PUBLIC_URL,
           voice: config.voice !== null,
+          directCalls: config.voice !== null,
           gifs: config.gifs !== null,
         },
         { headers },
@@ -197,7 +202,16 @@ export async function applicationRequest(request: Request): Promise<Response> {
       else if (path === '/api/direct/read') {
         await domain.markDirectRead(userId, MarkDirectRead.parse(body))
         result = {}
-      } else if (path === '/api/voice/token')
+      } else if (path === '/api/direct/calls/start')
+        result = await calls.startDirectCall(userId, StartDirectCall.parse(body))
+      else if (path === '/api/direct/calls/accept')
+        result = await calls.acceptDirectCall(userId, DirectCallCommand.parse(body).callId)
+      else if (path === '/api/direct/calls/end') {
+        const input = EndDirectCall.parse(body)
+        result = await calls.endDirectCall(userId, input.callId, input.action)
+      } else if (path === '/api/direct/calls/token')
+        result = await calls.directCallGrant(user, DirectCallCommand.parse(body).callId)
+      else if (path === '/api/voice/token')
         result = await domain.voiceGrant(user, JoinVoice.parse(body))
       else throw new domain.DomainError(404, 'Endpoint not found.')
     } else throw new domain.DomainError(405, 'Method not allowed.')

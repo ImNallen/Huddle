@@ -79,10 +79,16 @@ export function VoiceChannel({
   admin?: ChannelActions
 }) {
   const { call } = voice
-  const here = call.phase !== 'idle' && call.channelId === channel.id ? call : null
+  const here =
+    call.phase !== 'idle' &&
+    (call.target.kind === 'channel' ? call.target.channelId : null) === channel.id
+      ? call
+      : null
   const elsewhere =
     call.phase !== 'idle' && call.phase !== 'failed' && !here
-      ? channels.find((item) => item.id === call.channelId)
+      ? channels.find(
+          (item) => item.id === (call.target.kind === 'channel' ? call.target.channelId : null),
+        )
       : undefined
   const inCall = here?.phase === 'connected' || here?.phase === 'reconnecting' ? here : null
   const joining = here?.phase === 'requesting-mic' || here?.phase === 'connecting'
@@ -182,7 +188,7 @@ export function VoiceChannel({
   )
 }
 
-function callStatus(call: Exclude<Call, { phase: 'idle' }>): string {
+export function callStatus(call: Exclude<Call, { phase: 'idle' }>): string {
   switch (call.phase) {
     case 'requesting-mic':
       return 'Waiting for microphone'
@@ -211,8 +217,15 @@ function audioChoice(voice: VoiceCall) {
   return { muted: microphoneMuted(audio), deafened: audio.kind === 'deafened' }
 }
 
-/** The full-screen call's thumb-sized controls, shown only below 640px where the profile bar is gone. */
-function CallControls({ voice, status }: { voice: VoiceCall; status: string }) {
+export function CallControls({
+  voice,
+  status,
+  onLeave = voice.leave,
+}: {
+  voice: VoiceCall
+  status: string
+  onLeave?: () => void
+}) {
   const { muted, deafened } = audioChoice(voice)
   return (
     <>
@@ -246,7 +259,7 @@ function CallControls({ voice, status }: { voice: VoiceCall; status: string }) {
           </span>
           Deafen
         </button>
-        <button className="call-control call-control-leave" onClick={voice.leave}>
+        <button className="call-control call-control-leave" onClick={onLeave}>
           <span className="call-control-icon">
             <PhoneOff size={24} aria-hidden="true" />
           </span>
@@ -270,8 +283,15 @@ export function CallPill({
   onOpen: (channel: Channel) => void
 }) {
   const { call } = voice
-  if (call.phase === 'idle' || call.channelId === viewing) return null
-  const channel = channels.find((item) => item.id === call.channelId)
+  if (
+    call.phase === 'idle' ||
+    call.target.kind === 'direct' ||
+    (call.target.kind === 'channel' ? call.target.channelId : null) === viewing
+  )
+    return null
+  const channel = channels.find(
+    (item) => item.id === (call.target.kind === 'channel' ? call.target.channelId : null),
+  )
   const inCall = liveCall(call)
   const { muted, deafened } = audioChoice(voice)
   const detail = inCall
@@ -320,8 +340,16 @@ export function CallPanel({
   onOpen: (channel: Channel) => void
 }) {
   const { call } = voice
-  if (call.phase === 'idle' || (call.phase === 'failed' && call.channelId === viewing)) return null
-  const channel = channels.find((item) => item.id === call.channelId)
+  if (
+    call.phase === 'idle' ||
+    call.target.kind === 'direct' ||
+    (call.phase === 'failed' &&
+      (call.target.kind === 'channel' ? call.target.channelId : null) === viewing)
+  )
+    return null
+  const channel = channels.find(
+    (item) => item.id === (call.target.kind === 'channel' ? call.target.channelId : null),
+  )
   const room = rooms.find((item) => item.id === channel?.roomId)
   const inCall = liveCall(call)
   const muted = inCall ? microphoneMuted(inCall.audio) : false

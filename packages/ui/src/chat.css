@@ -3229,3 +3229,64 @@ article:focus-within .reaction-details {
 .message:has(.reaction-add) .message-edit.button {
   right: 48px;
 }
+
+.direct-call-notice {
+  position: fixed;
+  z-index: 50;
+  right: 24px;
+  bottom: 90px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 32px #0003;
+}
+.direct-call-notice .call-place {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+.direct-call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.direct-call-notice .call-controls {
+  width: 100%;
+}
+@media (max-width: 639px) {
+  .direct-call-notice {
+    right: 16px;
+    top: calc(var(--safe-top) + 64px);
+    bottom: auto;
+    max-height: calc(100dvh - 160px);
+    overflow: auto;
+  }
+}
+.direct-call-notice .call-controls {
+  display: flex;
+  justify-content: space-around;
+  gap: 12px;
+}
+.direct-call-notice .call-control {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+.direct-call-notice .call-control-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 32px;
+  background: var(--bg);
+}
+.direct-call-notice .call-control[aria-pressed='true'] .call-control-icon,
+.direct-call-notice .call-control-leave .call-control-icon {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
