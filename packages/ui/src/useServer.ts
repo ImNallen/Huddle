@@ -12,6 +12,7 @@ import {
   Cursor,
   DirectMessage,
   EventPage,
+  type DirectCall,
   Message,
   ServerEvent,
   Snapshot,
@@ -265,6 +266,13 @@ export function useServer(
       historyBefore.current.set(key, first.cursor)
   }
   const flush = useRef<(() => void) | null>(null)
+  const [directCall, setDirectCall] = useState<DirectCall | null>(null)
+  const directCallRef = useRef<DirectCall | null>(null)
+  function observeDirectCall(next: DirectCall | null) {
+    if (!next || (directCallRef.current && directCallRef.current.revision >= next.revision)) return
+    directCallRef.current = next
+    setDirectCall(next)
+  }
   const [presence, setPresence] = useState<VoicePresence>([])
   const presenceText = useRef('[]')
   /** Every socket frame carries the full list, and most repeat the last. */
@@ -433,6 +441,7 @@ export function useServer(
           socket.onmessage = (event) => {
             try {
               const page = WatchedPage.parse(JSON.parse(String(event.data)))
+              if (page.directCall !== undefined) observeDirectCall(page.directCall)
               let heard = false
               for (const event of page.events) {
                 if (BigInt(event.cursor) <= BigInt(cursor.current)) continue
@@ -906,6 +915,8 @@ export function useServer(
     directs,
     changes,
     presence,
+    directCall,
+    observeDirectCall,
     include: change,
     created,
     connection,

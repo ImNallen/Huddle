@@ -23,6 +23,7 @@ import { Home } from './Home'
 import { ChannelConversation, DirectConversation } from './Conversation'
 import { EmptyRoom } from './RoomViews'
 import { CallPill, VoiceChannel, type VoiceAvailability } from './Voice'
+import { DirectCallNotice, useDirectCalling } from './DirectCall'
 import { useVoiceCall } from './voiceCall'
 import {
   ChannelDialog,
@@ -95,6 +96,7 @@ export function ServerView({
   me,
   covered,
   voiceAvailable,
+  directCallsAvailable,
   onAccessChanged,
   onSettings,
   onServer,
@@ -104,6 +106,7 @@ export function ServerView({
   me: Me
   covered: boolean
   voiceAvailable: boolean
+  directCallsAvailable: boolean
   onAccessChanged: () => void
   onSettings: (serverName?: string, role?: MemberRole) => void
   onServer?: () => void
@@ -129,6 +132,7 @@ export function ServerView({
     covered || dialog.kind !== 'none' || listInFront,
     onAccessChanged,
   )
+  const calling = useDirectCalling(client, me.user.id, sync, voice)
   const showSettings = () =>
     sync.state.kind === 'ready'
       ? onSettings(sync.state.snapshot.server.name, sync.state.snapshot.server.role)
@@ -159,7 +163,10 @@ export function ServerView({
   useEffect(() => {
     if (serverName) onServerName?.(serverName)
   }, [serverName])
-  const callChannel = voice.call.phase === 'idle' ? null : voice.call.channelId
+  const callChannel =
+    voice.call.phase === 'idle' || voice.call.target.kind === 'direct'
+      ? null
+      : voice.call.target.channelId
   const callGone = !!snapshot && !!callChannel && !channels.some(({ id }) => id === callChannel)
   useEffect(() => {
     if (!callGone || !callChannel) return
@@ -400,6 +407,17 @@ export function ServerView({
           client={client}
           me={me}
           direct={direct}
+          callLabel={
+            voice.call.phase !== 'idle' &&
+            voice.call.phase !== 'failed' &&
+            voice.call.target.kind === 'channel'
+              ? 'Leave and call'
+              : 'Call'
+          }
+          onCall={
+            directCallsAvailable && !direct.peer.former ? () => calling.start(direct.id) : undefined
+          }
+          callDisabled={calling.busy || (calling.call !== null && calling.call.state !== 'ended')}
           onSettings={showSettings}
           onBack={back}
           sync={sync}
@@ -450,6 +468,24 @@ export function ServerView({
           onMemberList={() => setMemberList((value) => !value)}
         />
       )}
+      <DirectCallNotice
+        calling={calling}
+        voice={voice}
+        userId={me.user.id}
+        onOpen={(call) => {
+          if (!sync.directs.some(({ id }) => id === call.conversationId))
+            sync.include({
+              kind: 'direct.opened',
+              conversation: {
+                id: call.conversationId,
+                peerId: call.callerId === me.user.id ? call.calleeId : call.callerId,
+                latest: null,
+                unread: 0,
+              },
+            })
+          openDirect(call.conversationId)
+        }}
+      />
       <CallPill
         voice={voice}
         channels={channels}

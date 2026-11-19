@@ -32,6 +32,8 @@ const Environment = z
       .optional(),
     LIVEKIT_PORT: z.coerce.number().int().min(1).max(65535).default(7880),
     LIVEKIT_PUBLIC_URL: z.url({ protocol: /^wss?$/ }).optional(),
+    DIRECT_CALL_RING_SECONDS: z.coerce.number().int().min(1).default(30),
+    DIRECT_CALL_JOIN_SECONDS: z.coerce.number().int().min(1).default(30),
     VOICE_ACCESS_GRACE_SECONDS: z.coerce.number().int().min(1).default(60),
     KLIPY_APP_KEY: z
       .union([

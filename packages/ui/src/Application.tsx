@@ -143,6 +143,7 @@ export function Application({
       stage={state.stage}
       serverName={state.info.name}
       voiceAvailable={state.info.voice}
+      directCallsAvailable={state.info.directCalls}
       accept={accept}
       onAccessChanged={onAccessChanged}
       onServer={onServer}
@@ -155,6 +156,7 @@ function ReadyView({
   stage,
   serverName,
   voiceAvailable,
+  directCallsAvailable,
   accept,
   onAccessChanged,
   onServer,
@@ -164,6 +166,7 @@ function ReadyView({
   stage: Extract<AccessStage, { kind: 'ready' }>
   serverName: string
   voiceAvailable: boolean
+  directCallsAvailable: boolean
   accept: (stage: AccessStage) => void
   onAccessChanged: () => void
   onServer?: () => void
@@ -177,6 +180,7 @@ function ReadyView({
         me={{ user: stage.user }}
         covered={settings !== null}
         voiceAvailable={voiceAvailable}
+        directCallsAvailable={directCallsAvailable}
         onAccessChanged={onAccessChanged}
         onServer={onServer}
         onServerName={onServerName}

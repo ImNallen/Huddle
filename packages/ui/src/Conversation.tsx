@@ -124,8 +124,18 @@ export function DirectConversation({
   direct,
   onSettings,
   onBack,
+  onCall,
+  callDisabled,
+  callLabel,
   ...shared
-}: Shared & { direct: DirectRow; onSettings: () => void; onBack: () => void }) {
+}: Shared & {
+  direct: DirectRow
+  onSettings: () => void
+  onBack: () => void
+  onCall?: () => void
+  callDisabled?: boolean
+  callLabel?: string
+}) {
   const { name, avatar } = direct.peer
   const [firstName = name] = name.split(/\s+/)
   const photo = shared.client.photo?.bind(shared.client)
@@ -150,6 +160,11 @@ export function DirectConversation({
             <strong>{name}</strong>
             <span>Direct message</span>
           </div>
+          {onCall && (
+            <button className="button small" onClick={onCall} disabled={callDisabled}>
+              {callLabel ?? 'Call'}
+            </button>
+          )}
           <button
             className="icon-button direct-details-trigger"
             aria-label="Conversation details"

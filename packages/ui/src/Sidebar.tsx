@@ -390,7 +390,8 @@ export function Sidebar({
                       const current = view.kind === 'room' && view.channelId === channel.id
                       const inCall =
                         (voice.call.phase === 'connected' || voice.call.phase === 'reconnecting') &&
-                        voice.call.channelId === channel.id
+                        voice.call.target.kind === 'channel' &&
+                        voice.call.target.channelId === channel.id
                       const present = presence.find(({ channelId }) => channelId === channel.id)
                       return (
                         <Fragment key={channel.id}>

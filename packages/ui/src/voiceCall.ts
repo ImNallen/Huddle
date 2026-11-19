@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { VoiceGrant, type ChannelId } from '@huddle/contracts'
+import {
+  VoiceGrant,
+  DirectCall,
+  type CallId,
+  type ConversationId,
+  type ChannelId,
+} from '@huddle/contracts'
 import type {
   AudioProcessorOptions,
   LocalAudioTrack,
@@ -23,17 +29,21 @@ export type CallAudio =
 export const microphoneMuted = (audio: CallAudio) => audio.kind === 'deafened' || audio.muted
 
 export type CallPerson = { id: string; name: string; muted: boolean }
+export type CallTarget =
+  | { kind: 'channel'; channelId: ChannelId }
+  | { kind: 'direct'; callId: CallId; conversationId: ConversationId; name: string }
+
 export type Call =
   | { phase: 'idle' }
-  | { phase: 'requesting-mic' | 'connecting'; channelId: ChannelId }
+  | { phase: 'requesting-mic' | 'connecting'; target: CallTarget }
   | {
       phase: 'connected' | 'reconnecting'
-      channelId: ChannelId
+      target: CallTarget
       people: CallPerson[]
       audio: CallAudio
       soundBlocked: boolean
     }
-  | { phase: 'failed'; channelId: ChannelId; title: string; message: string }
+  | { phase: 'failed'; target: CallTarget; title: string; message: string }
 
 type Session = {
   leave: () => void
@@ -127,7 +137,7 @@ function inputGain(context: AudioContext, volume: number): InputGain {
  *  microphone never stays open behind a call the interface says is over. */
 function startCall(
   client: Transport,
-  channelId: ChannelId,
+  target: CallTarget,
   initialAudio: CallAudio,
   onChange: (call: Call) => void,
 ): Session {
@@ -148,7 +158,12 @@ function startCall(
   const stopFollowing = subscribeVoiceSettings(followSettings)
   navigator.mediaDevices?.addEventListener?.('devicechange', followSettings)
   function release() {
+    if (over) return
     over = true
+    if (target.kind === 'direct' && client.active)
+      void client
+        .request('/api/direct/calls/end', DirectCall, { callId: target.callId, action: 'hangup' })
+        .catch(() => {})
     stopFollowing()
     navigator.mediaDevices?.removeEventListener?.('devicechange', followSettings)
     microphone?.stop()
@@ -199,7 +214,7 @@ function startCall(
   function fail(title: string, message: string) {
     if (over) return
     release()
-    onChange({ phase: 'failed', channelId, title, message })
+    onChange({ phase: 'failed', target, title, message })
   }
   const joinFailed = (message: string) => fail("Couldn't join", message)
   function report() {
@@ -208,7 +223,7 @@ function startCall(
     if (state === 'disconnected') return
     onChange({
       phase: state === 'connected' ? 'connected' : 'reconnecting',
-      channelId,
+      target,
       people: [...room.remoteParticipants.values()].map((person) => ({
         id: person.identity,
         name: person.name || 'Friend',
@@ -219,7 +234,7 @@ function startCall(
     })
   }
   async function begin() {
-    onChange({ phase: 'requesting-mic', channelId })
+    onChange({ phase: 'requesting-mic', target })
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection)
       return joinFailed(callsUnsupported())
     let lk: LiveKit
@@ -251,10 +266,14 @@ function startCall(
     }
     if (over) return void grabbed.stop()
     microphone = grabbed
-    onChange({ phase: 'connecting', channelId })
+    onChange({ phase: 'connecting', target })
 
     const grant = await client
-      .request('/api/voice/token', VoiceGrant, { channelId })
+      .request(
+        target.kind === 'channel' ? '/api/voice/token' : '/api/direct/calls/token',
+        VoiceGrant,
+        target.kind === 'channel' ? { channelId: target.channelId } : { callId: target.callId },
+      )
       .catch((error: unknown) => joinFailed(errorText(error)))
     if (over || !grant) return
 
@@ -362,7 +381,16 @@ export function useVoiceCall(client: Transport) {
     /** Joins a channel, leaving any call already open and preserving the person's audio choices. */
     join(channelId: ChannelId) {
       session.current?.leave()
-      session.current = startCall(client, channelId, latestAudio.current, setCall)
+      session.current = startCall(
+        client,
+        { kind: 'channel', channelId },
+        latestAudio.current,
+        setCall,
+      )
+    },
+    joinDirect(target: Extract<CallTarget, { kind: 'direct' }>) {
+      session.current?.leave()
+      session.current = startCall(client, target, latestAudio.current, setCall)
     },
     leave() {
       session.current?.leave()
